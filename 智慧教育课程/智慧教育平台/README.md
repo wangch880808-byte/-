@@ -55,6 +55,7 @@
 │       └── components/education/
 ├── sql/（教育业务脚本与 upstream/ruoyi/）
 ├── docs/
+│   ├── 分工.md
 │   ├── architecture.md
 │   ├── api-contracts.md
 │   ├── development-plan.md
@@ -80,6 +81,7 @@
 `ruoyi-education` 内规划九个领域：`course`、`resource`、`prepare`、`classroom`、`activity`、`assignment`、`learning`、`analysis`、`ai`。职责、依赖与调用边界见 [后端规划](backend/README.md)；三端页面与公共能力归属见 [前端规划](frontend/README.md)。
 
 - 开发代理先读 [AGENTS.md](AGENTS.md)，团队成员先读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 认领任务前先看 [开发分工](docs/分工.md)（v1.1，6 个小组共 12 人），确认自己是几号成员、负责哪些任务编号；[旧版六人方案](docs/team-division-plan.md)已过期，仅作历史参考。
 - 前后端联调从 [接口协作约定](docs/api-contracts.md) 开始。
 - 数据库变更遵守 [SQL 工作区规范](sql/README.md)，原型登记遵守 [原型工作区规范](prototypes/README.md)。
 - 历史盘点、完整备份、迁移校验与待确认清理项见 [迁移报告](docs/migration-report.md)。
