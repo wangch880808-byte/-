@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduSessionProjectionMapper">
+
+    <resultMap id="EduSessionProjectionResult" type="com.ruoyi.education.domain.classroom.EduSessionProjection">
+        <id property="sessionId" column="session_id"/>
+        <result property="bindingId" column="binding_id"/>
+        <result property="stateSeq" column="state_seq"/>
+        <result property="releaseId" column="release_id"/>
+        <result property="resourceVersionId" column="resource_version_id"/>
+        <result property="pageNo" column="page_no"/>
+        <result property="studentCanBrowse" column="student_can_browse"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectBySessionId" resultMap="EduSessionProjectionResult">
+        select session_id, binding_id, state_seq, release_id, resource_version_id,
+               page_no, student_can_browse, updated_at
+        from edu_session_projection
+        where session_id = #{sessionId}
+    </select>
+
+    <insert id="insert">
+        insert into edu_session_projection (
+            session_id, binding_id, state_seq, release_id, resource_version_id,
+            page_no, student_can_browse, updated_at
+        ) values (
+            #{sessionId}, #{bindingId}, #{stateSeq}, #{releaseId}, #{resourceVersionId},
+            #{pageNo}, #{studentCanBrowse}, utc_timestamp(3)
+        )
+    </insert>
+
+    <update id="updatePage">
+        update edu_session_projection
+        set state_seq = #{stateSeq},
+            page_no = #{pageNo},
+            student_can_browse = #{studentCanBrowse},
+            updated_at = utc_timestamp(3)
+        where session_id = #{sessionId}
+    </update>
+</mapper>

@@ -1,6 +1,6 @@
 # 课堂与活动接口契约（第 4 组 · 草案 v0.1）
 
-> 状态：**待评审 / 未实现**  
+> 状态：**M0 已实现（轮询同步）** · 跨组占位见 [group4-handoff-requests.md](group4-handoff-requests.md)  
 > 负责人：第 4 组  
 > 关联任务：4-01（课堂会话）、4-02（签到与随堂题）、4-03/4-04（三端页面）  
 > 数据库表：见 `sql/mysql-v3-m0-teaching-schema.sql` 中 `edu_class_session`、`edu_session_projection`、`edu_session_event`、`edu_activity_instance` 等
@@ -220,6 +220,22 @@
 
 ---
 
+### 2.8 查询教学班当前活跃会话
+
+`GET /education/classroom/sessions/active?bindingId={bindingId}`
+
+教师或本班学生可调用。无活跃会话时 `data` 为 `null`。
+
+---
+
+### 2.9 开课准备（临时，待第 3 组替换）
+
+`GET /education/course/bindings/{bindingId}/classroom-prep`
+
+仅任课教师。返回默认 `releaseId`、`resourceVersionId`、`totalPages`、可选 `lessonId`/`planId`/默认题目 ID。
+
+---
+
 ## 4. 与上游组的依赖
 
 | 提供方 | 第 4 组需要 | 用途 |
@@ -250,4 +266,4 @@
 4. 随堂题 + 公布结果  
 5. 与第 5 组课堂小作业对接  
 
-首周仅冻结本文与前端占位页，**不宣称接口已上线**。
+实现与交付说明见 [group4-delivery.md](group4-delivery.md)。

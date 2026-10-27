@@ -61,6 +61,11 @@
     font-size: 12px;
     color: #444;
   }
+  .projection .activity {
+    margin-top: 16px;
+    font-size: 16px;
+    color: #aaa;
+  }
 </style>
 </head>
 <body>
@@ -69,6 +74,7 @@
     <div class="page-no" id="pageNo">—</div>
     <div class="hint" id="courseHint">课堂投影公开视图</div>
     <div class="slide-box" id="slideBox">课件预览占位</div>
+    <div class="activity" id="activityHint"></div>
     <div class="meta" id="sessionMeta"></div>
   </div>
   <div class="notice">仅显示公开信息 · 不含教师备注、答案与学生成绩</div>
@@ -78,16 +84,8 @@
 (function () {
   'use strict';
 
-  const DEMO_SESSION_KEY = 'zhijiao.classroom.demoSession';
   const params = new URLSearchParams(location.search);
-  const sessionId = params.get('sessionId') || 'demo';
-
-  function loadDemo() {
-    try {
-      const raw = sessionStorage.getItem(DEMO_SESSION_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  }
+  const sessionId = params.get('sessionId');
 
   function render(snapshot) {
     const status = snapshot.status || 'PLANNED';
@@ -101,28 +99,37 @@
     document.getElementById('statusBadge').textContent = badge[0];
     document.getElementById('statusBadge').style.background = badge[1];
     document.getElementById('pageNo').textContent = '第 ' + (snapshot.pageNo || 1) + ' 页';
-    document.getElementById('courseHint').textContent =
-      (snapshot.courseName || '课程') + ' · ' + (snapshot.className || '教学班');
+    document.getElementById('courseHint').textContent = '课堂投影 · 公开快照';
     document.getElementById('sessionMeta').textContent =
-      '会话 ' + (snapshot.sessionId || sessionId) + ' · 公开快照（占位）';
+      '会话 ' + (snapshot.sessionId || sessionId || '—') + ' · seq ' + (snapshot.stateSeq || '—');
     document.getElementById('slideBox').textContent =
-      status === 'PLANNED' ? '等待教师开始上课' : '第 ' + snapshot.pageNo + ' 页课件预览';
+      status === 'PLANNED' ? '等待教师开始上课' : '第 ' + (snapshot.pageNo || 1) + ' 页课件预览';
+
+    const activity = snapshot.openActivity;
+    const activityEl = document.getElementById('activityHint');
+    if (activity && activity.status === 'OPEN') {
+      let text = activity.title || activity.activityKind;
+      if (activity.activityKind === 'QUIZ' && activity.question) {
+        text += '：' + (activity.question.stem || '');
+      }
+      activityEl.textContent = text;
+    } else {
+      activityEl.textContent = '';
+    }
   }
 
   async function pollSnapshot() {
-    const demo = loadDemo();
-    if (demo && (!sessionId || demo.sessionId === sessionId)) {
-      render(demo);
+    if (!sessionId) {
+      render({ status: 'PLANNED', pageNo: 1 });
       return;
     }
-
     try {
       const result = await ZhijiaoApi.get(
         '/education/classroom/sessions/' + encodeURIComponent(sessionId) + '/snapshot?view=public'
       );
       render(result.data || {});
     } catch {
-      render({ sessionId: sessionId, status: 'PLANNED', pageNo: 1, courseName: '课堂投影', className: '' });
+      render({ sessionId: sessionId, status: 'PLANNED', pageNo: 1 });
     }
   }
 

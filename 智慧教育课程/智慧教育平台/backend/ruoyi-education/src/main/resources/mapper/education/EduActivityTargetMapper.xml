@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduActivityTargetMapper">
+
+    <resultMap id="EduActivityTargetResult" type="com.ruoyi.education.domain.activity.EduActivityTarget">
+        <id property="id" column="id"/>
+        <result property="activityId" column="activity_id"/>
+        <result property="teachingClassId" column="teaching_class_id"/>
+        <result property="studentUserId" column="student_user_id"/>
+        <result property="enrollmentId" column="enrollment_id"/>
+        <result property="targetStatus" column="target_status"/>
+        <result property="capturedAt" column="captured_at"/>
+    </resultMap>
+
+    <select id="selectByActivityAndStudent" resultMap="EduActivityTargetResult">
+        select id, activity_id, teaching_class_id, student_user_id,
+               enrollment_id, target_status, captured_at
+        from edu_activity_target
+        where activity_id = #{activityId}
+          and student_user_id = #{studentUserId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into edu_activity_target (
+            activity_id, teaching_class_id, student_user_id,
+            enrollment_id, target_status, captured_at
+        ) values (
+            #{activityId}, #{teachingClassId}, #{studentUserId},
+            #{enrollmentId}, #{targetStatus}, #{capturedAt}
+        )
+    </insert>
+</mapper>

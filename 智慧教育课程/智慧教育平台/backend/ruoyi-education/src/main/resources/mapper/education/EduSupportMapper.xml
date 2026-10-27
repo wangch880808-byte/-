@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduSupportMapper">
+
+    <resultMap id="BindingContextResult" type="com.ruoyi.education.domain.course.BindingContext">
+        <result property="bindingId" column="binding_id"/>
+        <result property="teachingClassId" column="teaching_class_id"/>
+        <result property="courseSpaceId" column="course_space_id"/>
+        <result property="courseTitle" column="course_title"/>
+        <result property="className" column="class_name"/>
+    </resultMap>
+
+    <select id="countTeacherOfBinding" resultType="int">
+        select count(1)
+        from edu_course_class_binding b
+        inner join edu_class_teacher t on t.teaching_class_id = b.teaching_class_id
+        where b.id = #{bindingId}
+          and b.ended_at is null
+          and t.user_id = #{userId}
+          and t.valid_to is null
+    </select>
+
+    <select id="countActiveStudentOfBinding" resultType="int">
+        select count(1)
+        from edu_course_class_binding b
+        inner join edu_class_student s on s.teaching_class_id = b.teaching_class_id
+        where b.id = #{bindingId}
+          and b.ended_at is null
+          and s.user_id = #{userId}
+          and s.left_at is null
+    </select>
+
+    <select id="selectBindingContext" resultMap="BindingContextResult">
+        select b.id as binding_id,
+               b.teaching_class_id,
+               b.course_space_id,
+               cs.title as course_title,
+               tc.name as class_name
+        from edu_course_class_binding b
+        inner join edu_course_space cs on cs.id = b.course_space_id
+        inner join edu_teaching_class tc on tc.id = b.teaching_class_id
+        where b.id = #{bindingId}
+          and b.ended_at is null
+    </select>
+
+    <select id="selectTeacherBindings" resultMap="BindingContextResult">
+        select b.id as binding_id,
+               b.teaching_class_id,
+               b.course_space_id,
+               cs.title as course_title,
+               tc.name as class_name
+        from edu_course_class_binding b
+        inner join edu_teaching_class tc on tc.id = b.teaching_class_id
+        inner join edu_course_space cs on cs.id = b.course_space_id
+        inner join edu_class_teacher t on t.teaching_class_id = b.teaching_class_id
+        where t.user_id = #{userId}
+          and t.valid_to is null
+          and b.ended_at is null
+        order by b.id
+    </select>
+
+    <select id="selectStudentBindings" resultMap="BindingContextResult">
+        select b.id as binding_id,
+               b.teaching_class_id,
+               b.course_space_id,
+               cs.title as course_title,
+               tc.name as class_name
+        from edu_course_class_binding b
+        inner join edu_teaching_class tc on tc.id = b.teaching_class_id
+        inner join edu_course_space cs on cs.id = b.course_space_id
+        inner join edu_class_student s on s.teaching_class_id = b.teaching_class_id
+        where s.user_id = #{userId}
+          and s.left_at is null
+          and b.ended_at is null
+        order by b.id
+    </select>
+
+    <select id="countValidRelease" resultType="int">
+        select count(1)
+        from edu_resource_class_release r
+        where r.id = #{releaseId}
+          and r.binding_id = #{bindingId}
+          and r.resource_version_id = #{resourceVersionId}
+          and r.ended_at is null
+          and r.opens_at &lt;= utc_timestamp(3)
+          and (r.closes_at is null or r.closes_at &gt; utc_timestamp(3))
+    </select>
+
+    <select id="countResourcePage" resultType="int">
+        select count(1)
+        from edu_resource_page
+        where resource_version_id = #{resourceVersionId}
+          and page_no = #{pageNo}
+    </select>
+
+    <select id="countPagesByVersion" resultType="int">
+        select count(1)
+        from edu_resource_page
+        where resource_version_id = #{resourceVersionId}
+    </select>
+
+    <select id="selectQuestionVersionRow" resultType="map">
+        select qv.id,
+               qv.question_id,
+               qv.question_kind,
+               qv.stem,
+               qv.options_json,
+               qv.answer_json,
+               qv.explanation,
+               qv.max_score
+        from edu_question_version qv
+        where qv.id = #{questionVersionId}
+    </select>
+
+    <select id="selectActiveStudentsForBinding" resultType="map">
+        select s.id as enrollment_id,
+               s.user_id as student_user_id,
+               b.teaching_class_id
+        from edu_course_class_binding b
+        inner join edu_class_student s on s.teaching_class_id = b.teaching_class_id
+        where b.id = #{bindingId}
+          and b.ended_at is null
+          and s.left_at is null
+    </select>
+
+    <select id="selectDefaultSlideRelease" resultType="map">
+        select r.id as release_id,
+               r.resource_version_id,
+               res.title as resource_title
+        from edu_resource_class_release r
+        inner join edu_resource res on res.id = r.resource_id
+        inner join edu_resource_page p on p.resource_version_id = r.resource_version_id
+        where r.binding_id = #{bindingId}
+          and r.ended_at is null
+          and r.opens_at &lt;= utc_timestamp(3)
+          and (r.closes_at is null or r.closes_at &gt; utc_timestamp(3))
+        group by r.id, r.resource_version_id, res.title
+        order by r.released_at desc
+        limit 1
+    </select>
+
+    <select id="selectLatestLessonPlan" resultType="map">
+        select l.id as lesson_id,
+               lp.id as plan_id
+        from edu_lesson l
+        left join edu_lesson_plan lp on lp.lesson_id = l.id and lp.status = 'READY'
+        where l.binding_id = #{bindingId}
+          and l.status = 'ACTIVE'
+        order by l.scheduled_at desc
+        limit 1
+    </select>
+
+    <select id="selectDefaultQuizTemplate" resultType="map">
+        select t.question_id,
+               t.question_version_id
+        from edu_activity_template t
+        where t.binding_id = #{bindingId}
+          and t.template_kind = 'QUIZ'
+          and t.status = 'READY'
+        order by t.id
+        limit 1
+    </select>
+</mapper>
