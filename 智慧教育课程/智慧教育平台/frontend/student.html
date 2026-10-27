@@ -96,7 +96,11 @@
   #authStatus[hidden], #authRetry[hidden] { display: none; }
   #authRetry, .logout-button { border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; padding: 5px 10px; color: #555; cursor: pointer; font: inherit; }
   #authRetry:hover, .logout-button:hover { color: #1890ff; border-color: #1890ff; }
+  #pageBody { width: 100%; }
+  #pageBody[hidden] { display: none; }
+  #defaultHint { font-size: 13px; }
 </style>
+<link rel="stylesheet" href="/classroom.css">
 </head>
 <body class="auth-pending" data-role="student">
   <div id="authStatus" role="status"><span id="authMessage">正在核验登录信息…</span><button type="button" id="authRetry" hidden>重试</button></div>
@@ -121,11 +125,14 @@
       <div class="tabs" id="tabs"></div>
       <div class="content">
         <div class="page-title" id="pageTitle"></div>
-        <div class="hint">内容区（待实现）</div>
+        <div class="hint" id="defaultHint">内容区（待实现）</div>
+        <div id="pageBody" hidden></div>
       </div>
     </main>
   </div>
 
+<script src="/js/api-client.js"></script>
+<script src="/js/classroom-pages.js"></script>
 <script>
 var ROLE = 'student';
 var currentGi = 0, currentIi = 0;
@@ -171,6 +178,10 @@ function select(gi, ii) {
   document.getElementById('breadcrumb').innerHTML =
     g.name + ' <span>&gt;</span> <span class="cur">' + g.children[ii] + '</span>';
   document.getElementById('pageTitle').textContent = g.children[ii];
+  if (window.ClassroomPages && ClassroomPages.render('student', g.children[ii])) {
+    return;
+  }
+  if (window.ClassroomPages) ClassroomPages.resetContent();
 }
 
 var TAB_KEY = 'zhijiao_tabs_' + ROLE;

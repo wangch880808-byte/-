@@ -70,8 +70,11 @@
                     <include>admin.html</include>
                     <include>teacher.html</include>
                     <include>student.html</include>
+                    <include>projection.html</include>
                     <include>role-home.js</include>
+                    <include>classroom.css</include>
                     <include>logo.png</include>
+                    <include>js/**</include>
                 </includes>
             </resource>
         </resources>
