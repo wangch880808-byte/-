@@ -1,0 +1,16 @@
+# IDE 与本地环境
+.vs/
+.idea/
+*.suo
+*.user
+
+# 构建产物
+**/target/
+**/logs/
+
+# 本地配置与凭据
+.env
+.env.*
+!.env.example
+**/application-local.yml
+**/application-local.yaml

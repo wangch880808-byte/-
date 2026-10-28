@@ -35,6 +35,29 @@ frontend/
 
 业务 API 按领域组织，角色差异通过明确的操作权限、后端数据裁剪和少量角色专属交互表达。管理员页复用既有系统管理入口，教学班和课程空间归教育业务，不复制账号和角色管理页面。
 
+## 6-02 教学业务页（已接入，M0 6-04）
+
+`src/api/education` 与 `src/views/education` 下已落地教师公告与学生公告/通知页面，其余目录仍为规划占位。
+
+```text
+frontend/src/
+├── api/education/
+│   ├── http.js            统一请求与错误归一
+│   ├── announcement.js    教师 6 个 + 学生 2 个公告接口
+│   └── notice.js          学生 5 个通知接口（后端待实现）
+└── views/education/
+    ├── education-views.css
+    ├── ui-kit.js          转义、时间、状态卡片、分页、确认框
+    ├── view-host.js       菜单挂载、课程—教学班上下文
+    ├── teacher/announcements.js
+    └── student/{announcements,notices}.js
+```
+
+- 页面由 `teacher.html`、`student.html` 通过 `#viewRoot` 挂载，未注册的菜单仍显示占位。
+- 教师端公告必须带 `bindingId`；2-04 课程列表接口就绪前只能手工填写。
+- 通知接口未注册时显示"接口未就绪"，不使用本地假数据。
+- 详细接口对照、状态处理与阻塞项见 [6-02 前端接口接入说明](../docs/6-02-frontend-integration.md)。
+
 ## 课堂体验边界
 
 - 教师控制台同屏容纳 PPT、活动入口和私有反馈，避免签到/答题/讲课反复跳页。

@@ -78,6 +78,8 @@
                     <include>student.html</include>
                     <include>role-home.js</include>
                     <include>logo.png</include>
+                    <!-- 6-02 教学业务页脚本与样式：frontend/src 映射为 /src/** -->
+                    <include>src/**</include>
                 </includes>
             </resource>
         </resources>
