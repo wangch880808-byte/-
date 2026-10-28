@@ -141,9 +141,11 @@
   function stateError(error, options) {
     var opts = options || {};
     var hint = '';
-    if (error.isPermission && opts.permissionHint) {
+    var isPermission = typeof error.isPermission === 'function' && error.isPermission();
+    var isNotFound = typeof error.isNotFound === 'function' && error.isNotFound();
+    if (isPermission && opts.permissionHint) {
       hint = opts.permissionHint;
-    } else if (error.isNotFound && opts.notFoundHint) {
+    } else if (isNotFound && opts.notFoundHint) {
       hint = opts.notFoundHint;
     } else if (error.code === 404) {
       hint = '接口路径未注册或对象不可见。若后端尚未部署对应 Controller，请先同步仓库 main 分支。';

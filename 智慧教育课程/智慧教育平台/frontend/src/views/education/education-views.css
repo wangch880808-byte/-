@@ -615,3 +615,101 @@
 .edu-toast-error {
   border-left-color: #ff4d4f;
 }
+
+/* Mock 模式提示条：只在显式开启 Mock 时出现，用于避免把样例数据误认为真实数据。 */
+.edu-mock-banner {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid #faad14;
+  border-radius: 6px;
+  background: #fffbe6;
+  color: #614700;
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+}
+
+.edu-mock-banner .edu-mock-hint {
+  color: #8c6d1f;
+}
+
+.edu-mock-banner button {
+  border: 1px solid #d9a51a;
+  border-radius: 4px;
+  background: #fff;
+  color: #614700;
+  font-size: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+/* Mock 预览页（frontend/mock-preview.html）外壳，不参与运行页样式。 */
+.mock-preview {
+  margin: 0;
+  padding: 0 24px 40px;
+  background: #f5f7fa;
+  color: #333;
+  font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+}
+
+.mock-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid #e5e8ef;
+  margin-bottom: 16px;
+}
+
+.mock-preview-head h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.mock-preview-head p {
+  margin: 0;
+  color: #7a8296;
+  font-size: 13px;
+}
+
+.mock-preview-head .mock-preview-tabs {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.mock-preview-head .mock-preview-tabs button {
+  border: 1px solid #d9dee8;
+  border-radius: 4px;
+  background: #fff;
+  color: #444;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mock-preview-head .mock-preview-tabs button.active {
+  border-color: #1890ff;
+  background: #1890ff;
+  color: #fff;
+}
+
+.mock-preview-stage {
+  background: #fff;
+  border: 1px solid #e5e8ef;
+  border-radius: 8px;
+  padding: 8px 16px 16px;
+  min-height: 420px;
+}
+
+.mock-preview-stage .content {
+  display: block;
+  padding: 0;
+  overflow: visible;
+}

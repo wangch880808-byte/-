@@ -117,6 +117,18 @@
   function request(options) {
     var opts = options || {};
     var method = (opts.method || 'GET').toUpperCase();
+
+    // Mock 模式：显式开启后业务请求全部走内置数据，不再打后端。
+    // 未覆盖的路径直接报错而不是回落到真实请求，避免"一半真一半假"。
+    if (global.EduMock && global.EduMock.enabled()) {
+      return global.EduMock.request({
+        method: method,
+        path: opts.url,
+        query: opts.query || {},
+        body: opts.body
+      });
+    }
+
     var url = opts.url + buildQuery(opts.query);
     var headers = { Accept: 'application/json' };
     var token = null;
