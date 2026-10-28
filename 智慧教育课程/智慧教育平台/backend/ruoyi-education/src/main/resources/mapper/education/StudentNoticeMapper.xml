@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.course.mapper.StudentNoticeMapper">
+
+    <resultMap id="StudentNoticeResult" type="com.ruoyi.education.course.domain.StudentNotice">
+        <id property="id" column="id"/>
+        <result property="recipientUserId" column="recipient_user_id"/>
+        <result property="bindingId"       column="binding_id"        />
+        <result property="noticeKind"      column="notice_kind"       />
+        <result property="sourceId"        column="source_id"         />
+        <result property="title"           column="title"             />
+        <result property="visibleAt"       column="visible_at"        />
+        <result property="readAt"          column="read_at"           />
+        <result property="createdAt"       column="created_at"        />
+    </resultMap>
+
+    <sql id="noticeColumns">
+        n.id, n.recipient_user_id, n.binding_id, n.notice_kind, n.source_id,
+        n.title, n.visible_at, n.read_at, n.created_at
+    </sql>
+
+    <!--
+        所有学生通知读取和已读更新共用同一可见性条件：
+        本人、已到可见时间、当前有效入班区间、绑定非空；
+        ANNOUNCEMENT 还要求来源公告当前可见且属于同一绑定。
+    -->
+    <sql id="studentNoticeVisibleWhere">
+        n.recipient_user_id = #{q.recipientUserId}
+        and n.binding_id is not null
+        and n.visible_at &lt;= #{q.at}
+        and (
+            <foreach collection="q.bindings" item="scope" separator=" or ">
+                (n.binding_id = #{scope.bindingId}
+                 and n.visible_at &gt;= #{scope.joinedAt}
+                 <if test="scope.leftAt != null">
+                     and n.visible_at &lt; #{scope.leftAt}
+                 </if>)
+            </foreach>
+        )
+        and (
+            n.notice_kind &lt;&gt; 'ANNOUNCEMENT'
+            or exists (
+                select 1
+                from edu_course_announcement a
+                where a.id = n.source_id
+                  and a.binding_id = n.binding_id
+                  and a.status = 'PUBLISHED'
+                  and a.opens_at is not null
+                  and a.opens_at &lt;= #{q.at}
+                  and (a.closes_at is null or a.closes_at &gt; #{q.at})
+            )
+        )
+    </sql>
+
+    <select id="countVisible" resultType="long">
+        select count(*)
+        from edu_user_notice n
+        where <include refid="studentNoticeVisibleWhere"/>
+        <if test="q.kind != null">
+            and n.notice_kind = #{q.kind}
+        </if>
+        <if test="q.unreadOnly">
+            and n.read_at is null
+        </if>
+    </select>
+
+    <select id="selectVisiblePage" resultMap="StudentNoticeResult">
+        select <include refid="noticeColumns"/>
+        from edu_user_notice n
+        where <include refid="studentNoticeVisibleWhere"/>
+        <if test="q.kind != null">
+            and n.notice_kind = #{q.kind}
+        </if>
+        <if test="q.unreadOnly">
+            and n.read_at is null
+        </if>
+        order by n.visible_at desc, n.id desc
+        limit #{q.limit} offset #{q.offset}
+    </select>
+
+    <select id="selectVisibleById" resultMap="StudentNoticeResult">
+        select <include refid="noticeColumns"/>
+        from edu_user_notice n
+        where n.id = #{id}
+          and <include refid="studentNoticeVisibleWhere"/>
+    </select>
+
+    <select id="selectVisibleByIdForUpdate" resultMap="StudentNoticeResult">
+        select <include refid="noticeColumns"/>
+        from edu_user_notice n
+        where n.id = #{id}
+          and <include refid="studentNoticeVisibleWhere"/>
+        for update
+    </select>
+
+    <select id="selectByIdAndRecipient" resultMap="StudentNoticeResult">
+        select <include refid="noticeColumns"/>
+        from edu_user_notice n
+        where n.id = #{id}
+          and n.recipient_user_id = #{recipientUserId}
+    </select>
+
+    <update id="markRead">
+        update edu_user_notice n
+        set read_at = #{readAt}
+        where n.id = #{id}
+          and n.read_at is null
+          and <include refid="studentNoticeVisibleWhere"/>
+    </update>
+
+    <update id="markAllRead">
+        update edu_user_notice n
+        set read_at = #{operatedAt}
+        where n.read_at is null
+          and <include refid="studentNoticeVisibleWhere"/>
+    </update>
+
+</mapper>
