@@ -184,7 +184,7 @@ public class StudentNoticeService
 
         StudentNoticeQuery query = query(userId, at, scopes, null, true, 0, 0);
         int markedCount = updateMarkAllRead(at, query);
-        long unreadCount = countVisible(query);
+        long unreadCount = countVisibleForUpdate(query);
         return new StudentNoticeReadAllResult(markedCount, unreadCount, at);
     }
 
@@ -331,6 +331,23 @@ public class StudentNoticeService
         try
         {
             return noticeMapper.countVisible(query);
+        }
+        catch (DataAccessException e)
+        {
+            throw new NoticePersistenceException("学生通知统计失败", e);
+        }
+    }
+
+    /**
+     * 全部已读后的剩余未读统计必须使用当前读。MySQL REPEATABLE READ 下
+     * 普通 COUNT 会复用授权适配器在同一事务里更早建立的快照，可能把其他
+     * 事务已提交的已读记录继续算作未读。
+     */
+    private long countVisibleForUpdate(StudentNoticeQuery query)
+    {
+        try
+        {
+            return noticeMapper.selectVisibleUnreadIdsForUpdate(query).size();
         }
         catch (DataAccessException e)
         {

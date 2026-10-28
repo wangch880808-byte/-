@@ -20,6 +20,12 @@ public interface StudentNoticeMapper
 
     StudentNotice selectVisibleByIdForUpdate(@Param("id") Long id, @Param("q") StudentNoticeQuery query);
 
+    /**
+     * 以当前读返回仍可见未读的通知 ID。用于全部已读后的剩余未读统计，
+     * 避免 MySQL REPEATABLE READ 下复用事务早期快照。
+     */
+    List<Long> selectVisibleUnreadIdsForUpdate(@Param("q") StudentNoticeQuery query);
+
     StudentNotice selectByIdAndRecipient(@Param("id") Long id, @Param("recipientUserId") Long recipientUserId);
 
     int markRead(@Param("id") Long id, @Param("readAt") LocalDateTime readAt,

@@ -95,6 +95,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         for update
     </select>
 
+    <!--
+        全部已读后的当前读统计；避免 REPEATABLE READ 复用早期快照。
+        MySQL 外层 FOR UPDATE 不锁 EXISTS 子查询中的公告行。
+    -->
+    <select id="selectVisibleUnreadIdsForUpdate" resultType="long">
+        select n.id
+        from edu_user_notice n
+        where <include refid="studentNoticeVisibleWhere"/>
+          and n.read_at is null
+        <if test="q.kind != null">
+            and n.notice_kind = #{q.kind}
+        </if>
+        for update
+    </select>
+
     <select id="selectByIdAndRecipient" resultMap="StudentNoticeResult">
         select <include refid="noticeColumns"/>
         from edu_user_notice n

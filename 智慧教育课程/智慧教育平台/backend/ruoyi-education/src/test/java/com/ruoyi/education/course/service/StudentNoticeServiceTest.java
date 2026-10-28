@@ -405,7 +405,7 @@ class StudentNoticeServiceTest
                 access(BINDING_ID, JOINED_AT, true),
                 access(OTHER_BINDING_ID, JOINED_AT, true)));
         when(mapper.markAllRead(eq(AT), any())).thenReturn(3);
-        when(mapper.countVisible(any())).thenReturn(1L);
+        when(mapper.selectVisibleUnreadIdsForUpdate(any())).thenReturn(List.of(5L));
 
         StudentNoticeReadAllResult result = service.markAllRead();
 
@@ -420,6 +420,8 @@ class StudentNoticeServiceTest
         assertEquals(USER_ID, query.getRecipientUserId());
         assertEquals(AT, query.getAt());
         assertTrue(query.isUnreadOnly());
+        verify(mapper).selectVisibleUnreadIdsForUpdate(any());
+        verify(mapper, never()).countVisible(any());
     }
 
     @Test
@@ -441,7 +443,7 @@ class StudentNoticeServiceTest
         when(port.listActiveBindings(USER_ID, AT))
                 .thenReturn(List.of(access(BINDING_ID, JOINED_AT, true)));
         when(mapper.markAllRead(eq(AT), any())).thenReturn(0);
-        when(mapper.countVisible(any())).thenReturn(0L);
+        when(mapper.selectVisibleUnreadIdsForUpdate(any())).thenReturn(List.of());
 
         StudentNoticeReadAllResult result = service.markAllRead();
 

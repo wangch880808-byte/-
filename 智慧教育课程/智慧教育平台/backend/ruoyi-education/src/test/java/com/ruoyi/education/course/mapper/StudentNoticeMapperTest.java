@@ -243,7 +243,21 @@ class StudentNoticeMapperTest
             assertEquals(operatedAt, mapper.selectByIdAndRecipient(4L, 9001L).getReadAt());
             assertNull(mapper.selectByIdAndRecipient(6L, 9002L).getReadAt());
             assertEquals(NOW.minusHours(4), mapper.selectByIdAndRecipient(8L, 9001L).getReadAt());
-            assertEquals(0, mapper.countVisible(query));
+            assertEquals(0, mapper.selectVisibleUnreadIdsForUpdate(query).size());
+        }
+    }
+
+    @Test
+    void selectVisibleUnreadIdsForUpdateReturnsVisibleOwnedUnreadRows()
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            StudentNoticeMapper mapper = session.getMapper(StudentNoticeMapper.class);
+            List<Long> ids = mapper.selectVisibleUnreadIdsForUpdate(query(true, null));
+
+            assertEquals(2, ids.size());
+            assertEquals(true, ids.contains(1L));
+            assertEquals(true, ids.contains(4L));
         }
     }
 
