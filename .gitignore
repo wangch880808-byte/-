@@ -4,6 +4,9 @@
 *.suo
 *.user
 
+# 本地协作记录
+.workbuddy/
+
 # 构建产物
 **/target/
 **/logs/
