@@ -1,0 +1,27 @@
+# ---- 构建产物 ----
+**/target/
+**/dist/
+**/out/
+**/logs/
+*.log
+
+# ---- 依赖 ----
+**/node_modules/
+.pnpm-store/
+
+# ---- 本地配置与密钥 ----
+**/.env
+**/.env.local
+!.env.example
+
+# ---- IDE / 系统 ----
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- 临时文件 ----
+*.tmp
+*.bak
+*.zip

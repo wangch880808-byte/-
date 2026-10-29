@@ -1,0 +1,322 @@
+<script setup>
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { api } from '../api/client'
+import { login, session } from '../stores/session'
+
+const router = useRouter()
+const route = useRoute()
+const logoUrl = `${import.meta.env.BASE_URL}logo.png`
+
+const roleInfo = {
+  admin: { title: '管理员登录', sub: '周口师范学院 · 教务管理端 · 仅限授权人员访问', placeholder: '请输入工号 / 管理员账号', label: '管理员' },
+  teacher: { title: '教师登录', sub: '周口师范学院 · 教学工作台 · 仅限授权人员访问', placeholder: '请输入工号 / 教师账号', label: '教师' },
+  student: { title: '学生登录', sub: '周口师范学院 · 学习空间 · 仅限授权人员访问', placeholder: '请输入学号 / 学生账号', label: '学生' }
+}
+const roleKeys = ['admin', 'teacher', 'student']
+
+const selectedRole = ref('admin')
+const form = ref({ username: '', password: '', code: '' })
+const captcha = ref({ uuid: '', img: '', enabled: true, loading: false, error: '' })
+const submitting = ref(false)
+const notice = ref({ text: '', type: 'warn' })
+
+const currentRole = computed(() => roleInfo[selectedRole.value] || roleInfo.admin)
+
+function showStatus(text, type = 'warn') {
+  notice.value = { text, type }
+}
+
+async function loadCaptcha() {
+  captcha.value = { ...captcha.value, loading: true, error: '' }
+  try {
+    const data = await api.get('/captchaImage')
+    const enabled = data.captchaEnabled !== false
+    captcha.value = {
+      uuid: data.uuid || '',
+      img: enabled ? `data:image/jpeg;base64,${data.img}` : '',
+      enabled,
+      loading: false,
+      error: ''
+    }
+    form.value.code = ''
+  } catch (error) {
+    captcha.value = { uuid: '', img: '', enabled: true, loading: false, error: error.message }
+    showStatus(`验证码加载失败：${error.message}`)
+  }
+}
+
+function selectRole(role) {
+  selectedRole.value = role
+  notice.value = { text: '', type: 'warn' }
+}
+
+async function submit() {
+  if (submitting.value) return
+  if (!form.value.username.trim() || !form.value.password) {
+    showStatus('请输入账号和密码')
+    return
+  }
+  if (captcha.value.enabled && !form.value.code.trim()) {
+    showStatus('请输入验证码')
+    return
+  }
+  if (captcha.value.enabled && !captcha.value.uuid) {
+    showStatus('验证码已失效，请点击验证码刷新')
+    await loadCaptcha()
+    return
+  }
+  submitting.value = true
+  notice.value = { text: '', type: 'warn' }
+  try {
+    await login({
+      username: form.value.username.trim(),
+      password: form.value.password,
+      role: selectedRole.value,
+      code: captcha.value.enabled ? form.value.code.trim() : '',
+      uuid: captcha.value.enabled ? captcha.value.uuid : ''
+    })
+    await router.replace(`/${session.role}`)
+  } catch (error) {
+    showStatus(error.message || '登录失败，请稍后重试')
+    await loadCaptcha()
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(async () => {
+  const logout = route.query.logout
+  if (logout === 'expired') showStatus('登录状态已失效，请重新登录。', 'info')
+  else if (logout === 'ok') showStatus('已退出登录。', 'info')
+  else if (logout === 'unconfirmed') showStatus('本页已退出，服务端退出状态未确认。')
+  await loadCaptcha()
+})
+</script>
+
+<template>
+  <div class="login-page">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+
+    <div class="stage">
+      <div class="stage-left">
+        <div class="brand">
+          <img class="brand-logo" :src="logoUrl" alt="周口师范学院校徽" />
+          <div class="brand-name">知教·智慧教育课程平台</div>
+          <div class="brand-intro">
+            知教·智慧教育课程平台，将 PPT 讲授、课堂教学活动、课前课后学习管理与轻量学情反馈融于一体。教师在此备课、授课、发布活动、批改作业；学生同步跟课、答题、提交作业、补学薄弱点。
+          </div>
+        </div>
+      </div>
+
+      <div class="stage-right">
+        <div class="login-card">
+          <div class="card-title">{{ currentRole.title }}</div>
+          <div class="card-sub">{{ currentRole.sub }}</div>
+
+          <form @submit.prevent="submit">
+            <div class="field">
+              <label for="username">账号</label>
+              <input
+                id="username"
+                v-model="form.username"
+                type="text"
+                :placeholder="currentRole.placeholder"
+                autocomplete="username"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="password">密码</label>
+              <input
+                id="password"
+                v-model="form.password"
+                type="password"
+                placeholder="请输入登录密码"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+
+            <div v-if="captcha.enabled" class="field">
+              <label for="captcha">验证码</label>
+              <div class="captcha-row">
+                <input id="captcha" v-model="form.code" type="text" placeholder="输入右侧计算结果" autocomplete="off" />
+                <button class="captcha" type="button" title="点击更换验证码" aria-label="更换验证码" @click="loadCaptcha">
+                  <img v-if="captcha.img" :src="captcha.img" alt="验证码" />
+                  <span v-else>{{ captcha.loading ? '加载中' : '点击重试' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>登录入口</label>
+              <div class="roles">
+                <button
+                  v-for="role in roleKeys"
+                  :key="role"
+                  type="button"
+                  class="role"
+                  :class="{ active: selectedRole === role }"
+                  :data-role="role"
+                  :aria-pressed="selectedRole === role"
+                  @click="selectRole(role)"
+                >
+                  <span class="radio"></span><span>{{ roleInfo[role].label }}</span>
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn-login" :disabled="submitting">
+              {{ submitting ? '登录中…' : '登 录' }}
+            </button>
+          </form>
+
+          <div class="card-links">
+            <span>忘记密码请联系教务管理员</span>
+            <span>身份与权限由系统验证</span>
+          </div>
+
+          <div v-if="notice.text" class="notice" :class="notice.type === 'info' ? 'notice-info' : 'notice-warn'" role="alert">
+            {{ notice.text }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">© 2026 周口师范学院 · 智慧教学平台</div>
+  </div>
+</template>
+
+<style scoped>
+.login-page {
+  min-height: 100vh;
+  font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  background:
+    radial-gradient(1200px 800px at 100% 0%, rgba(165, 240, 245, 0.9) 0%, rgba(165, 240, 245, 0) 60%),
+    radial-gradient(900px 700px at 0% 100%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(135deg, #ffffff 0%, #dff6f8 45%, #b8eef2 75%, #a4e9ef 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 6vw;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.blob { position: fixed; border-radius: 50%; filter: blur(2px); opacity: .45; pointer-events: none; z-index: 0; }
+.blob-1 { width: 340px; height: 340px; background: #a4e9ef; top: -120px; left: -100px; }
+.blob-2 { width: 260px; height: 260px; background: #ffffff; bottom: -80px; right: -60px; opacity: .6; }
+
+.stage {
+  display: flex; align-items: center; justify-content: space-between; gap: 48px;
+  width: 100%; max-width: 1160px; position: relative; z-index: 1;
+}
+.stage-left { flex: 1; min-width: 0; }
+.stage-right { flex-shrink: 0; }
+
+.brand { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; }
+.brand-logo { width: 300px; height: 300px; object-fit: contain; filter: drop-shadow(0 10px 22px rgba(0, 0, 0, .20)); }
+.brand-name { font-size: 42px; font-weight: 700; color: #2b3446; letter-spacing: 2px; }
+.brand-intro { font-size: 16px; color: #8a97ab; line-height: 1.8; max-width: 540px; }
+
+.login-card {
+  position: relative; z-index: 2; width: 100%; max-width: 520px;
+  background: linear-gradient(160deg, #ffffff 0%, #f7fdfe 60%, #eaf8fa 100%);
+  border: 1px solid rgba(255, 255, 255, .95); border-radius: 28px; padding: 46px 44px 40px;
+  transition: box-shadow .3s ease;
+  box-shadow:
+    10px 14px 0 -2px rgba(163, 226, 233, .55),
+    20px 28px 0 -4px rgba(163, 226, 233, .35),
+    30px 42px 0 -6px rgba(163, 226, 233, .18),
+    0 40px 70px rgba(70, 150, 165, .35),
+    inset 0 1px 0 rgba(255, 255, 255, .95),
+    inset -6px -6px 16px rgba(150, 215, 225, .25);
+}
+.login-card:hover {
+  box-shadow:
+    10px 14px 0 -2px rgba(163, 226, 233, .6),
+    20px 28px 0 -4px rgba(163, 226, 233, .4),
+    30px 42px 0 -6px rgba(163, 226, 233, .22),
+    0 44px 76px rgba(70, 150, 165, .42),
+    inset 0 1px 0 rgba(255, 255, 255, .95),
+    inset -6px -6px 16px rgba(150, 215, 225, .25);
+}
+
+.card-title { text-align: center; font-size: 25px; font-weight: 700; color: #2b3446; }
+.card-sub { text-align: center; font-size: 14px; color: #93a1b5; margin-top: 8px; margin-bottom: 26px; }
+
+.field { margin-bottom: 20px; }
+.field label { display: block; font-size: 15px; color: #5b6b80; margin-bottom: 8px; }
+.field input[type="text"],
+.field input[type="password"] {
+  width: 100%; height: 50px; border: 1px solid #dfe7ef; border-radius: 12px;
+  padding: 0 16px; font-size: 16px; color: #2b3446; background: #fff; outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+.field input:focus { border-color: #4d8bff; box-shadow: 0 0 0 3px rgba(77, 139, 255, .15); }
+.field input::placeholder { color: #b3becd; }
+
+.captcha-row { display: flex; gap: 10px; }
+.captcha-row input { flex: 1; }
+.captcha {
+  width: 128px; height: 50px; border-radius: 12px;
+  background: linear-gradient(135deg, #e8f4ff 0%, #eef7ff 100%);
+  border: 1px solid #dfe7ef; display: flex; align-items: center; justify-content: center;
+  gap: 6px; font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #3b6dff;
+  cursor: pointer; user-select: none; overflow: hidden; padding: 0;
+}
+.captcha img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+.roles { display: flex; gap: 12px; }
+.role {
+  flex: 1; border: 1px solid #dfe7ef; border-radius: 12px; padding: 16px 0 14px;
+  text-align: center; cursor: pointer; transition: all .2s; position: relative;
+  user-select: none; background: #fff; font: inherit;
+}
+.role:hover { border-color: #9db9ff; background: #f8fbff; }
+.role .radio {
+  display: block; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid #cfd9e5; margin: 0 auto 8px; position: relative; transition: all .2s;
+}
+.role span { font-size: 15px; color: #5b6b80; }
+.role.active { border-color: #4d8bff; background: #f3f8ff; }
+.role.active .radio { border-color: #3b6dff; background: #3b6dff; }
+.role.active .radio::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 8px; height: 8px;
+  border-radius: 50%; background: #fff;
+}
+.role.active span { color: #3b6dff; font-weight: 600; }
+
+.btn-login {
+  width: 100%; height: 54px; margin-top: 22px; border: none; border-radius: 14px;
+  background: linear-gradient(135deg, #4d8bff 0%, #3b6dff 100%); color: #fff;
+  font-size: 18px; font-weight: 600; letter-spacing: 8px; text-indent: 8px;
+  cursor: pointer; box-shadow: 0 10px 24px rgba(59, 109, 255, .35);
+  transition: transform .15s, box-shadow .15s;
+}
+.btn-login:hover { transform: translateY(-1px); box-shadow: 0 14px 28px rgba(59, 109, 255, .42); }
+.btn-login:active { transform: translateY(0); }
+.btn-login:disabled { opacity: .65; cursor: wait; box-shadow: none; }
+
+.card-links { display: flex; justify-content: space-between; font-size: 12px; color: #93a1b5; margin-top: 14px; }
+
+.notice { margin-top: 16px; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.7; }
+.notice-warn { background: #fff8ec; color: #b7791f; border: 1px solid #fdeccd; }
+.notice-info { background: #eef6ff; color: #3b6dff; border: 1px solid #d9e9ff; }
+
+.footer {
+  position: fixed; left: 0; right: 0; bottom: 18px;
+  font-size: 12px; color: #9fb0c2; text-align: center; z-index: 1;
+}
+
+@media (max-width: 860px) {
+  .stage { flex-direction: column; gap: 28px; }
+  .login-card { padding: 28px 22px 24px; }
+  .brand-logo { width: 180px; height: 180px; }
+  .brand-name { font-size: 30px; }
+  .brand-intro { font-size: 14px; }
+}
+</style>

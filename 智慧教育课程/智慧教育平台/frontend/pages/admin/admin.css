@@ -1,0 +1,142 @@
+/*
+ * 管理员端页面公共样式（用户 / 角色 / 审计日志）
+ * 作用域限定在挂载点内部，类名统一 adm- 前缀，避免污染外壳。
+ */
+
+.adm-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 20px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 工具栏 */
+.adm-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.adm-input, .adm-select, .adm-textarea {
+  height: 34px;
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #333;
+  background: #fff;
+  outline: none;
+  font-family: inherit;
+}
+.adm-input { width: 180px; }
+.adm-select { min-width: 120px; }
+.adm-textarea { height: auto; min-height: 72px; padding: 8px 10px; resize: vertical; width: 100%; }
+.adm-input:focus, .adm-select:focus, .adm-textarea:focus { border-color: #4096ff; box-shadow: 0 0 0 2px rgba(64, 150, 255, .12); }
+.adm-input[disabled], .adm-select[disabled] { background: #f5f5f5; color: #999; cursor: not-allowed; }
+
+.adm-btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  color: #333;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.adm-btn:hover { color: #1890ff; border-color: #1890ff; }
+.adm-btn.primary { background: #1890ff; border-color: #1890ff; color: #fff; }
+.adm-btn.primary:hover { background: #40a9ff; border-color: #40a9ff; color: #fff; }
+.adm-btn.danger { color: #d4380d; border-color: #ffbb96; }
+.adm-btn.danger:hover { background: #fff2e8; }
+.adm-btn.link { border: none; background: transparent; padding: 0 6px; height: 24px; color: #1890ff; }
+.adm-btn.link.danger { color: #d4380d; }
+.adm-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.adm-spacer { flex: 1; }
+
+/* 表格 */
+.adm-table-wrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid #f0f0f0; border-radius: 8px; background: #fff; }
+.adm-table { width: 100%; border-collapse: collapse; font-size: 13px; color: #333; }
+.adm-table th, .adm-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f2f2f2; white-space: nowrap; }
+.adm-table th { position: sticky; top: 0; background: #fafafa; color: #666; font-weight: 600; z-index: 1; }
+.adm-table tbody tr:hover { background: #fafcff; }
+.adm-table td.ellipsis { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.adm-table td.actions { white-space: nowrap; }
+.adm-table td.actions .adm-btn + .adm-btn { margin-left: 2px; }
+
+.adm-tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; line-height: 18px; }
+.adm-tag.ok { color: #389e0d; background: #f6ffed; border: 1px solid #b7eb8f; }
+.adm-tag.off { color: #8c8c8c; background: #fafafa; border: 1px solid #d9d9d9; }
+.adm-tag.fail { color: #cf1322; background: #fff1f0; border: 1px solid #ffa39e; }
+
+.adm-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #8c8c8c; font-size: 12px; }
+.adm-state { padding: 40px 12px; text-align: center; color: #999; font-size: 13px; }
+.adm-state.error { color: #d4380d; }
+
+/* 弹窗 */
+.adm-mask {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 60px 16px 24px; z-index: 50; overflow: auto;
+}
+.adm-modal {
+  width: 560px; max-width: 100%;
+  background: #fff; border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
+  display: flex; flex-direction: column;
+}
+.adm-modal.wide { width: 760px; }
+.adm-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
+.adm-modal-head h3 { font-size: 16px; font-weight: 600; color: #1f2d3d; }
+.adm-modal-close { border: none; background: transparent; font-size: 18px; line-height: 1; color: #999; cursor: pointer; }
+.adm-modal-close:hover { color: #d4380d; }
+.adm-modal-body { padding: 18px 20px; max-height: 60vh; overflow: auto; }
+.adm-modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 20px 16px; border-top: 1px solid #f5f5f5; }
+.adm-modal-foot .adm-error-text { margin-right: auto; color: #cf1322; font-size: 12px; }
+
+/* 表单 */
+.adm-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+.adm-form-grid .full { grid-column: 1 / -1; }
+.adm-field { display: flex; flex-direction: column; gap: 6px; }
+.adm-field > label { font-size: 13px; color: #5b6b80; }
+.adm-field .req::after { content: " *"; color: #cf1322; }
+.adm-field .adm-input, .adm-field .adm-select { width: 100%; height: 36px; }
+.adm-hint { font-size: 12px; color: #999; }
+
+.adm-check-list { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 10px; border: 1px solid #eef0f3; border-radius: 6px; max-height: 140px; overflow: auto; }
+.adm-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #333; cursor: pointer; }
+.adm-check input { accent-color: #1890ff; }
+
+/* 菜单勾选树 */
+.adm-tree { border: 1px solid #eef0f3; border-radius: 6px; padding: 8px 10px; max-height: 260px; overflow: auto; }
+.adm-tree ul { list-style: none; margin: 0; padding-left: 18px; }
+.adm-tree > ul { padding-left: 0; }
+.adm-tree li { padding: 2px 0; }
+.adm-tree label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.adm-tree input { accent-color: #1890ff; }
+.adm-tree-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+
+/* 审计详情 */
+.adm-detail { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; font-size: 13px; color: #333; }
+.adm-detail dt { color: #8c8c8c; }
+.adm-detail dd { margin: 0; word-break: break-all; }
+.adm-code { display: block; background: #fafafa; border: 1px solid #f0f0f0; border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #555; white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto; }
+
+/* 轻提示 */
+.adm-toast {
+  position: fixed; top: 36px; left: 50%; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 6px; font-size: 13px; z-index: 60;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+  background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f;
+}
+.adm-toast.error { background: #fff1f0; color: #cf1322; border-color: #ffa39e; }
+
+@media (max-width: 600px) {
+  .adm-page { padding: 12px; }
+  .adm-toolbar .adm-input { width: 100%; }
+  .adm-form-grid { grid-template-columns: 1fr; }
+  .adm-mask { padding: 12px 8px; }
+  .adm-modal-body { max-height: 68vh; padding: 14px; }
+  .adm-modal-head, .adm-modal-foot { padding: 12px 14px; }
+  .adm-detail { grid-template-columns: 80px 1fr; }
+}

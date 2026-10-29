@@ -78,6 +78,17 @@
                     <include>student.html</include>
                     <include>role-home.js</include>
                     <include>logo.png</include>
+                    <!-- 公共外壳与业务页目录；新增前端目录时同步补充 -->
+                    <include>shell/**</include>
+                    <include>pages/**</include>
+                </includes>
+            </resource>
+            <!-- Vue 构建产物：先执行 frontend/vue 的 build，再打包后端；缺失时不影响静态页 -->
+            <resource>
+                <directory>${project.basedir}/../../frontend/vue/dist</directory>
+                <targetPath>static/vue</targetPath>
+                <includes>
+                    <include>**/*</include>
                 </includes>
             </resource>
         </resources>

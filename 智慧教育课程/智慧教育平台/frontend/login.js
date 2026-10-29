@@ -20,6 +20,8 @@
   let selectedRole = 'admin';
   let captchaUuid = '';
   let captchaEnabled = true;
+  let captchaRequest = 0;
+  let submitting = false;
 
   function showStatus(message, success = false) {
     notice.textContent = message;
@@ -48,20 +50,31 @@
   }
 
   async function api(path, options = {}) {
-    const response = await fetch(path, { cache: 'no-store', ...options });
-    let result;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), options.timeout || 15000);
     try {
-      result = await response.json();
-    } catch {
-      throw new Error('服务器响应无法解析');
+      const response = await fetch(path, { cache: 'no-store', signal: controller.signal, ...options });
+      let result;
+      try {
+        result = await response.json();
+      } catch {
+        throw new Error('服务器响应无法解析');
+      }
+      if (!response.ok || result.code !== 200) {
+        throw new Error(result.msg || `请求失败（${response.status}）`);
+      }
+      return result;
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error('请求超时，请稍后重试');
+      if (error instanceof TypeError) throw new Error('网络连接异常，请检查网络后重试');
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
-    if (!response.ok || result.code !== 200) {
-      throw new Error(result.msg || `请求失败（${response.status}）`);
-    }
-    return result;
   }
 
   async function loadCaptcha() {
+    const seq = ++captchaRequest;
     captchaUuid = '';
     captchaInput.value = '';
     captchaImage.hidden = true;
@@ -69,6 +82,7 @@
     captchaFallback.textContent = '加载中';
     try {
       const result = await api('/captchaImage');
+      if (seq !== captchaRequest) return; // 已有更新的请求，丢弃旧响应
       captchaEnabled = result.captchaEnabled !== false;
       captchaField.hidden = !captchaEnabled;
       captchaInput.required = captchaEnabled;
@@ -80,6 +94,7 @@
         captchaFallback.hidden = true;
       }
     } catch (error) {
+      if (seq !== captchaRequest) return;
       captchaEnabled = true;
       captchaField.hidden = false;
       captchaInput.required = true;
@@ -113,12 +128,14 @@
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    if (submitting) return; // 防止回车/连点重复提交
     clearStatus();
     if (captchaEnabled && !captchaUuid) {
       showStatus('请先加载验证码');
       await loadCaptcha();
       return;
     }
+    submitting = true;
     loginButton.disabled = true;
     loginButton.textContent = '登录中…';
     let token = '';
@@ -143,12 +160,14 @@
       openRolePage(selectedRole);
     } catch (error) {
       if (token) {
-        try { await logoutOnServer(token); } catch { /* 清理本页令牌 */ }
+        try { await logoutOnServer(token); } catch { /* 本页已清理令牌 */ }
       }
       clearSession();
       showStatus(error.message || '登录失败，请稍后重试');
       await loadCaptcha();
+      captchaInput.focus();
     } finally {
+      submitting = false;
       loginButton.disabled = false;
       loginButton.textContent = '登 录';
     }
@@ -177,6 +196,8 @@
       showStatus('已退出登录。', true);
     } else if (logout === 'unconfirmed') {
       showStatus('本页已退出，服务端退出状态未确认。');
+    } else if (logout === 'expired') {
+      showStatus('登录状态已失效，请重新登录。');
     }
   }
 
