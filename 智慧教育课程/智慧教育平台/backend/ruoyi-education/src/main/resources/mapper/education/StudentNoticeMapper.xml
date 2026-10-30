@@ -132,4 +132,29 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           and <include refid="studentNoticeVisibleWhere"/>
     </update>
 
+    <!--
+        公告发布 fan-out 批量插入。
+
+        业务语义：为公告发布时点的在班学生写入 ANNOUNCEMENT 通知；
+        唯一键 uq_edu_notice_recipient_source
+        (recipient_user_id, notice_kind, source_id) 保证同一公告对同一学生
+        只生成一条通知。ON DUPLICATE KEY UPDATE id = id 是幂等空更新，
+        不覆盖已有 read_at、标题或 visible_at。
+
+        性能与锁：单批由 Service 控制在 500 条以内，降低单语句锁持有时间；
+        写入会检查唯一键，并可能与被 read-all 当前读产生的 gap lock 相互等待。
+        source_id 使用公告 ID，配合 recipient_user_id/notice_kind 走唯一索引。
+    -->
+    <insert id="insertAnnouncementNotices">
+        insert into edu_user_notice
+            (recipient_user_id, binding_id, notice_kind, source_id, title,
+             visible_at, read_at, created_at)
+        values
+        <foreach collection="recipientUserIds" item="recipientUserId" separator=",">
+            (#{recipientUserId}, #{bindingId}, 'ANNOUNCEMENT', #{announcementId},
+             #{title}, #{visibleAt}, null, #{createdAt})
+        </foreach>
+        on duplicate key update id = id
+    </insert>
+
 </mapper>

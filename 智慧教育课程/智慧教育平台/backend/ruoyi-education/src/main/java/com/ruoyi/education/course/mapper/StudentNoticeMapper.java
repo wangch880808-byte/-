@@ -33,4 +33,27 @@ public interface StudentNoticeMapper
 
     int markAllRead(@Param("operatedAt") LocalDateTime operatedAt,
             @Param("q") StudentNoticeQuery query);
+
+    /**
+     * 公告发布 fan-out 批量插入 ANNOUNCEMENT 通知。
+     *
+     * <p>依赖唯一键 {@code (recipient_user_id, notice_kind, source_id)} 去重；
+     * 重复公告/重复 fan-out 通过 {@code ON DUPLICATE KEY UPDATE id = id} 保持幂等，
+     * 不覆盖已有通知的 {@code read_at}、标题或可见时间。</p>
+     *
+     * @param announcementId 公告 ID，作为通知 source_id
+     * @param bindingId 公告所属课程—教学班绑定 ID
+     * @param title 公告标题快照
+     * @param visibleAt 通知对学生可见时间，取公告 opensAt
+     * @param createdAt fan-out 写入时间
+     * @param recipientUserIds 本批接收人，调用方须保证单批不超过 500 条
+     * @return 实际插入的通知行数；重复键不计入
+     * @throws org.springframework.dao.DataAccessException 数据库写入失败时由调用方转换
+     */
+    int insertAnnouncementNotices(@Param("announcementId") Long announcementId,
+            @Param("bindingId") Long bindingId,
+            @Param("title") String title,
+            @Param("visibleAt") LocalDateTime visibleAt,
+            @Param("createdAt") LocalDateTime createdAt,
+            @Param("recipientUserIds") List<Long> recipientUserIds);
 }
