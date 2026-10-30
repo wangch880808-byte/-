@@ -82,7 +82,7 @@
 ## 6. Spring Boot 上下文
 
 - 新增 `ruoyi-admin` 启动级 `@SpringBootTest`（`RuoYiApplicationContextTest`），默认跳过；提供 MySQL/Redis 属性后执行。
-- 使用 MySQL 8.0.43 临时库（加载 `sql/upstream/ruoyi/ry_20260417.sql` 与 `quartz.sql`）和本机 Redis，上下文启动成功：1 项测试通过，约 20.1 秒。
+- 使用 MySQL 8.0.43 临时库（加载 `sql/upstream/ruoyi/ry_20260417.sql` 与 `quartz.sql`）和本机 Redis，上下文启动成功：1 项测试通过，单次本机运行约 20～33 秒，非基准数据。
 - 未验证：真实 HTTP、真实登录、角色拦截、`@Log` 审计落库。阻塞原因：
   - 真实登录/账号/Token 依赖第 1 组联调配置；
   - `education:announcement:*`/`education:notice:*` 菜单、角色、权限数据未配置；
