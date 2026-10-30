@@ -3,6 +3,7 @@ package com.ruoyi.education.course.mapper;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
+import com.ruoyi.education.course.domain.NoticeKind;
 import com.ruoyi.education.course.domain.StudentNotice;
 import com.ruoyi.education.course.service.StudentNoticeQuery;
 
@@ -52,6 +53,31 @@ public interface StudentNoticeMapper
      */
     int insertAnnouncementNotices(@Param("announcementId") Long announcementId,
             @Param("bindingId") Long bindingId,
+            @Param("title") String title,
+            @Param("visibleAt") LocalDateTime visibleAt,
+            @Param("createdAt") LocalDateTime createdAt,
+            @Param("recipientUserIds") List<Long> recipientUserIds);
+
+    /**
+     * 上游个人通知事件批量写入。
+     *
+     * <p>通知类型由事件给出；唯一键
+     * {@code (recipient_user_id, notice_kind, source_id)} 负责去重。
+     * {@code ON DUPLICATE KEY UPDATE id = id} 不覆盖已有 readAt、标题和可见时间。</p>
+     *
+     * @param noticeKind 通知类型，只能是 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE
+     * @param bindingId 课程—教学班绑定 ID
+     * @param sourceId 来源业务对象 ID，按事件契约映射
+     * @param title 接收时标题快照
+     * @param visibleAt 学生可见时间
+     * @param createdAt 事件发生时间
+     * @param recipientUserIds 本批接收人，单批不超过 500
+     * @return 实际插入行数；重复键不计入
+     * @throws org.springframework.dao.DataAccessException 数据库写入失败时由调用方转换
+     */
+    int insertUpstreamNotices(@Param("noticeKind") NoticeKind noticeKind,
+            @Param("bindingId") Long bindingId,
+            @Param("sourceId") Long sourceId,
             @Param("title") String title,
             @Param("visibleAt") LocalDateTime visibleAt,
             @Param("createdAt") LocalDateTime createdAt,
