@@ -61,6 +61,18 @@ class OverviewSourceGuardTest
     }
 
     @Test
+    void explicitPredicateCanKeepEmptyCollectionAsOk()
+    {
+        OverviewSourceGuard guard = new OverviewSourceGuard(executor, Duration.ofMillis(200));
+
+        OverviewSourceResult<List<String>> result = guard.query("course", List::of,
+                value -> false);
+
+        assertEquals(OverviewStatus.OK, result.status());
+        assertTrue(result.value().isEmpty());
+    }
+
+    @Test
     void emptyCollectionMapsToNoDataWithPredicate()
     {
         OverviewSourceGuard guard = new OverviewSourceGuard(executor, Duration.ofMillis(200));

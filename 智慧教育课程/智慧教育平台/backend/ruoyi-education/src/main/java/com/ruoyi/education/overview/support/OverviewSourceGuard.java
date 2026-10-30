@@ -81,9 +81,10 @@ public class OverviewSourceGuard
     /**
      * 查询数据源，并按空值判定映射 NO_DATA。
      *
-     * <p>映射规则：supplier 为 null（缺适配器）→ UNAVAILABLE；返回 null、
-     * 空 Collection/Map 或 emptyPredicate 判定为空 → NO_DATA；抛出异常、
-     * 超时、中断、执行器拒绝 → UNAVAILABLE；其余 → OK。失败原因只写日志。</p>
+     * <p>映射规则：supplier 为 null（缺适配器）→ UNAVAILABLE；返回 null →
+     * NO_DATA；emptyPredicate 非 null 时按其判定空值，为 null 时默认检测空
+     * Collection/Map；抛出异常、超时、中断、执行器拒绝 → UNAVAILABLE；
+     * 其余 → OK。失败原因只写日志。</p>
      *
      * @param source          来源领域，不能为空
      * @param supplier        数据源调用；为 null 表示适配器缺失
@@ -111,8 +112,11 @@ public class OverviewSourceGuard
         {
             executor.execute(task);
             T value = task.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
-            if (value == null || isEmptyResult(value)
-                    || (emptyPredicate != null && emptyPredicate.test(value)))
+            // 显式谓词优先：聚合服务传 value -> false，才能把“键存在但列表为空”
+            // 解释为真实 0，由服务层决定 OK 0 还是 NO_DATA。
+            boolean empty = value == null
+                    || (emptyPredicate == null ? isEmptyResult(value) : emptyPredicate.test(value));
+            if (empty)
             {
                 // 源可用但没有证据：返回 NO_DATA，由调用方显式表达，不写 0。
                 return OverviewSourceResult.noData(source);
