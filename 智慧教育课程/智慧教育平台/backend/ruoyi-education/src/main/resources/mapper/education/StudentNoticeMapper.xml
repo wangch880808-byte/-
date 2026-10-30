@@ -54,6 +54,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         )
     </sql>
 
+    <!-- 总数统计：与分页查询共用可见性条件；可选 kind/unreadOnly；走 recipient/read/visible 索引。 -->
     <select id="countVisible" resultType="long">
         select count(*)
         from edu_user_notice n
@@ -66,6 +67,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         </if>
     </select>
 
+    <!-- 分页查询：固定 visible_at DESC, id DESC；LIMIT/OFFSET 由 Service 计算，排序可能 filesort。 -->
     <select id="selectVisiblePage" resultMap="StudentNoticeResult">
         select <include refid="noticeColumns"/>
         from edu_user_notice n
@@ -80,6 +82,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         limit #{q.limit} offset #{q.offset}
     </select>
 
+    <!-- 详情：同一可见性条件；只读快照，不加锁。 -->
     <select id="selectVisibleById" resultMap="StudentNoticeResult">
         select <include refid="noticeColumns"/>
         from edu_user_notice n
@@ -87,6 +90,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           and <include refid="studentNoticeVisibleWhere"/>
     </select>
 
+    <!-- 单条已读 0 行后的当前读；只锁 edu_user_notice 行，EXISTS 不锁公告行。 -->
     <select id="selectVisibleByIdForUpdate" resultMap="StudentNoticeResult">
         select <include refid="noticeColumns"/>
         from edu_user_notice n
@@ -110,6 +114,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         for update
     </select>
 
+    <!-- 详情/已读预读：只按本人过滤，不校验可见性；后续 Service 再用可见性查询。 -->
     <select id="selectByIdAndRecipient" resultMap="StudentNoticeResult">
         select <include refid="noticeColumns"/>
         from edu_user_notice n
@@ -117,6 +122,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           and n.recipient_user_id = #{recipientUserId}
     </select>
 
+    <!-- 单条已读：仅 read_at IS NULL 且当前可见的本人通知；不覆盖已有读时间。 -->
     <update id="markRead">
         update edu_user_notice n
         set read_at = #{readAt}
@@ -125,6 +131,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           and <include refid="studentNoticeVisibleWhere"/>
     </update>
 
+    <!-- 全部已读：同一可见性范围批量更新未读行；不覆盖已有 read_at。 -->
     <update id="markAllRead">
         update edu_user_notice n
         set read_at = #{operatedAt}
@@ -152,6 +159,30 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         values
         <foreach collection="recipientUserIds" item="recipientUserId" separator=",">
             (#{recipientUserId}, #{bindingId}, 'ANNOUNCEMENT', #{announcementId},
+             #{title}, #{visibleAt}, null, #{createdAt})
+        </foreach>
+        on duplicate key update id = id
+    </insert>
+
+    <!--
+        上游个人通知事件批量插入（PREVIEW/ACTIVITY/ASSIGNMENT/GRADE）。
+
+        业务语义：每条事件按接收人写入一条通知；唯一键
+        uq_edu_notice_recipient_source (recipient_user_id, notice_kind, source_id)
+        保证同一来源对同一学生只生成一条。ON DUPLICATE KEY UPDATE id = id
+        是幂等空更新，不覆盖 read_at、标题或 visible_at。
+
+        性能与锁：Service 按 500 条分批，减少单语句锁持有时间；写入会检查
+        唯一键，并可能与被 read-all 当前读产生的 gap lock 相互等待。
+        notice_kind/source_id/recipient_user_id 走唯一索引。
+    -->
+    <insert id="insertUpstreamNotices">
+        insert into edu_user_notice
+            (recipient_user_id, binding_id, notice_kind, source_id, title,
+             visible_at, read_at, created_at)
+        values
+        <foreach collection="recipientUserIds" item="recipientUserId" separator=",">
+            (#{recipientUserId}, #{bindingId}, #{noticeKind}, #{sourceId},
              #{title}, #{visibleAt}, null, #{createdAt})
         </foreach>
         on duplicate key update id = id
