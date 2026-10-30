@@ -75,7 +75,8 @@ public class UpstreamNoticeEventService implements UpstreamNoticeEventPort
      * 不读取第 2 组成员表。重复投递由唯一键幂等处理。</p>
      *
      * @param event 上游事件
-     * @return 实际插入的通知行数；重复键不计入，无接收人时为 0
+     * @return 数据库返回的处理行数；MySQL 默认驱动可能把重复键计为匹配行，
+     *         幂等以通知行数不增和 readAt 不变为准
      * @throws NoticeValidationException 事件字段不完整或类型非法
      * @throws NoticeAuthorizationUnavailableException 教学班投递授权不可用
      * @throws NoticePersistenceException 通知写入失败
@@ -233,6 +234,9 @@ public class UpstreamNoticeEventService implements UpstreamNoticeEventPort
         }
         catch (DataAccessException e)
         {
+            // 不在本方法内自动重试：InnoDB lock wait timeout/deadlock 会回滚整个事务，
+            // 当前 Spring 事务已不可继续；由上游在事件事务回滚后重新投递，
+            // 唯一键保证重投幂等。自动重试需在上游投递层实现，不能在这里实现。
             throw new NoticePersistenceException("上游通知事件写入失败", e);
         }
     }
