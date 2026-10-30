@@ -2,7 +2,7 @@
 
 > 版本：0.1｜日期：2026-10-24｜读者：第六组前端 6B
 >
-> 依据：`docs/6-02-announcement-notice-contract.md` 的已评审业务契约。
+> 依据：`docs/6-02-announcement-notice-contract.md`；该合同的 URL、字段名、错误码仍为待评审建议，前端已按现清单对齐。
 >
 > 范围：教师公告、学生本班公告、学生本人通知。
 >
@@ -32,7 +32,7 @@
 12. 学生本人单条通知标记已读。
 13. 学生本人全部通知标记已读。
 
-当前状态：教师公告 Controller/DTO/Service 和学生公告只读列表/详情已实现；学生通知、未读数、单条已读和全部已读后端尚未实现。本文档确认前端调用契约，不代表接口已可联调。
+当前状态：教师公告、学生公告只读列表/详情、学生通知列表/详情/未读数/单条已读/全部已读的后端领域对象、Controller/DTO/Service/Mapper XML 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 和上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收端已实现；生产学生授权适配器仍缺失，真实上游投递/鉴权联调未完成。本文档确认前端调用契约，不代表接口已可生产联调；MySQL 8.0.43 已完成写入/并发加固，MySQL 8.0.46、真实 HTTP、登录、角色拦截和审计联调仍未完成。
 
 ### 1.2 不包含
 
@@ -196,6 +196,7 @@ Content-Type: application/json
 | 参数错误 | 200 | 400 | 在表单字段旁显示错误；保留用户输入 |
 | 状态冲突 | 200 | 409 | 刷新详情/列表；提示“状态已变化，请刷新后重试” |
 | 服务端异常 | 200 | 500 | 显示通用失败提示；保留表单；提供重试 |
+| 授权服务不可用（生产授权适配器未接入或异常） | 200 | 503 | 显示“授权服务暂不可用，请稍后重试”；不得显示为空数据；不要自动重试 |
 | 网络超时/网关错误 | 0/502/504 | 无 | 显示网络错误；GET 可重试；POST 先确认结果再重试 |
 
 补充：
@@ -238,7 +239,7 @@ Content-Type: application/json
 - `visibilityState` 由服务端根据 `status`、`opensAt`、`closesAt` 和服务端时间计算；前端只做枚举到标签的映射，不使用本机时间自行判断。
 - 教师端公告响应中 `visibilityState` 不应为 `null`；若实际返回 `null`，按未知状态显示并记录错误，不要用本地时间猜测。学生端公告响应不依赖该字段。
 - `visibilityState` 不代替权限校验；详情和写操作仍由后端重新鉴权。
-- 当前 Service 已有计算规则，HTTP 响应尚未实现；不得把文档状态描述成已联调能力。
+- 当前 Service 已有计算规则，HTTP 响应已实现；不得把文档状态描述成已真实联调能力。
 
 ### 3.3 通知类型 `kind` `[已确认]`
 
@@ -888,7 +889,7 @@ GET /education/teacher/announcements/20001
 
 ## 5. 学生端接口
 
-> 状态：角色、可见性、已读/去重规则为 `[已确认]`；以下具体路径、字段名、分页默认值、错误码数字为 `[草案]`，最终以联调冻结版为准。
+> 状态：角色、可见性、已读/去重规则为 `[已确认]`；以下具体路径、字段名、分页默认值、错误码数字为 `[草案]`，最终以联调冻结版为准。学生公告 2 个接口与学生通知 5 个接口的后端代码与隔离测试已实现；生产授权适配器未接入，真实联调未完成。
 >
 > 参数表按“位置”列出路径、查询、请求体三类参数；表中没有某位置的行，表示该位置无参数。GET 接口无请求体；无请求体的 POST 可传空对象 `{}`。
 
@@ -1553,7 +1554,7 @@ PUT /education/student/notices/read-all
 
 ## 7. 接口汇总表
 
-共 13 个接口：教师端 6 个，学生端 7 个。教师端 6 个和学生公告列表/详情 2 个已实现；学生通知 5 个接口尚未实现。
+共 13 个接口：教师端 6 个，学生端 7 个。教师端 6 个、学生公告列表/详情 2 个、学生通知 5 个接口的后端领域对象、Controller/DTO/Service/Mapper XML 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 和上游事件接收端已实现；生产授权适配器和真实上游投递联调未完成。
 
 ### 7.1 教师端
 
@@ -1561,7 +1562,7 @@ PUT /education/student/notices/read-all
 | --- | --- | --- | --- | --- | --- |
 | 教师端 · 课程详情 · 班级公告 | 创建草稿 | `POST` | `/education/teacher/announcements` | 教师 | 创建后固定为 `DRAFT` |
 | 教师端 · 课程详情 · 班级公告 | 编辑草稿 | `PUT` | `/education/teacher/announcements/{announcementId}` | 教师 | 仅草稿可编辑，完整覆盖 |
-| 教师端 · 课程详情 · 班级公告 | 发布公告 | `POST` | `/education/teacher/announcements/{announcementId}/publish` | 教师 | 幂等；本批不生成通知 |
+| 教师端 · 课程详情 · 班级公告 | 发布公告 | `POST` | `/education/teacher/announcements/{announcementId}/publish` | 教师 | 幂等；首次实际发布同事务 fan-out 通知；重复发布不重复写 |
 | 教师端 · 课程详情 · 班级公告 | 归档公告 | `POST` | `/education/teacher/announcements/{announcementId}/archive` | 教师 | 仅已发布可归档；幂等 |
 | 教师端 · 课程详情 · 班级公告 | 公告列表 | `GET` | `/education/teacher/announcements` | 教师 | 必须带 `bindingId` |
 | 教师端 · 课程详情 · 班级公告 | 公告详情 | `GET` | `/education/teacher/announcements/{announcementId}` | 教师 | 返回正文 |
@@ -1641,7 +1642,7 @@ PUT /education/student/notices/read-all
 | 未读数为 0 | 隐藏角标或显示“无未读”；不要显示错误 |
 | 全部标记已读时没有未读 | 显示“没有未读通知”或直接成功提示；`markedCount = 0` 不是错误 |
 | 公告详情 404 | 统一显示“公告不存在或当前不可查看”；不要继续展示缓存正文，不区分外班/退班/未开放/已关闭 |
-| 发布时班级无学生 | 公告发布成功；本批不生成通知，不要提示“发布失败” |
+| 发布时班级无学生 | 公告发布成功；fan-out 写入 0 条通知，不要提示“发布失败” |
 
 ### 9.2 无权限
 
@@ -1703,4 +1704,4 @@ PUT /education/student/notices/read-all
 - 草稿权限：创建者可读/编辑自己的 `DRAFT`；有本班公告管理权限（当前为 `canPublish`）的教师可读/编辑；发布/归档必须有 `canPublish`。
 - 公告正文：非空；最多 20,000 个 Unicode 码点，且 UTF-8 编码后不超过 65,535 字节；两个上限须同时满足。部分四字节字符可能先触及 65,535 字节上限。
 - 不返回 `publishedAt`，不新增 `published_at`；教师端 `createdAt` 是“创建时间”，学生端 `opensAt` 是“开放时间”，页面不写“发布时间”。
-- M0 同时支持单条标记已读和全部标记已读；全部标记已读接口为 `PUT /education/student/notices/read-all`，但后端尚未实现。
+- M0 同时支持单条标记已读和全部标记已读；全部标记已读接口为 `PUT /education/student/notices/read-all`，后端已实现并有隔离测试，尚未真实联调。

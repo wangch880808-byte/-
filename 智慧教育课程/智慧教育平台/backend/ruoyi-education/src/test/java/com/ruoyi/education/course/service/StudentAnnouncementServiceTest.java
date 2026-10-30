@@ -31,6 +31,7 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.education.course.authorization.StudentAnnouncementAccess;
 import com.ruoyi.education.course.authorization.StudentAnnouncementAuthorizationPort;
+import com.ruoyi.education.course.authorization.StudentAnnouncementMember;
 import com.ruoyi.education.course.domain.AnnouncementStatus;
 import com.ruoyi.education.course.domain.CourseAnnouncement;
 import com.ruoyi.education.course.domain.StudentAnnouncementAuthority;
@@ -381,6 +382,13 @@ class StudentAnnouncementServiceTest
                 throw new IllegalStateException("authorization unavailable");
             }
             return nullActiveList ? null : active;
+        }
+
+        @Override
+        public List<StudentAnnouncementMember> listActiveStudents(Long bindingId, LocalDateTime at)
+        {
+            // 公告测试不触发 fan-out；fan-out 使用独立的成员测试替身。
+            return List.of();
         }
 
         private static StudentAnnouncementAuthority activeAuthorityStatic()

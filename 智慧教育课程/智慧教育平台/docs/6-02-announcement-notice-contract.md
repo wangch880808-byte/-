@@ -1,9 +1,9 @@
 # 6-02 教学班公告与个人通知 M0 后端契约草案
 
-> 版本：0.2 草案｜日期：2026-10-25｜负责人：6A｜状态：教师公告 Controller/DTO/Service/Mapper 和学生公告只读列表/详情已落地；学生通知、未读数、已读和通知 fan-out 未实现
+> 版本：0.2 草案｜日期：2026-10-25｜负责人：6A｜状态：教师公告、学生公告只读、学生通知列表/详情/未读数/单条已读/全部已读、公告发布 ANNOUNCEMENT fan-out 以及上游事件接收端（内部端口）的后端代码与隔离测试已落地；MySQL 8.0.43 写入/并发/数据量加固已实测，MySQL 8.0.46 未验证；真实上游投递联调、生产学生授权适配器和真实 HTTP/登录/权限/审计联调未完成
 >
 > 本文只覆盖 `docs/分工.md` 的 6-02：教学班公告发布/读取、学生本班公告、学生本人任务与成绩通知、列表/详情/未读数/单条标记已读/全部标记已读。
-> 本文中的 URL、字段名、错误码、权限标识仍为**待评审建议**，不是已冻结协议；公告 Service/Controller 的已实现行为以第 3、4、7 节和实现代码为准。
+> 本文中的 URL、字段名、错误码、权限标识仍为**待评审建议**，不是已冻结协议；公告与学生通知 Service/Controller 的已实现行为以第 3、4、7 节和实现代码为准。
 
 ## 0. 事实基线
 
@@ -12,20 +12,20 @@
 - 若依 3.9.2 三角色登录、验证码、`/getInfo`、`/getRouters`、退出已在本机联调。
 - 服务端可从 `SecurityUtils.getLoginUser()` / `SecurityUtils.getUserId()` 取得可信用户身份。
 - 已有统一响应结构 `AjaxResult`、分页结构 `TableDataInfo`、全局异常处理、`@PreAuthorize` 和 `@Log` 审计能力。
-- `sql/mysql-v3-m0-*.sql` 已在隔离 MySQL 8.0.46 测试库验证建表与部分约束。
+- 历史记录称 `sql/mysql-v3-m0-*.sql` 已在隔离 MySQL 8.0.46 测试库验证建表与部分约束；本轮未获得 8.0.46 实例，未复验。
 - 演示数据中已出现 1 条 `PUBLISHED` 公告和 2 条个人通知（`ANNOUNCEMENT`、`GRADE`）。
-- 教师公告已有 Entity、Mapper 读写、状态规则、Service、授权适配端口、Controller/DTO 和 H2 隔离测试；学生公告已有只读列表/详情 Controller/DTO/Service 和学生授权端口，尚无生产授权适配器；学生通知和通知 fan-out 未实现。
+- 教师公告已有 Entity、Mapper 读写、状态规则、Service、授权适配端口、Controller/DTO 和 H2 隔离测试；学生公告已有只读列表/详情 Controller/DTO/Service 和学生授权端口；学生通知已有列表/详情/未读数/单条已读/全部已读 Controller/DTO/Service/Mapper 和 H2/Mockito/MockMvc 隔离测试；公告发布时已实现 ANNOUNCEMENT fan-out（批量 500、唯一键幂等）；上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收端已实现（内部端口、H2 隔离测试）；生产教师/学生授权适配器仍未接入，真实上游投递联调未完成。
 
 ### 0.2 仅有表设计或尚未接入
 
-- `edu_course_announcement` 已有教师公告读写和学生公告只读 Controller/DTO/Service/Mapper；学生通知尚无实现。
-- `edu_user_notice` 只有 DDL，没有 Entity、Mapper、Service 或通知 fan-out。
-- `edu_class_teacher`、`edu_class_student`、`edu_course_class_binding`、`edu_teaching_class` 已有表结构和演示数据，但没有教学业务接口；公告模块通过教师教学班授权端口和学生公告授权端口隔离，当前没有生产适配器。
-- `ruoyi-education` 已接入 Maven 构建；当前没有真实 MySQL、HTTP 或完整 Spring Boot 应用联调结论。
+- `edu_course_announcement` 已有教师公告读写和学生公告只读 Controller/DTO/Service/Mapper。
+- `edu_user_notice` 已有 Entity、Mapper、Service、Controller/DTO、学生通知读取/已读实现、公告发布 ANNOUNCEMENT fan-out 和上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收端口/服务；真实上游投递、鉴权和重试联调仍未完成。
+- `edu_class_teacher`、`edu_class_student`、`edu_course_class_binding`、`edu_teaching_class` 已有表结构和演示数据，但没有教学业务接口；公告/通知模块通过教师教学班授权端口和学生公告授权端口隔离，当前没有生产适配器。
+- `ruoyi-education` 已接入 Maven 构建；MySQL 8.0.43 已完成通知写入/并发/数据量加固，`ruoyi-admin` 启动级上下文测试已通过；MySQL 8.0.46、真实 HTTP/登录/角色拦截/审计落库仍未验证。加固结果见 [6-02 MySQL 加固结果](6-02-mysql-hardening-results.md)。
 
 ### 0.3 仍属待评审方案
 
-- 公告发布后是否自动为全班学生生成 `ANNOUNCEMENT` 通知。
+- 公告发布时自动生成 `ANNOUNCEMENT` 通知（已实现，见 2.9）。
 - 通知 `source_id` 在 `GRADE` 场景到底指向 `edu_grade_publication.id` 还是别的对象。
 - 学生退班后历史通知是否仍可读。
 - 公告草稿不归档（已确定）；当前 CHECK 约束不允许直接把 DRAFT 改为 ARCHIVED。
@@ -54,7 +54,7 @@
 - 不直接读写其他领域的业务表；只通过第 1、2、3、4、5 组提供的服务契约取数。
 - 不新增依赖、表、字段；现有模型不足处只列变更建议。
 - 不把示例路径、字段、错误码描述成已冻结协议。
-- 本阶段不生成学生通知或 SQL 变更；教师公告和学生公告只读 Controller/DTO/Service/Mapper 已另行落地。
+- 本阶段实现公告发布 ANNOUNCEMENT fan-out 和上游事件接收端，不修改 SQL；学生通知读取与已读 Controller/DTO/Service/Mapper 及隔离测试已落地，真实上游投递/鉴权联调未完成。
 
 ### 1.3 公告与通知的职责区别
 
@@ -160,11 +160,12 @@ OR
 
 ### 2.9 公告发布是否自动生成通知
 
-演示数据表明公告发布后存在 `ANNOUNCEMENT` 通知，但本批教师公告 Service 不生成通知，fan-out 由后续通知批次实现。后续批次按以下规则处理：
+公告发布事务内为发布时点的当前有效学生生成 `ANNOUNCEMENT` 通知；实现按绑定查询当前在班学生，只保留发布时点落在 `[joinedAt, leftAt)` 的成员，并按 500 条分批写入。规则如下：
 
 - 只给公告发布时的“当前有效学生”生成通知；
 - 公告列表仍是事实源，通知只是提醒；
-- 唯一约束保证重试不重复；
+- 唯一约束 `(recipient_user_id, notice_kind, source_id)` 保证重试/重复发布不重复；
+- 重复发布保持幂等 200，不重复 fan-out；
 - 公告发布后新入班的学生不补发历史通知，但能在公告列表看到当前可见公告；若要求补发，需要额外对账任务。
 
 ### 2.10 管理员是否可读
@@ -207,7 +208,7 @@ OR
 2. 教学班 `ARCHIVED` 或绑定 `ended_at` 非空时，教师是否还能读取历史公告？本文建议业务接口拒绝，历史由审计/管理侧保留。
 3. 学期已结束但教学班仍为 `ACTIVE` 时，公告是否还可见？本文暂不单独校验 `edu_term` 日期，以第 2 组返回的教学班/绑定有效性为准。
 4. 公告正文长度上限。已确定为非空，最多 20,000 个 Unicode 码点，且 UTF-8 编码后不超过 65,535 字节；两个上限必须同时满足。部分四字节字符可能先触及 65,535 字节上限。
-5. “全部标记已读”已确定纳入 M0，与单条标记已读同时支持；接口范围和并发语义见 3.6.1、6.13.1。后端代码尚未实现。
+5. “全部标记已读”已确定纳入 M0，与单条标记已读同时支持；接口范围和并发语义见 3.6.1、6.13.1。后端代码与隔离测试已实现，尚未真实联调。
 6. 通知列表按 `binding_id` 过滤已支持；不传时返回本人所有当前可见通知。
 
 ---
@@ -263,9 +264,10 @@ ARCHIVED --archive--> 幂等成功，返回当前 ARCHIVED
 3. 若公告是 `DRAFT` 且 `published_by_user_id IS NULL`，条件更新：
    `status = 'PUBLISHED'`、`published_by_user_id = 当前用户`、`opens_at = COALESCE(opens_at, 服务端当前时间)`。
 4. 若条件更新影响 0 行，重新读取：已处于 `PUBLISHED` 则幂等返回；不存在/跨绑定按未找到；`ARCHIVED` 按状态冲突；仍为 `DRAFT` 按真实并发冲突。
-5. 提交事务，记录审计日志。
+5. 仅当第 3 步实际把草稿更新为 `PUBLISHED` 时，在同一事务内查询绑定当前有效学生，按 `[joinedAt, leftAt)` 过滤发布时点，再按每批最多 500 条写入 `ANNOUNCEMENT` 通知；重复键按幂等忽略。
+6. 提交事务，记录审计日志。
 
-说明：本批 Service 不生成 `ANNOUNCEMENT` 通知；通知 fan-out 放到后续通知批次，不在本批事务内。第 2 组契约中的学生名单查询也不在本批调用。
+说明：fan-out 与公告状态变更同事务；学生授权适配器缺失/异常/结果不完整返回 503 并回滚发布，通知写入失败同样回滚。重复发布走幂等返回，不重复 fan-out。第 2 组生产成员查询适配器仍未接入，当前按 503 失败关闭。
 
 归档流程（同一数据库事务）：
 
@@ -524,18 +526,34 @@ recipientUserIds = 该次发布对应的学生
 | `bindingId` | string | 是 | 教学班绑定 ID |
 | `sourceId` | string | 是 | 按第 2.6 节映射 |
 | `title` | string | 是 | 上游生成的标题快照，1–200 字符 |
-| `visibleAt` | RFC3339 UTC | 是 | 学生可见时间 |
-| `recipientUserIds` | string[] | 是 | 接收人；由上游按目标快照给出 |
-| `occurredAt` | RFC3339 UTC | 是 | 上游业务提交完成时间 |
+| `contentSnapshot` | string | 否 | 可选内容快照；当前通知表无正文字段，不落库 |
+| `visibleAt` | RFC3339 UTC | 否 | 学生可见时间；为空时取 `occurredAt` |
+| `recipientUserIds` | string[] | 否 | 为空/省略表示按教学班投递；空数组表示明确无接收人；非空表示指定学生列表 |
+| `occurredAt` | RFC3339 UTC | 是 | 上游业务提交完成时间；按教学班投递时用于在班区间判断 |
 
 失败语义：
 
 - 事件消费失败：记录日志、保留可重试信息；不向上游抛出会导致上游事务回滚的异常。
 - 事件重复：按唯一键幂等，不更新已存在的通知标题、可见时间、已读时间。
-- 事件中的接收人不是该绑定当前有效学生：跳过该接收人并记录；不能把外班学生写入通知。
-- 事件缺少必填字段或 `sourceId` 不属于该 kind：拒绝整条事件并告警，不能猜测来源。
+- 按教学班投递时，事件中的接收人先按 `[joinedAt, leftAt)` 过滤；授权结果异常/不完整按 503 失败关闭。按指定学生列表投递时，只校验字段完整性，不查询成员表；来源页面仍需重新鉴权。
+- 事件缺少必填字段、类型非法或指向 ANNOUNCEMENT：拒绝整条事件并告警，不能猜测来源。
 - 事件乱序：以 `visibleAt` 为准；若同一 source 已存在通知，不因后到事件改写。
 - 进程崩溃导致事件丢失：M0 记录已知限制；需要强一致时增加 outbox 或消息中间件，另行评审。
+
+### 5.7 接收侧内部事件契约（待与上游组联调确认）
+
+接收端已实现 Spring 端口 `UpstreamNoticeEventPort` 和 `UpstreamNoticeEventService`，不提供 HTTP 接收端点，不对外暴露学生数据。上游组实际投递方式、鉴权、重试、对账和事件字段冻结均**待与第 3、4、5 组联调确认**；当前实现按以下接收侧字段工作：
+
+- `eventId`：非空，仅用于日志排查，不落库；幂等以通知唯一键为准。
+- `noticeKind`：仅 `PREVIEW`/`ACTIVITY`/`ASSIGNMENT`/`GRADE`；`ANNOUNCEMENT` 由公告发布 fan-out 处理，事件入口拒绝。
+- `bindingId`、`sourceId`：正整数；`sourceId` 映射见 2.6，`GRADE` 必须使用成绩发布记录 ID。
+- `title`：非空，1–200 字符，作为通知标题快照。
+- `contentSnapshot`：可选；当前 `edu_user_notice` 无正文字段，不落库，详情由来源业务重新鉴权。
+- `occurredAt`：服务端/上游业务提交时间，UTC；按教学班投递时用于 `[joinedAt, leftAt)` 过滤和 `created_at`。
+- `visibleAt`：可选，UTC；为空时取 `occurredAt`，作为通知 `visible_at`。
+- `recipientUserIds`：省略/null 表示按教学班投递；空数组表示明确无接收人；非空表示指定学生列表，去重后直接写入，不查询成员表。
+
+事务与幂等：单事件在同一事务内按 500 条分批写入；唯一键 `(recipient_user_id, notice_kind, source_id)` 去重，重复投递返回幂等成功且不覆盖 `read_at`；写入失败整批回滚。与 read-all 当前读的 gap lock 互斥风险仍存在，本批不实现自动重试。
 
 ---
 
@@ -671,7 +689,7 @@ POST /education/teacher/announcements/{announcementId}/publish
 
 请求体：无；发布使用已保存的 `opensAt`/`closesAt`。  
 响应 `data`：公告对象，`status = "PUBLISHED"`；若已处于 `PUBLISHED`，重复调用在身份/绑定/权限校验通过后返回当前对象，`code = 200`。  
-本批不生成 `ANNOUNCEMENT` 通知；通知 fan-out 由后续通知批次实现。
+首次实际发布在同一事务内 fan-out `ANNOUNCEMENT` 通知；重复发布不重复写通知。授权适配器缺失时返回 503 并回滚发布。
 
 错误：
 
@@ -864,7 +882,7 @@ PUT /education/student/notices/read-all
 
 最终路径采用建议的 `PUT /education/student/notices/read-all`；现有学生通知路径没有其他冻结风格冲突。  
 请求体：无；不接受 `recipientUserId`。操作者只来自服务端认证上下文。  
-状态：契约已确认；当前没有学生通知后端代码，本接口尚未实现。
+状态：契约已确认；Controller/DTO/Service/Mapper 与隔离测试已实现，尚未真实联调。
 
 作用范围：
 
@@ -923,13 +941,13 @@ PUT /education/student/notices/read-all
 
 ### 6.14 接口汇总
 
-共 13 个接口：教师端 6 个，学生端 7 个。
+共 13 个接口：教师端 6 个，学生端 7 个。教师公告、学生公告只读、学生通知读取/已读的 Controller/DTO/Service/Mapper 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 和上游事件接收端已实现；生产授权适配器和真实上游投递联调未完成。
 
 | 方法 | 路径（草案） | 角色 | 作用 |
 | --- | --- | --- | --- |
 | POST | `/education/teacher/announcements` | 教师 | 创建草稿 |
 | PUT | `/education/teacher/announcements/{id}` | 教师 | 编辑草稿 |
-| POST | `/education/teacher/announcements/{id}/publish` | 教师 | 发布；重复发布幂等；本批不 fan-out 通知 |
+| POST | `/education/teacher/announcements/{id}/publish` | 教师 | 发布；重复发布幂等；首次实际发布同事务 fan-out ANNOUNCEMENT 通知 |
 | POST | `/education/teacher/announcements/{id}/archive` | 教师 | 归档；重复归档幂等 |
 | GET | `/education/teacher/announcements` | 教师 | 本班公告列表 |
 | GET | `/education/teacher/announcements/{id}` | 教师 | 本班公告详情 |
@@ -1117,7 +1135,7 @@ UNIQUE KEY uq_edu_notice_recipient_source
 
 - Given 教师 T 在教学班 C 有当前有效任课记录且 `can_publish = 1`；学生 S 在 C 有当前有效入班记录；绑定 B 未结束。
 - When T 创建公告 A（`opensAt` 为空）并发布。
-- Then A 状态为 `PUBLISHED`；`opensAt` 为服务端发布时刻；S 的公告列表包含 A；S 的详情返回正文。公告通知 fan-out 属于后续通知批次，本批不生成。
+- Then A 状态为 `PUBLISHED`；`opensAt` 为服务端发布时刻；S 的公告列表包含 A；S 的详情返回正文；发布事务内为 S 生成一条 `ANNOUNCEMENT` 通知，`visibleAt = opensAt`。
 
 **N-02 定时公告在开放前不可见**
 
@@ -1125,7 +1143,7 @@ UNIQUE KEY uq_edu_notice_recipient_source
 - When 学生在 `opensAt` 之前请求公告列表/详情。
 - Then 列表不包含 A，详情返回 404；教师列表仍显示 A，`visibilityState = NOT_YET_OPEN`。
 - When 服务端时间到达 `opensAt` 后再次请求。
-- Then 学生可见 A；本批不涉及公告通知和未读数。
+- Then 学生可见 A；对应通知的 `visibleAt = opensAt`，开放前同样不可见；未读数规则见 3.7。
 
 **N-06 重复发布幂等成功**
 
@@ -1195,7 +1213,7 @@ UNIQUE KEY uq_edu_notice_recipient_source
 
 - Given 绑定 B 当前没有有效学生。
 - When 教师发布公告。
-- Then 公告发布成功；教师列表可见；本批不生成公告通知，不报错。
+- Then 公告发布成功；教师列表可见；fan-out 写入 0 条通知，不报错。
 
 ### 9.3 无权限与越权
 
@@ -1269,11 +1287,11 @@ UNIQUE KEY uq_edu_notice_recipient_source
 - When 教师调用归档。
 - Then 返回 409；不伪造 `published_by_user_id`/`opens_at`。
 
-**F-04 公告发布事务失败（本批不包含 fan-out）**
+**F-04 公告发布事务失败（包含 fan-out）**
 
-- Given 公告发布的公告状态更新或重读失败。
+- Given 公告状态更新、重读或 fan-out 授权/写入失败。
 - When 发布事务执行。
-- Then 公告更新回滚；教师收到 500/业务错误；本批不生成通知，因此不存在公告与通知半成品。公告通知 fan-out 的事务策略在后续通知批次单独验证。
+- Then 公告状态与已写入的通知批次一起回滚；教师收到 500/503；不存在“已发布但无通知”或部分通知的半成品。
 
 **F-05 上游通知失败不回滚来源**
 
@@ -1378,7 +1396,7 @@ UNIQUE KEY uq_edu_notice_recipient_source
 1. 2.1 的领域归属：第 6 组是否拥有公告/通知表写入权。
 2. 2.6 的 `source_id` 映射，尤其 `GRADE` 使用 `edu_grade_publication.id`。
 3. 2.7 的退班历史访问策略；本文按“当前有效成员才可读”设计。
-4. 2.9 的公告发布通知：本批教师公告 Service 不生成通知，fan-out 放到后续通知批次；通知去重和已读规则不变。
+4. 2.9 的公告发布通知：已在发布事务内实现 ANNOUNCEMENT fan-out，按 `[joinedAt, leftAt)` 过滤发布时点，唯一键去重；上游事件接收端已实现，真实投递/鉴权联调待后续。
 5. 2.3 的草稿归档策略：已确定草稿不可归档，服务层禁止 `DRAFT → ARCHIVED`。
 6. 2.10 的管理员边界；本文按“M0 无管理员业务接口”设计。
 7. `published_at` 当前不新增、`publishedAt` 不返回；`archived_at`、`updated_at`、通知撤回字段仍为未来评审项，不在本批。
@@ -1390,44 +1408,51 @@ UNIQUE KEY uq_edu_notice_recipient_source
 3. **落权限**：由第 1 组配置 `education:announcement:*`、`education:notice:*` 权限标识和角色菜单；未完成前不要用前端隐藏代替。
 4. **实现第 2 组契约适配**：先完成绑定上下文、教师授权、学生成员、批量学生查询；第 6 组只调用契约。
 5. **实现公告**：Entity/DTO/枚举、Mapper、Service、教师/学生 Controller；先做读取，再做创建/编辑/发布/归档。
-6. **实现通知**：通知查询、未读数、单条标记已读、全部标记已读；公告发布 fan-out；唯一键冲突按幂等处理。全部标记已读当前只有契约，后端代码待实现。
-7. **接上游事件**：与第 3、4、5 组联调 `PREVIEW`/`ACTIVITY`/`ASSIGNMENT`/`GRADE` 事件；确认失败隔离和重试。
+6. **实现通知**：通知查询、未读数、单条标记已读、全部标记已读、公告发布 ANNOUNCEMENT fan-out 和上游事件接收端已实现（含隔离测试）；真实上游投递联调仍未完成；唯一键冲突按幂等处理。
+7. **接上游事件**：接收端已实现；与第 3、4、5 组联调 `PREVIEW`/`ACTIVITY`/`ASSIGNMENT`/`GRADE` 的真实投递、鉴权、失败隔离和重试。
 8. **测试**：单元测试 + 独立测试库集成测试，覆盖第 9 节用例；使用虚构账号和演示数据。
 9. **文档**：更新 `docs/api-contracts.md`、`docs/architecture.md`，把本文从“草案”改为“已评审/已实现”时必须附验证证据。
 10. **验收**：按 G0～G3 关口留接口契约、演示账号、正常/空/无权限/失败用例、构建与联调记录、负责人和审核人。
 
-### 10.3 预计涉及文件（教师公告与学生公告只读 Controller/DTO 已完成；学生通知等仍为未来实现）
+### 10.3 预计涉及文件（教师公告、学生公告只读、学生通知读取/已读、公告 fan-out、上游事件接收端已实现；真实上游联调未完成）
 
 | 文件/目录 | 用途与当前状态 |
 | --- | --- |
 | `backend/pom.xml` | 已修改：注册 `ruoyi-education` 模块、依赖管理 |
 | `backend/ruoyi-education/pom.xml` | 已创建：教育业务模块构建描述 |
 | `backend/ruoyi-admin/pom.xml` | 已修改：增加对 `ruoyi-education` 的依赖 |
-| `backend/ruoyi-education/src/main/java/com/ruoyi/education/course/communication/controller/TeacherAnnouncementController.java` | 已实现：教师公告接口 |
+| `backend/ruoyi-education/src/main/java/com/ruoyi/education/course/controller/TeacherAnnouncementController.java` | 已实现：教师公告接口 |
 | `.../controller/StudentAnnouncementController.java` | 已实现：学生公告只读列表/详情 |
-| `.../controller/StudentNoticeController.java` | 未来实现：学生通知接口 |
-| `.../domain/Announcement.java`、`Notice.java` | 教师公告实体已实现；通知对象未实现 |
-| `.../dto/AnnouncementCreateRequest.java`、`AnnouncementUpdateRequest.java`、`AnnouncementView.java`、`NoticeView.java`、`UnreadCountView.java` | 教师/学生公告 DTO 已实现；通知 DTO 未实现 |
-| `.../enums/AnnouncementStatus.java`、`NoticeKind.java` | `AnnouncementStatus` 已实现；`NoticeKind` 未实现 |
-| `.../service/AnnouncementService.java`、`NoticeService.java`、`NoticeEventService.java` | 公告 Service 已实现；通知 Service 未实现 |
-| `.../mapper/AnnouncementMapper.java`、`NoticeMapper.java` | 公告 Mapper 已实现；通知 Mapper 未实现 |
-| `backend/ruoyi-education/src/main/resources/mapper/education/AnnouncementMapper.xml`、`NoticeMapper.xml` | 公告 Mapper XML 已实现；通知 Mapper XML 未实现 |
-| `backend/ruoyi-education/src/test/java/...` | 公告测试已落地；通知测试未实现 |
+| `.../controller/StudentNoticeController.java` | 已实现：学生通知列表/详情/未读数/单条已读/全部已读 |
+| `.../domain/CourseAnnouncement.java`、`AnnouncementStatus.java`、`AnnouncementVisibility.java` | 已实现：公告实体/状态/可见性 |
+| `.../domain/StudentNotice.java`、`NoticeKind.java` | 已实现：通知实体/类型 |
+| `.../domain/TeacherAnnouncementAuthority.java`、`StudentAnnouncementAuthority.java` | 已实现：授权快照 |
+| `.../authorization/TeachingClassAuthorizationPort.java`、`TeacherAnnouncementAccess.java` | 已实现：教师授权端口/快照；生产适配器未接入 |
+| `.../authorization/StudentAnnouncementAuthorizationPort.java`、`StudentAnnouncementAccess.java`、`StudentAnnouncementMember.java` | 已实现：学生授权端口/快照/成员快照（含 joinedAt/leftAt）；生产适配器未接入 |
+| `.../dto/TeacherAnnouncement*.java`、`StudentAnnouncement*.java`、`StudentNotice*.java` | 已实现：公告/通知请求与响应 DTO |
+| `.../service/CourseAnnouncementService.java`、`StudentAnnouncementService.java`、`StudentNoticeService.java` | 已实现：公告读写、学生公告只读、学生通知读取/已读 |
+| `.../service/AnnouncementNoticeFanoutPort.java`、`AnnouncementNoticeFanoutService.java` | 已实现：公告发布 fan-out（同事务、500 条分批、唯一键幂等）；生产学生授权适配器未接入 |
+| `.../service/UpstreamNoticeEvent.java`、`UpstreamNoticeEventPort.java`、`UpstreamNoticeEventService.java` | 已实现：上游事件接收内部端口/服务（同事务、500 条分批、唯一键幂等）；不提供 HTTP 端点，真实上游投递/鉴权待联调 |
+| `.../mapper/CourseAnnouncementMapper.java`、`StudentNoticeMapper.java` | 已实现：公告/通知 Mapper |
+| `backend/ruoyi-education/src/main/resources/mapper/education/CourseAnnouncementMapper.xml`、`StudentNoticeMapper.xml` | 已实现：公告/通知 Mapper XML |
+| `.../policy/AnnouncementStatePolicy.java`、`exception/*`、`web/AnnouncementExceptionHandler.java` | 已实现：状态规则、异常映射 |
+| `backend/ruoyi-education/src/test/java/...` | 已落地：公告、学生公告、学生通知、公告 fan-out 和上游事件接收的 H2/Mockito/MockMvc 隔离测试 |
 | `sql/` | 权限菜单种子（若第 1 组要求）；不新增业务表 |
 | `docs/api-contracts.md` | 评审后补契约摘要 |
 | `docs/architecture.md` | 补充公告/通知归属和事件边界 |
+| `docs/6-02-mysql-hardening-results.md` | 已新增：MySQL 8.0.43 写入/并发/数据量/EXPLAIN 实测；8.0.46 未验证 |
+| `docs/6-02-notice-index-draft.sql` | 已新增：列表排序索引草案，待审核，不执行 |
 
-包名建议放在 `com.ruoyi.education.course.communication`，因为两张表在数据库设计中属于 `course` 领域；如果项目负责人决定新增“communication”领域，需要先修改九个领域的固定约定，不能由实现者自行扩域。
+现有实现位于 `com.ruoyi.education.course` 下的 `controller`、`domain`、`dto`、`exception`、`mapper`、`policy`、`service`、`authorization`、`support`、`web` 子包；没有新增 `communication` 领域。数据库设计中两张表仍归 `course` 领域，若未来决定新增独立领域，需要先修改九个领域的固定约定。
 
 ### 10.4 不在本轮交付
 
 - Vue 页面；
-- 学生通知接口、未读数、单条标记已读、全部标记已读（契约已确认，后端代码未实现）；
-- 公告通知 fan-out、上游任务/活动/成绩通知；
+- 与第 3、4、5 组的真实上游投递、鉴权、失败隔离和重试联调；
 - 任何 SQL/数据库变更或测试库写入；
 - 任何菜单/角色/权限数据变更；
 - 管理员公告治理、校园资讯、留言、系统通知模板、AI 功能。
-- 真实 MySQL、完整 Spring Boot 应用、HTTP 和真实教学班授权联调；当前教师公告和学生公告只读 Controller/DTO/Service/Mapper 及 H2 测试已落地，但不等于真实联调完成。
+- MySQL 8.0.46、真实 HTTP/登录/角色拦截/审计、真实上游投递/教学班授权联调；当前 MySQL 8.0.43 写入/并发/数据量加固和 `ruoyi-admin` 启动级上下文已实测，但不等于完整生产联调。
 
 ---
 

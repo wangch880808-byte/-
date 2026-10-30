@@ -31,6 +31,8 @@ class CourseAnnouncementServiceWiringTest
         {
             context.registerBean(CourseAnnouncementMapper.class,
                     () -> mock(CourseAnnouncementMapper.class));
+            context.registerBean(AnnouncementNoticeFanoutPort.class,
+                    () -> mock(AnnouncementNoticeFanoutPort.class));
             context.register(CourseAnnouncementService.class);
             context.refresh();
 
