@@ -42,12 +42,6 @@
             <artifactId>ruoyi-framework</artifactId>
         </dependency>
 
-        <!-- 教育业务模块 -->
-        <dependency>
-            <groupId>com.ruoyi</groupId>
-            <artifactId>ruoyi-education</artifactId>
-        </dependency>
-
         <!-- 定时任务-->
         <dependency>
             <groupId>com.ruoyi</groupId>
@@ -59,6 +53,13 @@
             <groupId>com.ruoyi</groupId>
             <artifactId>ruoyi-generator</artifactId>
         </dependency>
+        <!--ducation 的 service/mapper-->
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-education</artifactId>
+            <version>${ruoyi.version}</version>
+        </dependency>
+
 
     </dependencies>
 
@@ -70,14 +71,11 @@
             <resource>
                 <directory>${project.basedir}/../../frontend</directory>
                 <targetPath>static</targetPath>
+                <!-- 整个 frontend 目录一起进 classpath:/static。
+                     之前只列了 7 个文件，新增的 edu-api.js / edu-boot.js / pages-*.js 全部漏掉，
+                     页面能打开但脚本 404，内容区停在「待实现」占位。 -->
                 <includes>
-                    <include>login.html</include>
-                    <include>login.js</include>
-                    <include>admin.html</include>
-                    <include>teacher.html</include>
-                    <include>student.html</include>
-                    <include>role-home.js</include>
-                    <include>logo.png</include>
+                    <include>**/*</include>
                 </includes>
             </resource>
         </resources>

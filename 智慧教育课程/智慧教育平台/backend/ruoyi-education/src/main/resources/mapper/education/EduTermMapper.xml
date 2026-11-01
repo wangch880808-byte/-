@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduTermMapper">
+
+    <resultMap id="EduTermResult" type="com.ruoyi.education.domain.EduTerm">
+        <id     property="id"             column="id"/>
+        <result property="organizationId" column="organization_id"/>
+        <result property="code"           column="code"/>
+        <result property="name"           column="name"/>
+        <result property="startsOn"       column="starts_on"/>
+        <result property="endsOn"         column="ends_on"/>
+    </resultMap>
+
+    <sql id="selectVo">
+        SELECT id, organization_id, code, name, starts_on, ends_on FROM edu_term
+    </sql>
+
+    <select id="selectList" parameterType="com.ruoyi.education.domain.EduTerm" resultMap="EduTermResult">
+        <include refid="selectVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name LIKE concat('%', #{name}, '%')
+            </if>
+        </where>
+        ORDER BY starts_on DESC
+    </select>
+
+    <select id="selectById" parameterType="Long" resultMap="EduTermResult">
+        <include refid="selectVo"/> WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.ruoyi.education.domain.EduTerm"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_term(organization_id, code, name, starts_on, ends_on)
+        VALUES (#{organizationId}, #{code}, #{name}, #{startsOn}, #{endsOn})
+    </insert>
+
+    <update id="update" parameterType="com.ruoyi.education.domain.EduTerm">
+        UPDATE edu_term
+        <set>
+            <if test="code != null">code = #{code},</if>
+            <if test="name != null">name = #{name},</if>
+            <if test="startsOn != null">starts_on = #{startsOn},</if>
+            <if test="endsOn != null">ends_on = #{endsOn},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+</mapper>

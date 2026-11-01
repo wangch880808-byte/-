@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduClassTeacherMapper">
+
+    <resultMap id="ClassTeacherResult" type="com.ruoyi.education.domain.EduClassTeacher">
+        <id     property="id"               column="id"/>
+        <result property="teachingClassId"  column="teaching_class_id"/>
+        <result property="userId"           column="user_id"/>
+        <result property="teacherRole"       column="teacher_role"/>
+        <result property="canPublish"       column="can_publish"/>
+        <result property="canGrade"          column="can_grade"/>
+        <result property="canExport"       column="can_export"/>
+        <result property="validFrom"        column="valid_from"/>
+        <result property="validTo"          column="valid_to"/>
+        <result property="grantedByUserId"  column="granted_by_user_id"/>
+    </resultMap>
+
+    <!-- 查某个班当前所有有效老师 -->
+    <select id="selectByClassId" resultMap="ClassTeacherResult">
+        SELECT id, teaching_class_id, user_id, teacher_role, can_publish, can_grade, can_export,
+        valid_from, valid_to, granted_by_user_id
+        FROM edu_class_teacher
+        WHERE teaching_class_id = #{classId} AND valid_to IS NULL
+        ORDER BY id DESC
+    </select>
+
+    <!-- 查某个老师在某个班的有效授权（用于判断是否已授权） -->
+    <select id="selectActive" resultMap="ClassTeacherResult">
+        SELECT id, teaching_class_id, user_id, teacher_role, can_publish, can_grade, can_export,
+        valid_from, valid_to, granted_by_user_id
+        FROM edu_class_teacher
+        WHERE teaching_class_id = #{classId} AND user_id = #{userId} AND valid_to IS NULL
+    </select>
+
+    <!-- 新增授权 -->
+    <insert id="insert" parameterType="com.ruoyi.education.domain.EduClassTeacher"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_class_teacher(teaching_class_id, user_id, teacher_role,
+        can_publish, can_grade, can_export,
+        valid_from, granted_by_user_id)
+        VALUES (#{teachingClassId}, #{userId}, #{teacherRole},
+        #{canPublish}, #{canGrade}, #{canExport},
+        NOW(3), #{grantedByUserId})
+    </insert>
+
+    <!-- 撤权：把 valid_to 设成当前时间，记录谁撤的 -->
+    <update id="revoke">
+        UPDATE edu_class_teacher
+        SET valid_to = NOW(3), ended_by_user_id = #{endedByUserId}
+        WHERE teaching_class_id = #{classId} AND user_id = #{userId} AND valid_to IS NULL
+    </update>
+</mapper>
