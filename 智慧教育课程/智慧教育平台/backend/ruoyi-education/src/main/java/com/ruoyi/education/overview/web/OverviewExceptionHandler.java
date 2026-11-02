@@ -8,18 +8,22 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.education.overview.controller.OverviewController;
 import com.ruoyi.education.overview.exception.OverviewException;
 
 /**
- * 总览接口独立异常处理。
+ * 总览接口局部异常处理。
  *
- * <p>本类不 import 或复用 6-02 的 AnnouncementExceptionHandler，独立处理
- * 总览异常。业务异常映射为若依统一响应体的 code；当前与 6-02 合同一致，
- * 使用 HTTP 200 + body.code 表达 400/403 等业务码。</p>
+ * <p>6-02 已合并，公共 {@code AnnouncementExceptionHandler} 负责其
+ * {@link com.ruoyi.education.course.exception.EducationException} 链。本类只挂载在
+ * {@link OverviewController} 上，明确接管总览业务异常和总览查询参数类型错误，
+ * 避免全局 advice 对总览异常产生同优先级竞争，也避免改变其他组接口的
+ * 类型错误语义。</p>
  *
- * <p>只处理总览业务异常和查询参数类型错误，不改变若依其他异常的既有行为。</p>
+ * <p>业务异常仍映射为若依统一响应体的 code，保持 HTTP 200 + body.code；
+ * 单指标 UNAVAILABLE 语义不变。</p>
  */
-@RestControllerAdvice
+@RestControllerAdvice(assignableTypes = OverviewController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class OverviewExceptionHandler
 {

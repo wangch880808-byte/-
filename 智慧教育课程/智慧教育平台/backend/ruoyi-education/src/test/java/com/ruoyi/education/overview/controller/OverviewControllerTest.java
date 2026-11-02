@@ -1,5 +1,8 @@
 package com.ruoyi.education.overview.controller;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -8,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -29,6 +33,14 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.education.course.exception.AnnouncementNotFoundException;
+import com.ruoyi.education.course.exception.NoticeNotFoundException;
+import com.ruoyi.education.course.web.AnnouncementExceptionHandler;
 import com.ruoyi.education.overview.dto.OverviewItem;
 import com.ruoyi.education.overview.dto.OverviewResponse;
 import com.ruoyi.education.overview.dto.OverviewStatus;
@@ -82,8 +94,9 @@ class OverviewControllerTest
             }
         });
         objectMapper.registerModule(instantModule);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new OverviewExceptionHandler())
+        mockMvc = MockMvcBuilders.standaloneSetup(controller, new ProbeController())
+                .setControllerAdvice(new OverviewExceptionHandler(),
+                        new AnnouncementExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
     }
@@ -226,6 +239,34 @@ class OverviewControllerTest
                 "@ss.hasPermi('education:overview:admin')");
     }
 
+    @Test
+    void overviewAdviceIsScopedToOverviewController()
+    {
+        RestControllerAdvice annotation = OverviewExceptionHandler.class
+                .getAnnotation(RestControllerAdvice.class);
+
+        assertArrayEquals(new Class<?>[] { OverviewController.class },
+                annotation.assignableTypes());
+    }
+
+    @Test
+    void bothAdvicesKeepAnnouncementAndNoticeResponses() throws Exception
+    {
+        mockMvc.perform(get("/probe/announcement"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.msg").value("公告不存在或不可访问"));
+
+        mockMvc.perform(get("/probe/notice"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.msg").value("通知不存在或不可访问"));
+
+        mockMvc.perform(get("/probe/type").param("id", "bad"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(not(containsString("参数格式错误"))));
+    }
+
     private void assertPermission(String methodName, Class<?>[] parameterTypes,
             String expected) throws Exception
     {
@@ -247,5 +288,30 @@ class OverviewControllerTest
                     "course", 1L, "/teacher/classes");
         }
         return OverviewItem.noData(metricCode, "COUNT", "course", null);
+    }
+
+    /**
+     * 非总览控制器，用于验证两个真实 advice 同时加载时不会改变其他组错误语义。
+     */
+    @RestController
+    static class ProbeController
+    {
+        @GetMapping("/probe/announcement")
+        public AjaxResult announcement()
+        {
+            throw new AnnouncementNotFoundException();
+        }
+
+        @GetMapping("/probe/notice")
+        public AjaxResult notice()
+        {
+            throw new NoticeNotFoundException();
+        }
+
+        @GetMapping("/probe/type")
+        public AjaxResult type(@RequestParam Long id)
+        {
+            return AjaxResult.success(id);
+        }
     }
 }

@@ -41,7 +41,17 @@
       "startsAt": "2026-10-30T00:00:00.000Z",
       "endsAt": "2026-10-31T00:00:00.000Z"
     },
-    "items": []
+    "items": [
+      {
+        "metricCode": "teacher.class.count",
+        "value": 1,
+        "unit": "COUNT",
+        "status": "OK",
+        "source": "course",
+        "sampleCount": 1,
+        "actionPath": "/teacher/classes"
+      }
+    ]
   }
 }
 ```
@@ -365,7 +375,7 @@
 
 - 权限串：`education:overview:teacher`、`education:overview:student`、`education:overview:admin`，待第 1 组配置菜单/角色后联调。
 - 当前仓库没有生产课程/课堂/任务/成绩/通知适配器；后端通过端口聚合，端口缺失时返回 `UNAVAILABLE`。
-- 6-02 通知 PR #18/#20/#21/#22 未合并；`NoticeSummaryPort` 只有接口，6-02 合并后才接未读汇总适配器。当前通知项为 `UNAVAILABLE`。
+- 6-02 通知 PR #18/#20/#21/#22 已合并到 main（`f21f51d55c363738c03ee6f626c7c67b904d6b36`）；但 6-02 未提供 `NoticeSummaryPort` 所需的批量未读汇总契约，适配器仍未接入。当前通知项为 `UNAVAILABLE`。
 - 真实 HTTP、登录、角色拦截、审计落库、MySQL 8.0.46 均未验证。
 - 当前前端只能按字段和状态对齐，不能把本文示例当作真实联调数据，也不能宣称 6-01 已完成生产联调。
 
@@ -374,5 +384,5 @@
 - 路径、查询参数、指标编码、`unit` 枚举、默认时间窗、`actionPath` 仍待评审。
 - 管理员待办来源待产品确认。
 - 第 2-5 组聚合契约未落地；接入后需重新确认 `source`、`sampleCount`、指标口径和 `window`。
-- 6-02 合并后补充通知未读适配器，并重新验证 `UNAVAILABLE` → `OK/NO_DATA` 的状态变化。
+- 6-02 已合并；补充通知未读适配器仍需批量汇总契约、授权方式和调用方式确认，完成后再验证 `UNAVAILABLE` → `OK/NO_DATA` 的状态变化。
 - 契约变更需同步更新本文档、`docs/6-01-overview-contract.md` 和前端字段映射。
