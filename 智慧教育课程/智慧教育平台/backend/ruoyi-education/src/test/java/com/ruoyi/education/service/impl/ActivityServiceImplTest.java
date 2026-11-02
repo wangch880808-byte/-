@@ -18,6 +18,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.education.domain.activity.EduActivityInstance;
 import com.ruoyi.education.domain.activity.EduActivityResponse;
 import com.ruoyi.education.domain.activity.EduActivityTarget;
+import com.ruoyi.education.dto.activity.ActivityStatisticsResponse;
 import com.ruoyi.education.dto.activity.CheckinResponse;
 import com.ruoyi.education.dto.activity.SubmitResponseRequest;
 import com.ruoyi.education.enums.ActivityKind;
@@ -44,6 +45,8 @@ class ActivityServiceImplTest
     private static final Long BINDING_ID = 1001L;
 
     private static final Long STUDENT_ID = 9L;
+
+    private static final Long TEACHER_ID = 8L;
 
     @Mock
     private EduActivityInstanceMapper activityInstanceMapper;
@@ -124,6 +127,61 @@ class ActivityServiceImplTest
 
         assertEquals(422, error.getCode().intValue());
         verify(activityResponseMapper, never()).insert(any());
+    }
+
+    @Test
+    void statisticsAreVisibleToTeacher()
+    {
+        when(activityInstanceMapper.selectById(ACTIVITY_ID)).thenReturn(activity(ActivityKind.QUIZ,
+                new Date(System.currentTimeMillis() - 600_000L), new Date(System.currentTimeMillis() + 600_000L)));
+        when(courseAccessPort.isTeacherOfBinding(TEACHER_ID, BINDING_ID)).thenReturn(true);
+        when(activityTargetMapper.countByActivityId(ACTIVITY_ID)).thenReturn(30);
+        when(activityResponseMapper.countByActivityId(ACTIVITY_ID)).thenReturn(18);
+        when(activityResponseMapper.countCorrectByActivityId(ACTIVITY_ID)).thenReturn(12);
+
+        ActivityStatisticsResponse stats = service.getStatistics(ACTIVITY_ID, TEACHER_ID);
+
+        assertEquals(30, stats.getTargetCount().intValue());
+        assertEquals(18, stats.getRespondedCount().intValue());
+        assertEquals(12, stats.getCorrectCount().intValue());
+        assertEquals(0.6D, stats.getResponseRate().doubleValue(), 0.001D);
+    }
+
+    @Test
+    void statisticsAreHiddenFromStudentBeforePublish()
+    {
+        when(activityInstanceMapper.selectById(ACTIVITY_ID)).thenReturn(activity(ActivityKind.QUIZ,
+                new Date(System.currentTimeMillis() - 600_000L), new Date(System.currentTimeMillis() + 600_000L)));
+        when(courseAccessPort.isTeacherOfBinding(STUDENT_ID, BINDING_ID)).thenReturn(false);
+        when(courseAccessPort.isActiveStudentOfBinding(STUDENT_ID, BINDING_ID)).thenReturn(true);
+
+        ServiceException error = assertThrows(ServiceException.class,
+                () -> service.getStatistics(ACTIVITY_ID, STUDENT_ID));
+
+        assertEquals(403, error.getCode().intValue());
+        verify(activityTargetMapper, never()).countByActivityId(any());
+        verify(activityResponseMapper, never()).countByActivityId(any());
+    }
+
+    @Test
+    void statisticsAreVisibleToStudentAfterPublish()
+    {
+        EduActivityInstance quiz = activity(ActivityKind.QUIZ,
+                new Date(System.currentTimeMillis() - 600_000L),
+                new Date(System.currentTimeMillis() + 600_000L));
+        quiz.setAnswerOpensAt(new Date(System.currentTimeMillis() - 60_000L));
+        when(activityInstanceMapper.selectById(ACTIVITY_ID)).thenReturn(quiz);
+        when(courseAccessPort.isTeacherOfBinding(STUDENT_ID, BINDING_ID)).thenReturn(false);
+        when(courseAccessPort.isActiveStudentOfBinding(STUDENT_ID, BINDING_ID)).thenReturn(true);
+        when(activityTargetMapper.countByActivityId(ACTIVITY_ID)).thenReturn(30);
+        when(activityResponseMapper.countByActivityId(ACTIVITY_ID)).thenReturn(30);
+        when(activityResponseMapper.countCorrectByActivityId(ACTIVITY_ID)).thenReturn(20);
+
+        ActivityStatisticsResponse stats = service.getStatistics(ACTIVITY_ID, STUDENT_ID);
+
+        assertTrue(stats.getAnswerPublished());
+        assertEquals(1.0D, stats.getResponseRate().doubleValue(), 0.001D);
+        assertEquals(20, stats.getCorrectCount().intValue());
     }
 
     private EduActivityInstance activity(ActivityKind kind, Date opensAt, Date closesAt)

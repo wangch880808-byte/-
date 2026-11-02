@@ -104,6 +104,18 @@ mvn -B -pl ruoyi-admin -am -DskipTests package
 新增 SQL 语句已用 `sql/verify-v3-m0-invariants.sql` 同库 `zhijiao_m0` 实测（事务内执行后回滚），
 未新增表结构，`edu_idempotency_record` 沿用原设计。
 
+## M0 增补（统计与控制台体验）
+
+| 项 | 说明 |
+|---|---|
+| 活动统计接口 | 新增 `GET /education/activity/instances/{id}/statistics`：教师随时可读，学生仅 `publish-result` 后可见，其他账号 403；只返回聚合数字 |
+| 控制台进度 | 教师控制台活动列表显示「已签到 x/y」「已提交 x/y」，随 3 秒轮询刷新 |
+| 断线重连 | 监听 `online` / `offline`：断网时显示提示条，恢复后立即补拉快照并重绘，页码与本人提交状态不丢 |
+| 重复点击 | 按钮处理期间置 `busy` 标记并禁用、文案改为「处理中…」，防止同一次操作提交两遍 |
+
+验证：`mvn -pl ruoyi-education -am test` → **167 tests, 0 failures**；
+新增统计 SQL 已在 `zhijiao_m0` 实库执行验证（目标 3 / 已提交 1 / 答对 0）。
+
 ## 修改代码后
 
 ```powershell

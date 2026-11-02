@@ -18,6 +18,7 @@ import com.ruoyi.education.domain.activity.EduActivityResponseRevision;
 import com.ruoyi.education.domain.activity.EduActivityTarget;
 import com.ruoyi.education.domain.classroom.EduClassSession;
 import com.ruoyi.education.domain.course.BindingContext;
+import com.ruoyi.education.dto.activity.ActivityStatisticsResponse;
 import com.ruoyi.education.dto.activity.CheckinResponse;
 import com.ruoyi.education.dto.activity.CreateActivityRequest;
 import com.ruoyi.education.dto.activity.CreateActivityResponse;
@@ -272,6 +273,42 @@ public class ActivityServiceImpl implements IActivityService
         EduActivityInstance activity = requireActivity(activityId);
         requireTeacher(userId, activity.getBindingId());
         return assignmentBridgePort.createClasswork(request, activity.getSessionId(), userId);
+    }
+
+    @Override
+    public ActivityStatisticsResponse getStatistics(Long activityId, Long userId)
+    {
+        EduActivityInstance activity = requireActivity(activityId);
+        boolean teacher = courseAccessPort.isTeacherOfBinding(userId, activity.getBindingId());
+        boolean published = activity.getAnswerOpensAt() != null
+                && !new Date().before(activity.getAnswerOpensAt());
+        if (!teacher)
+        {
+            if (!courseAccessPort.isActiveStudentOfBinding(userId, activity.getBindingId()))
+            {
+                throw new ServiceException("非本班成员无权查看活动统计", HttpStatus.FORBIDDEN);
+            }
+            // 契约 §3.5：未公布结果前，统计不得出现在学生视图。
+            if (!published)
+            {
+                throw new ServiceException("结果尚未公布，暂不可查看统计", HttpStatus.FORBIDDEN);
+            }
+        }
+
+        int targetCount = activityTargetMapper.countByActivityId(activityId);
+        int respondedCount = activityResponseMapper.countByActivityId(activityId);
+        ActivityStatisticsResponse response = new ActivityStatisticsResponse();
+        response.setActivityId(activityId);
+        response.setActivityKind(activity.getActivityKind());
+        response.setStatus(activity.getStatus());
+        response.setTargetCount(targetCount);
+        response.setRespondedCount(respondedCount);
+        response.setCorrectCount(teacher || published
+                ? activityResponseMapper.countCorrectByActivityId(activityId) : null);
+        response.setResponseRate(targetCount == 0 ? 0D
+                : Math.round(respondedCount * 10000D / targetCount) / 10000D);
+        response.setAnswerPublished(published);
+        return response;
     }
 
     private void captureTargets(EduActivityInstance instance)

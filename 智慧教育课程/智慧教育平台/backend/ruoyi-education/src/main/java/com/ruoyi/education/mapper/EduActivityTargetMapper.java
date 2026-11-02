@@ -12,4 +12,9 @@ public interface EduActivityTargetMapper
             @Param("studentUserId") Long studentUserId);
 
     int insert(EduActivityTarget target);
+
+    /**
+     * 活动应参与人数（目标学生快照数量）。
+     */
+    int countByActivityId(@Param("activityId") Long activityId);
 }

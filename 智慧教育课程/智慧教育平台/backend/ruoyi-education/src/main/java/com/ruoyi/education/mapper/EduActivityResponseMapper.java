@@ -14,4 +14,14 @@ public interface EduActivityResponseMapper
             @Param("studentUserId") Long studentUserId);
 
     int insert(EduActivityResponse response);
+
+    /**
+     * 活动已提交人数。
+     */
+    int countByActivityId(@Param("activityId") Long activityId);
+
+    /**
+     * 活动答对人数（按当前有效版本判定）。
+     */
+    int countCorrectByActivityId(@Param("activityId") Long activityId);
 }

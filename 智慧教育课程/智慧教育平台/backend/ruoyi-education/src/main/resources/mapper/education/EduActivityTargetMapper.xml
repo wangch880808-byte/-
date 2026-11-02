@@ -29,4 +29,10 @@
             #{enrollmentId}, #{targetStatus}, #{capturedAt}
         )
     </insert>
+
+    <select id="countByActivityId" resultType="int">
+        select count(1)
+        from edu_activity_target
+        where activity_id = #{activityId}
+    </select>
 </mapper>

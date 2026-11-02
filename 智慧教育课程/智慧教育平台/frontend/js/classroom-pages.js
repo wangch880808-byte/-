@@ -23,7 +23,9 @@
     snapshot: null,
     sessionId: null,
     totalPages: 2,
-    joined: false
+    joined: false,
+    stats: {},
+    view: 'teacher'
   };
 
   function statusBadge(status) {
@@ -83,6 +85,38 @@
     pollTimer = setInterval(() => {
       refreshFn().catch(() => {});
     }, POLL_MS);
+  }
+
+  /** 连接状态提示：断网时明确告知，恢复后自动补拉快照。 */
+  function connectionNotice() {
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) return '';
+    return '<div class="classroom-notice classroom-notice--warn">'
+      + '网络已断开，正在等待重连；恢复后会自动拉取最新课堂快照，页码与本人提交状态不会丢失。</div>';
+  }
+
+  function currentPageName() {
+    if (!window.MENU || window.currentGi === undefined) return null;
+    return window.MENU[window.currentGi].children[window.currentIi];
+  }
+
+  function repaintCurrent() {
+    const role = document.body.dataset.role;
+    const pageName = currentPageName();
+    if (!role || !pageName) return;
+    paint(role, pageName);
+  }
+
+  /** 拉取进行中活动的聚合统计；未公布或无权限时静默跳过。 */
+  async function loadStatistics(activities) {
+    const next = {};
+    await Promise.all((activities || []).map(async (a) => {
+      try {
+        next[a.activityId] = await ClassroomApi.getStatistics(a.activityId);
+      } catch (err) {
+        // 学生侧在公布前会 403，教师侧不应失败，失败时只是不显示进度
+      }
+    }));
+    pageState.stats = next;
   }
 
   function renderInto(pageName, html, mobile) {
@@ -170,11 +204,16 @@
     if (!list.length) {
       return '<p style="font-size:12px;color:#999;">暂无进行中的活动</p>';
     }
-    return list.map((a) => `
+    return list.map((a) => {
+      const st = pageState.stats?.[a.activityId];
+      const label = a.activityKind === 'ATTENDANCE' ? '已签到' : '已提交';
+      const progress = st ? ` · ${label} ${st.respondedCount}/${st.targetCount}` : '';
+      return `
       <div class="classroom-stat">
         <span>${a.title}（${a.activityKind}）</span>
-        <span>${a.status}</span>
-      </div>`).join('');
+        <span>${a.status}${progress}</span>
+      </div>`;
+    }).join('');
   }
 
   function teacherQuickStartHtml() {
@@ -186,6 +225,7 @@
         <h2>今日课程 / 快捷上课 ${statusBadge(status)}</h2>
         <p class="sub">${binding?.courseTitle || '—'} · ${binding?.className || '—'}</p>
         ${pageState.loading ? '<p class="sub">加载中…</p>' : ''}
+        ${connectionNotice()}
         <div class="classroom-card">
           <h3>快捷操作</h3>
           <p style="font-size:13px;color:#666;margin-bottom:12px;">
@@ -218,6 +258,7 @@
       <div class="classroom-panel">
         <h2>课堂教学控制台 ${statusBadge(status)}</h2>
         <p class="sub">会话 ${sessionId || '—'} · ${binding?.courseTitle || ''} · ${binding?.className || ''}</p>
+        ${connectionNotice()}
         <div class="classroom-grid classroom-grid--2">
           <div class="classroom-card">
             <h3>课件演示</h3>
@@ -287,6 +328,7 @@
           <button type="button" class="classroom-btn classroom-btn--primary" data-action="join-class"
             ${canJoin ? '' : 'disabled'}>一键加入</button>
         </div>
+        ${connectionNotice()}
         ${errorNotice()}
         <div class="classroom-notice" style="text-align:left;margin-top:24px;">
           加入时调用 <code>POST /education/classroom/sessions/{id}/join</code> 校验本班资格。
@@ -306,6 +348,7 @@
       <div class="classroom-panel">
         <h2>同步课堂 ${statusBadge(status)}</h2>
         <p class="sub">${binding?.courseTitle || ''} · 第 ${pageNo} 页</p>
+        ${connectionNotice()}
         <div class="classroom-card">
           <div class="classroom-slide-preview" style="min-height:160px;">
             <span class="page-no">第 ${pageNo} 页</span>
@@ -365,6 +408,8 @@
           pageState.snapshot = { status: 'PLANNED', pageNo: 1 };
         }
       }
+      pageState.view = 'teacher';
+      await loadStatistics(pageState.snapshot?.openActivities);
     } catch (err) {
       showError(err.message || '加载课堂数据失败');
       pageState.snapshot = pageState.snapshot || { status: 'PLANNED', pageNo: 1 };
@@ -376,6 +421,7 @@
   async function loadStudentState(joinOnSync) {
     clearError();
     pageState.loading = true;
+    pageState.view = 'student';
     try {
       const binding = await pickBinding('student');
       pageState.binding = binding;
@@ -406,8 +452,12 @@
 
   async function refreshSnapshot(view) {
     if (!pageState.sessionId) return;
+    pageState.view = view;
     try {
       pageState.snapshot = await ClassroomApi.getSnapshot(pageState.sessionId, view);
+      if (view === 'teacher') {
+        await loadStatistics(pageState.snapshot?.openActivities);
+      }
       clearError();
       const role = document.body.dataset.role;
       const pageName = window.MENU[window.currentGi].children[window.currentIi];
@@ -438,6 +488,13 @@
   async function handleAction(btn) {
     const action = btn.getAttribute('data-action');
     const role = document.body.dataset.role;
+
+    // 4-04 判据：重复点击不得造成多次有效提交。处理期间禁用按钮并置忙标记。
+    if (btn.dataset.busy === '1') return;
+    btn.dataset.busy = '1';
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '处理中…';
 
     try {
       clearError();
@@ -509,13 +566,13 @@
         }
         case 'open-projection':
           window.open('/projection.html?sessionId=' + encodeURIComponent(pageState.sessionId), '_blank', 'noopener');
-          return;
+          break;
         case 'open-console':
           window.location.href = '/teacher.html?g=1&i=3';
-          return;
+          break;
         case 'join-class':
           window.location.href = '/student.html?g=1&i=3';
-          return;
+          break;
         case 'checkin': {
           const activityId = btn.getAttribute('data-activity-id');
           if (!activityId) throw new Error('当前没有签到活动');
@@ -532,11 +589,17 @@
           break;
         }
         default:
-          return;
+          break;
       }
     } catch (err) {
       showError(err.message || '操作失败');
     }
+
+    if (btn.isConnected) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+    btn.dataset.busy = '';
 
     const pageName = window.MENU[window.currentGi].children[window.currentIi];
     paint(role, pageName);
@@ -592,6 +655,14 @@
 
   function ensureDemoSession() {
     return loadCtx();
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('offline', () => repaintCurrent());
+    window.addEventListener('online', () => {
+      repaintCurrent();
+      refreshSnapshot(pageState.view || 'teacher').catch(() => {});
+    });
   }
 
   window.ClassroomPages = { render, resetContent, ensureDemoSession };

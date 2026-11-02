@@ -2,6 +2,7 @@ package com.ruoyi.education.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -12,6 +13,7 @@ import com.alibaba.fastjson2.JSON;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.education.dto.activity.ActivityStatisticsResponse;
 import com.ruoyi.education.dto.activity.CheckinResponse;
 import com.ruoyi.education.dto.activity.CreateActivityRequest;
 import com.ruoyi.education.dto.activity.CreateActivityResponse;
@@ -89,6 +91,16 @@ public class ActivityController extends BaseController
     {
         activityService.publishResult(activityId, SecurityUtils.getUserId());
         return success();
+    }
+
+    /**
+     * 4-03：控制台查看即时人数与答题统计。教师随时可读，学生仅在公布后可见。
+     */
+    @GetMapping("/{activityId}/statistics")
+    public AjaxResult statistics(@PathVariable Long activityId)
+    {
+        ActivityStatisticsResponse data = activityService.getStatistics(activityId, SecurityUtils.getUserId());
+        return success(data);
     }
 
     @PostMapping("/{activityId}/classwork")

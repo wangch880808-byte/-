@@ -224,6 +224,34 @@
 
 通过 `activityKind = CLASSWORK` 创建，提交走第 5 组 `/education/assignment/*` 统一引擎（单独评审关联字段）。
 
+### 3.7 参与统计（4-03 控制台展示）
+
+`GET /education/activity/instances/{activityId}/statistics`
+
+| 角色 | 可见范围 |
+|---|---|
+| 任课教师 | 随时可读，含答对人数 |
+| 本班学生 | 仅 `publish-result` 之后可读，之前返回 `403` |
+| 其他账号 | `403` |
+
+**响应 `data`**
+
+```json
+{
+  "activityId": 6001,
+  "activityKind": "ATTENDANCE",
+  "status": "OPEN",
+  "targetCount": 30,
+  "respondedCount": 18,
+  "correctCount": null,
+  "responseRate": 0.6,
+  "answerPublished": false
+}
+```
+
+只返回聚合数字，不含学生明细；`responseRate` 为 0–1 的小数，`targetCount` 为 0 时取 0。
+教师控制台每 3 秒轮询快照后顺带刷新本接口，用于显示「已签到 x/y」。`correctCount` 仅在教师视图或已公布时返回。
+
 ---
 
 ### 2.8 查询教学班当前活跃会话

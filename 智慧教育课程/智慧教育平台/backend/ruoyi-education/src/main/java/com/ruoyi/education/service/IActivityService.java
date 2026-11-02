@@ -1,5 +1,6 @@
 package com.ruoyi.education.service;
 
+import com.ruoyi.education.dto.activity.ActivityStatisticsResponse;
 import com.ruoyi.education.dto.activity.CheckinResponse;
 import com.ruoyi.education.dto.activity.CreateActivityRequest;
 import com.ruoyi.education.dto.activity.CreateActivityResponse;
@@ -32,4 +33,9 @@ public interface IActivityService
     void publishResult(Long activityId, Long userId);
 
     Long createClasswork(Long activityId, CreateActivityRequest request, Long userId);
+
+    /**
+     * 活动参与统计。教师随时可读；学生仅在公布结果后可读，且只返回聚合数字。
+     */
+    ActivityStatisticsResponse getStatistics(Long activityId, Long userId);
 }

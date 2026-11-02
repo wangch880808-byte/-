@@ -72,6 +72,10 @@
     return API.post('/education/activity/instances/' + activityId + '/publish-result');
   }
 
+  function getStatistics(activityId) {
+    return API.get('/education/activity/instances/' + activityId + '/statistics').then((r) => r.data);
+  }
+
   window.ClassroomApi = {
     listMyBindings,
     getClassroomPrep,
@@ -88,6 +92,7 @@
     checkin,
     submitResponse,
     closeActivity,
-    publishResult
+    publishResult,
+    getStatistics
   };
 })();

@@ -32,4 +32,20 @@
             #{activityId}, #{targetId}, #{acceptedAt}, #{responseState}, #{currentRevisionNo}
         )
     </insert>
+
+    <select id="countByActivityId" resultType="int">
+        select count(1)
+        from edu_activity_response
+        where activity_id = #{activityId}
+    </select>
+
+    <select id="countCorrectByActivityId" resultType="int">
+        select count(1)
+        from edu_activity_response r
+        inner join edu_activity_response_revision v
+                on v.response_id = r.id
+               and v.revision_no = r.current_revision_no
+        where r.activity_id = #{activityId}
+          and v.is_correct = 1
+    </select>
 </mapper>
