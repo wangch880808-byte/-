@@ -32,10 +32,11 @@ import com.ruoyi.education.course.support.DatabaseTimePrecision;
 /**
  * 教师公告的 M0 业务服务。
  *
- * <p>本批只实现公告本身的创建、编辑、发布和归档，不生成公告通知。
- * 所有写操作在服务端事务内完成，并通过条件更新检查实际影响行数。
- * 操作者身份只从 {@link SecurityUtils#getUserId()} 取得，不接受前端
- * 传入的教师 ID。</p>
+ * <p>实现公告的创建、编辑、发布和归档。发布时在同一事务内调用
+ * {@link AnnouncementNoticeFanoutPort} 为发布时点的在班学生生成
+ * ANNOUNCEMENT 通知；重复发布保持幂等 200，不重复 fan-out。所有写操作
+ * 在服务端事务内完成，并通过条件更新检查实际影响行数。操作者身份只从
+ * {@link SecurityUtils#getUserId()} 取得，不接受前端传入的教师 ID。</p>
  */
 @Service
 public class CourseAnnouncementService
@@ -50,23 +51,50 @@ public class CourseAnnouncementService
 
     private final TeachingClassAuthorizationPort authorizationPort;
 
+    private final AnnouncementNoticeFanoutPort fanoutService;
+
     private final Clock clock;
 
+    /**
+     * Spring 构造器。
+     *
+     * @param announcementMapper 公告 Mapper
+     * @param authorizationPortProvider 教师教学班授权适配器提供者
+     * @param fanoutService 公告发布 fan-out 端口，必须与发布事务共享事务
+     */
     @Autowired
     public CourseAnnouncementService(CourseAnnouncementMapper announcementMapper,
-            ObjectProvider<TeachingClassAuthorizationPort> authorizationPortProvider)
+            ObjectProvider<TeachingClassAuthorizationPort> authorizationPortProvider,
+            AnnouncementNoticeFanoutPort fanoutService)
     {
-        this(announcementMapper, authorizationPortProvider.getIfAvailable(), Clock.systemUTC());
+        this(announcementMapper, authorizationPortProvider.getIfAvailable(),
+                fanoutService, Clock.systemUTC());
     }
 
     CourseAnnouncementService(CourseAnnouncementMapper announcementMapper,
-            TeachingClassAuthorizationPort authorizationPort, Clock clock)
+            TeachingClassAuthorizationPort authorizationPort,
+            AnnouncementNoticeFanoutPort fanoutService, Clock clock)
     {
         this.announcementMapper = Objects.requireNonNull(announcementMapper, "announcementMapper");
         this.authorizationPort = authorizationPort;
+        this.fanoutService = Objects.requireNonNull(fanoutService, "fanoutService");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /**
+     * 创建公告草稿。
+     *
+     * @param bindingId 课程—教学班绑定 ID
+     * @param title 标题，1–200 字符
+     * @param body 正文，非空且不超过 API 上限
+     * @param opensAt 开放时间，可为空
+     * @param closesAt 关闭时间，可为空；非空必须晚于 opensAt
+     * @return 新建草稿
+     * @throws AnnouncementValidationException 参数非法
+     * @throws AnnouncementAccessDeniedException 当前教师无发布权限
+     * @throws AnnouncementAuthorizationUnavailableException 教师授权适配器不可用
+     * @throws AnnouncementPersistenceException 写入失败
+     */
     @Transactional(rollbackFor = Exception.class)
     public CourseAnnouncement createDraft(Long bindingId, String title, String body,
             LocalDateTime opensAt, LocalDateTime closesAt)
@@ -159,12 +187,18 @@ public class CourseAnnouncementService
     }
 
     /**
-     * 发布草稿。已处于 PUBLISHED 时在身份、绑定和权限校验通过后幂等返回；
-     * 已归档后再发布仍为状态冲突。条件更新 0 行时重新读取区分幂等、
-     * 不存在/跨绑定、非法状态和真实并发冲突。
-     */
-    /**
      * HTTP 路径只携带公告 ID 时的编辑入口：先解析公告所属绑定，再复用绑定级校验。
+     *
+     * @param announcementId 公告 ID，必须为正数
+     * @param title 标题
+     * @param body 正文
+     * @param opensAt 开放时间，可为空
+     * @param closesAt 关闭时间，可为空
+     * @return 更新后的公告
+     * @throws AnnouncementNotFoundException 公告不存在或不属于当前教师
+     * @throws AnnouncementAccessDeniedException 非创建者且无公告管理权限
+     * @throws AnnouncementStateConflictException 非草稿或真实并发冲突
+     * @throws AnnouncementValidationException 参数非法
      */
     @Transactional(rollbackFor = Exception.class)
     public CourseAnnouncement updateDraft(Long announcementId, String title, String body,
@@ -175,6 +209,22 @@ public class CourseAnnouncementService
         return updateDraft(bindingId, announcementId, title, body, opensAt, closesAt);
     }
 
+    /**
+     * 发布草稿，并在同一事务内 fan-out ANNOUNCEMENT 通知。
+     *
+     * <p>只有本次真正完成 {@code DRAFT -> PUBLISHED} 条件更新时才 fan-out；
+     * 已处于 PUBLISHED 的重复发布直接幂等返回，不重复写通知，保持现有 200
+     * 语义。fan-out 失败（例如授权适配器 503）会回滚本次公告发布。</p>
+     *
+     * @param bindingId 课程—教学班绑定 ID
+     * @param announcementId 公告 ID
+     * @return 已发布公告
+     * @throws AnnouncementNotFoundException 公告不存在或不属于当前教师
+     * @throws AnnouncementAccessDeniedException 当前教师无发布权限
+     * @throws AnnouncementStateConflictException 已归档或真实并发冲突
+     * @throws com.ruoyi.education.course.exception.NoticeAuthorizationUnavailableException
+     *         fan-out 授权不可用，映射为 503 并回滚发布
+     */
     @Transactional(rollbackFor = Exception.class)
     public CourseAnnouncement publish(Long bindingId, Long announcementId)
     {
@@ -190,6 +240,7 @@ public class CourseAnnouncementService
         if (announcement.getStatus() == AnnouncementStatus.PUBLISHED)
         {
             requirePublishedFields(announcement);
+            // 幂等重复发布：不再 fan-out，避免授权适配器缺失时把 200 变成 503。
             return announcement;
         }
         if (announcement.getStatus() != AnnouncementStatus.DRAFT)
@@ -220,6 +271,12 @@ public class CourseAnnouncementService
         {
             throw persistenceFailure("公告发布结果不一致");
         }
+
+        // 只有 rows == 1 的实际发布路径才 fan-out；0 行幂等路径已在上面返回。
+        // fan-out 与公告状态更新同事务：授权 503 或写入失败会回滚公告发布。
+        // TODO 历史上已发布但未 fan-out 的公告补发需单独对账任务；
+        // 解除条件：6-02 整体联调后确认是否需要补发接口。
+        fanoutService.fanOutAnnouncement(saved, now);
         return saved;
     }
 
@@ -239,6 +296,17 @@ public class CourseAnnouncementService
         return publish(bindingId, announcementId);
     }
 
+    /**
+     * 归档已发布公告。
+     *
+     * @param bindingId 课程—教学班绑定 ID
+     * @param announcementId 公告 ID
+     * @return 归档后的公告；已归档时幂等返回
+     * @throws AnnouncementNotFoundException 公告不存在或不属于当前教师
+     * @throws AnnouncementAccessDeniedException 当前教师无发布权限
+     * @throws AnnouncementStateConflictException 草稿归档或真实并发冲突
+     * @throws AnnouncementPersistenceException 写入失败
+     */
     @Transactional(rollbackFor = Exception.class)
     public CourseAnnouncement archive(Long bindingId, Long announcementId)
     {
@@ -320,6 +388,15 @@ public class CourseAnnouncementService
         return announcement;
     }
 
+    /**
+     * 按绑定和公告 ID 读取教师可见公告。
+     *
+     * @param bindingId 课程—教学班绑定 ID
+     * @param announcementId 公告 ID
+     * @return 公告；草稿权限按创建者或 canPublish 判断
+     * @throws AnnouncementNotFoundException 公告不存在、跨绑定或草稿不可见
+     * @throws AnnouncementAccessDeniedException 当前教师无该班访问权限
+     */
     @Transactional(readOnly = true)
     public CourseAnnouncement getTeacherAnnouncement(Long bindingId, Long announcementId)
     {
@@ -339,6 +416,14 @@ public class CourseAnnouncementService
         return announcement;
     }
 
+    /**
+     * 查询教师可见公告列表。
+     *
+     * @param bindingId 课程—教学班绑定 ID
+     * @param status 可选状态筛选
+     * @return 按创建时间和 ID 倒序的公告
+     * @throws AnnouncementAccessDeniedException 当前教师无该班访问权限
+     */
     @Transactional(readOnly = true)
     public List<CourseAnnouncement> listTeacherAnnouncements(Long bindingId, AnnouncementStatus status)
     {
@@ -350,6 +435,17 @@ public class CourseAnnouncementService
                 bindingId, status, userId, access.authority().canPublish());
     }
 
+    /**
+     * 分页查询教师可见公告。
+     *
+     * @param bindingId 课程—教学班绑定 ID
+     * @param status 可选状态筛选
+     * @param pageNum 页码，从 1 开始
+     * @param pageSize 每页条数，1–100
+     * @return 总数和当前页公告
+     * @throws AnnouncementAccessDeniedException 当前教师无该班访问权限
+     * @throws AnnouncementValidationException 分页参数非法
+     */
     @Transactional(readOnly = true)
     public CourseAnnouncementPage listTeacherAnnouncementsPage(Long bindingId, AnnouncementStatus status,
             int pageNum, int pageSize)
