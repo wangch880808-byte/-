@@ -6,7 +6,7 @@
 - 任务：6-01 / 6A / M0
 - 范围：教师教学总览、学生今日待办、管理员管理总览与待办
 - 阶段：第一阶段只定义契约、端口、DTO 与失败语义；本阶段不含 Controller，不接任何生产适配器
-- 依赖：第 1/2/3/4/5 组服务契约；6-02 通知契约（未合并）
+- 依赖：第 1/2/3/4/5 组服务契约；6-02 已合并到 main（`f21f51d55c363738c03ee6f626c7c67b904d6b36`），但通知汇总适配器尚未接入
 
 ## 1. 范围与非目标
 
@@ -218,7 +218,7 @@ Map<Long, NoticeSummary> findUnreadSummaries(Collection<Long> recipientUserIds);
 ```
 
 - 只返回未读汇总，不返回通知正文或明细。
-- **6-02 未合并：本接口只定义签名，不 import 6-02 的任何类；6-02 合并后接适配器。**
+- **6-02 已合并，但未提供本端口所需的批量未读汇总契约：本接口仍只定义签名，不直接查询 `edu_user_notice`，`NoticeSummaryPort` 不 import 6-02 通知类；适配器待契约、授权和调用方式确认后接入。**
 - 适配器缺失时调用方必须映射为 `UNAVAILABLE`，不能返回 0 未读冒充。
 - Map 必须覆盖所有请求的接收人 ID；0 未读为真实 0，返回 `OK` + `value=0`。
 
@@ -241,10 +241,10 @@ Map<Long, NoticeSummary> findUnreadSummaries(Collection<Long> recipientUserIds);
 
 ## 6. 6-02 边界
 
-- 6-02 的 PR #18/#20/#21/#22 未合并；本任务不从 6-02 分支拉代码，不 import 6-02 的类。
-- `NoticeSummaryPort` 只定义接口；6-02 合并后新增适配器，读取 6-02 已授权的未读汇总契约。
-- 本任务不写 `edu_user_notice`，不扩展 `NoticeKind`，不复制 6-02 的通知表。
-- 6-02 合并前，通知项统一返回 `UNAVAILABLE`；不得用 0 未读或空列表冒充。
+- 6-02 的 PR #18/#20/#21/#22 已合并到 main（`f21f51d55c363738c03ee6f626c7c67b904d6b36`）；本任务不直接查询 6-02 私有表。
+- `NoticeSummaryPort` 只定义接口；6-02 已合并但未提供批量未读汇总契约，适配器仍需另行接入。
+- 本任务不写 `edu_user_notice`，不扩展 `NoticeKind`，不复制 6-02 的通知表；仅复用公共 `EducationException` 作为异常基类。
+- 通知汇总适配器未接入前，通知项统一返回 `UNAVAILABLE`；不得用 0 未读或空列表冒充。
 
 ## 7. 待评审与待联调
 
@@ -253,5 +253,5 @@ Map<Long, NoticeSummary> findUnreadSummaries(Collection<Long> recipientUserIds);
 - 管理员待办来源待产品确认；确认前不实现、不自造。
 - 第 1/2/3/4/5 组聚合契约未落地；本阶段只有端口和测试替身。
 - 生产授权适配器缺失；授权异常必须 `UNAVAILABLE` 或按权限拒绝，不能放行。
-- 6-02 未合并；`NoticeSummaryPort` 适配器待 6-02 合并后接入。
+- 6-02 已合并，但 `NoticeSummaryPort` 仍缺批量未读汇总契约、授权方式和调用方式确认；适配器未接入。
 - 真实 HTTP、登录、角色拦截、审计落库未验证；本阶段无 Controller，不做 MockMvc。

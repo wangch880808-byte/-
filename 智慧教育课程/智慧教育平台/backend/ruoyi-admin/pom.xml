@@ -54,6 +54,13 @@
             <artifactId>ruoyi-quartz</artifactId>
         </dependency>
 
+        <!-- 启动级上下文测试；默认不依赖外部服务，需显式提供 MySQL/Redis 属性 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- 代码生成-->
         <dependency>
             <groupId>com.ruoyi</groupId>
