@@ -15,7 +15,17 @@ public interface IActivityService
 
     CheckinResponse checkin(Long activityId, Long userId);
 
+    /**
+     * 读取学生已有签到结果，用于 Idempotency-Key 回放。
+     */
+    CheckinResponse getCheckinResult(Long activityId, Long userId);
+
     SubmitResponseResult submitResponse(Long activityId, SubmitResponseRequest request, Long userId);
+
+    /**
+     * 读取学生已有作答结果，用于 Idempotency-Key 回放。
+     */
+    SubmitResponseResult getSubmissionResult(Long activityId, Long userId);
 
     void closeActivity(Long activityId, Long userId);
 

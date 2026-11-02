@@ -38,4 +38,16 @@ public interface EduSupportMapper
     Map<String, Object> selectLatestLessonPlan(@Param("bindingId") Long bindingId);
 
     Map<String, Object> selectDefaultQuizTemplate(@Param("bindingId") Long bindingId);
+
+    /**
+     * 课件某页的预览存储键（相对预览根目录）。
+     */
+    String selectPreviewStorageKey(@Param("resourceVersionId") Long resourceVersionId,
+            @Param("pageNo") Integer pageNo);
+
+    /**
+     * 该用户能否查看这个资源版本：存在一条对本人所属教学班的有效发布。
+     */
+    int countPreviewAccess(@Param("userId") Long userId,
+            @Param("resourceVersionId") Long resourceVersionId);
 }

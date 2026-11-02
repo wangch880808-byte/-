@@ -14,6 +14,8 @@
 - **响应包装**：沿用若依 `AjaxResult`（`code`、`msg`、`data`）；列表分页沿用 `TableDataInfo`。
 - **时间**：ISO-8601 字符串，UTC 或带时区偏移；客户端倒计时仅展示，截止以服务端为准。
 - **幂等**：写操作支持请求头 `Idempotency-Key`（UUID，24h 内同键同载荷返回相同结果）。
+  当前已落地 `POST .../checkin` 与 `POST .../responses`：同一用户对同一活动重复提交同一键时回放首次结果；
+  同键不同载荷返回 `409`；记录落在 `edu_idempotency_record`，24 小时后自然失效。
 - **对象范围**：所有接口须校验 `binding_id`（课程-教学班绑定）及成员资格（第 2 组 `course` 契约）。
 
 ### 1.1 会话状态（`edu_class_session.status`）
@@ -154,6 +156,10 @@
 
 按 `seq_no` 升序返回 `afterSeq` 之后的事件；客户端丢弃 `seq_no` 小于本地已应用值的更新。
 
+事件类型：`PAGE_CHANGED`（翻页）与 `SESSION_STATUS_CHANGED`（暂停 / 恢复 / 结束）。
+两者都是 `visibility = PUBLIC` 且会递增 `edu_session_projection.state_seq`，因此断线重连时
+「先 `snapshot` 拿全量，再用 `events?afterSeq=` 补增量」不会漏掉状态切换。
+
 ---
 
 ### 2.7 学生加入校验
@@ -235,6 +241,17 @@
 仅任课教师。返回默认 `releaseId`、`resourceVersionId`、`totalPages`、可选 `lessonId`/`planId`/默认题目 ID。
 
 ---
+
+### 2.10 课件页预览（临时实现，待第 3 组替换）
+
+`GET /education/resource/versions/{resourceVersionId}/pages/{pageNo}/preview`
+
+- 需登录；调用者须是该资源版本某条**有效发布**所属教学班的任课教师或在班学生，否则 `403`。
+- 按 `edu_resource_page.preview_storage_key` 从 `zhijiao.resource.preview-root` 配置的本地目录读取文件，
+  `200` 返回图片字节并带 `Cache-Control: private`。
+- 未配置根目录时返回 `503` 并说明原因；课件页不存在或文件缺失时返回 `404`。
+- 本地根目录可在 `backend/.env` 用 `ZHIJIAO_PREVIEW_ROOT` 指定，`run-local.ps1` 会转成
+  `-Dzhijiao.resource.preview-root=...`。
 
 ## 4. 与上游组的依赖
 

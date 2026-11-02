@@ -30,9 +30,16 @@
         )
     </insert>
 
-    <update id="updatePage">
+    <update id="incrementStateSeq">
         update edu_session_projection
-        set state_seq = #{stateSeq},
+        set state_seq = state_seq + 1,
+            updated_at = utc_timestamp(3)
+        where session_id = #{sessionId}
+    </update>
+
+    <update id="updatePageAtomic">
+        update edu_session_projection
+        set state_seq = state_seq + 1,
             page_no = #{pageNo},
             student_can_browse = #{studentCanBrowse},
             updated_at = utc_timestamp(3)

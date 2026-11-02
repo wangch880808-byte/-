@@ -12,8 +12,15 @@ public interface EduSessionProjectionMapper
 
     int insert(EduSessionProjection projection);
 
-    int updatePage(@Param("sessionId") Long sessionId,
-            @Param("stateSeq") Long stateSeq,
+    /**
+     * 原子自增 state_seq（不改页码），用于暂停/恢复这类只改状态的操作。
+     */
+    int incrementStateSeq(@Param("sessionId") Long sessionId);
+
+    /**
+     * 原子自增 state_seq 并写入新页码，避免并发翻页读到同一个旧序号。
+     */
+    int updatePageAtomic(@Param("sessionId") Long sessionId,
             @Param("pageNo") Integer pageNo,
             @Param("studentCanBrowse") Boolean studentCanBrowse);
 }

@@ -223,6 +223,28 @@ public class ActivityServiceImpl implements IActivityService
     }
 
     @Override
+    public CheckinResponse getCheckinResult(Long activityId, Long userId)
+    {
+        return toCheckinResponse(requireMyResponse(activityId, userId), true);
+    }
+
+    @Override
+    public SubmitResponseResult getSubmissionResult(Long activityId, Long userId)
+    {
+        return toSubmitResult(requireMyResponse(activityId, userId), true);
+    }
+
+    private EduActivityResponse requireMyResponse(Long activityId, Long userId)
+    {
+        EduActivityResponse response = activityResponseMapper.selectByActivityAndStudent(activityId, userId);
+        if (response == null)
+        {
+            throw new ServiceException("未找到该学生在本活动中的提交记录", HttpStatus.NOT_FOUND);
+        }
+        return response;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void closeActivity(Long activityId, Long userId)
     {

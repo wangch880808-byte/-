@@ -160,4 +160,28 @@
         order by t.id
         limit 1
     </select>
+    <select id="selectPreviewStorageKey" resultType="string">
+        select p.preview_storage_key
+        from edu_resource_page p
+        where p.resource_version_id = #{resourceVersionId}
+          and p.page_no = #{pageNo}
+    </select>
+
+    <select id="countPreviewAccess" resultType="int">
+        select count(1)
+        from edu_resource_class_release r
+        inner join edu_course_class_binding b on b.id = r.binding_id
+        where r.resource_version_id = #{resourceVersionId}
+          and r.ended_at is null
+          and r.opens_at &lt;= utc_timestamp(3)
+          and (r.closes_at is null or r.closes_at &gt; utc_timestamp(3))
+          and (exists (select 1 from edu_class_teacher t
+                        where t.teaching_class_id = b.teaching_class_id
+                          and t.user_id = #{userId}
+                          and t.valid_to is null)
+            or exists (select 1 from edu_class_student s
+                        where s.teaching_class_id = b.teaching_class_id
+                          and s.user_id = #{userId}
+                          and s.left_at is null))
+    </select>
 </mapper>

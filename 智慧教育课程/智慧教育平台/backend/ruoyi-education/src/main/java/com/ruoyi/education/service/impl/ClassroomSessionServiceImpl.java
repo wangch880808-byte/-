@@ -183,10 +183,7 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
         {
             throw new ServiceException("非本班或已退班学生无法加入课堂", HttpStatus.FORBIDDEN);
         }
-        if (SessionStatus.ENDED.name().equals(session.getStatus()))
-        {
-            return buildSnapshot(session, SnapshotView.STUDENT, userId);
-        }
+        // 会已结束也返回终态快照，前端据此显示「本课已结束」而不是加入按钮。
         return buildSnapshot(session, SnapshotView.STUDENT, userId);
     }
 
@@ -201,6 +198,7 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
             throw new ServiceException("仅进行中的会话可暂停", EducationHttpStatus.UNPROCESSABLE_ENTITY);
         }
         classSessionMapper.updateStatus(sessionId, SessionStatus.PAUSED.name(), null);
+        appendStatusEvent(sessionId, userId, bumpStateSeq(sessionId), SessionStatus.PAUSED.name(), new Date());
     }
 
     @Override
@@ -214,6 +212,7 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
             throw new ServiceException("仅已暂停的会话可恢复", EducationHttpStatus.UNPROCESSABLE_ENTITY);
         }
         classSessionMapper.updateStatus(sessionId, SessionStatus.RUNNING.name(), null);
+        appendStatusEvent(sessionId, userId, bumpStateSeq(sessionId), SessionStatus.RUNNING.name(), new Date());
     }
 
     @Override
@@ -225,6 +224,7 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
         if (!SessionStatus.ENDED.name().equals(session.getStatus()))
         {
             classSessionMapper.updateStatus(sessionId, SessionStatus.ENDED.name(), userId);
+            appendStatusEvent(sessionId, userId, bumpStateSeq(sessionId), SessionStatus.ENDED.name(), new Date());
             session = requireSession(sessionId);
         }
         return buildSnapshot(session, SnapshotView.TEACHER, userId);
@@ -241,10 +241,11 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
         resourceAccessPort.validateRelease(session.getBindingId(), projection.getReleaseId(),
                 projection.getResourceVersionId(), request.getPageNo());
 
-        long nextSeq = projection.getStateSeq() + 1;
         boolean studentCanBrowse = Boolean.TRUE.equals(request.getStudentCanBrowse());
-        projectionMapper.updatePage(sessionId, nextSeq, request.getPageNo(), studentCanBrowse);
-        appendPageEvent(sessionId, userId, nextSeq, request.getPageNo(), new Date());
+        // 先原子自增再读回序号：state_seq 在行锁内递增，并发翻页不会拿到同一个旧序号。
+        projectionMapper.updatePageAtomic(sessionId, request.getPageNo(), studentCanBrowse);
+        EduSessionProjection updated = requireProjection(sessionId);
+        appendPageEvent(sessionId, userId, updated.getStateSeq(), request.getPageNo(), new Date());
         return buildSnapshot(requireSession(sessionId), SnapshotView.TEACHER, userId);
     }
 
@@ -343,9 +344,11 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
             if (ActivityKind.QUIZ.name().equals(activity.getActivityKind())
                     && activity.getQuestionVersionId() != null)
             {
-                boolean includeAnswer = view == SnapshotView.TEACHER
-                        || activity.getAnswerOpensAt() != null;
-                if (includeAnswer && view == SnapshotView.TEACHER)
+                // 答案只在「教师视图」或「已到公布时间」(publish-result) 时下发，
+                // 其余情况一律走不含 answer/explanation 的公开快照。
+                boolean answerPublished = activity.getAnswerOpensAt() != null
+                        && !new Date().before(activity.getAnswerOpensAt());
+                if (view == SnapshotView.TEACHER || answerPublished)
                 {
                     summary.setQuestion(resourceAccessPort.getQuestionTeacherSnapshot(
                             activity.getQuestionVersionId()));
@@ -379,7 +382,16 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
             }
             return SnapshotView.STUDENT;
         }
-        if (view == SnapshotView.TEACHER || courseAccessPort.isTeacherOfBinding(userId, session.getBindingId()))
+        if (view == SnapshotView.TEACHER)
+        {
+            // 显式请求教师视图时必须校验任课权限，不能因为传了 view=teacher 就放行。
+            if (!courseAccessPort.isTeacherOfBinding(userId, session.getBindingId()))
+            {
+                throw new ServiceException("无权以教师视图访问", HttpStatus.FORBIDDEN);
+            }
+            return SnapshotView.TEACHER;
+        }
+        if (courseAccessPort.isTeacherOfBinding(userId, session.getBindingId()))
         {
             return SnapshotView.TEACHER;
         }
@@ -398,6 +410,31 @@ public class ClassroomSessionServiceImpl implements IClassroomSessionService
         event.setEventKind("PAGE_CHANGED");
         event.setVisibility(EventVisibility.PUBLIC.name());
         event.setPublicPayloadJson(JSON.toJSONString(java.util.Map.of("page", pageNo)));
+        event.setActorUserId(userId);
+        event.setOccurredAt(occurredAt);
+        sessionEventMapper.insert(event);
+    }
+
+    /**
+     * 自增 state_seq 并返回新序号。调用方须处在事务内：行锁保证并发请求拿到不同序号。
+     */
+    private long bumpStateSeq(Long sessionId)
+    {
+        projectionMapper.incrementStateSeq(sessionId);
+        return requireProjection(sessionId).getStateSeq();
+    }
+
+    /**
+     * 会话状态变化（暂停/恢复/结束）写入公开事件，供事件补查与断线重连使用。
+     */
+    private void appendStatusEvent(Long sessionId, Long userId, long seqNo, String status, Date occurredAt)
+    {
+        EduSessionEvent event = new EduSessionEvent();
+        event.setSessionId(sessionId);
+        event.setSeqNo(seqNo);
+        event.setEventKind("SESSION_STATUS_CHANGED");
+        event.setVisibility(EventVisibility.PUBLIC.name());
+        event.setPublicPayloadJson(JSON.toJSONString(java.util.Map.of("status", status)));
         event.setActorUserId(userId);
         event.setOccurredAt(occurredAt);
         sessionEventMapper.insert(event);

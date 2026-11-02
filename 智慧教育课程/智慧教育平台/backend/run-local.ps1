@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $configPath = Join-Path $PSScriptRoot '.env'
 $jarPath = Join-Path $PSScriptRoot 'ruoyi-admin/target/ruoyi-admin.jar'
 
@@ -12,7 +12,7 @@ if (-not (Test-Path -LiteralPath $jarPath -PathType Leaf)) {
 $allowed = @(
     'RUOYI_DB_URL', 'RUOYI_DB_USERNAME', 'RUOYI_DB_PASSWORD', 'RUOYI_TOKEN_SECRET',
     'RUOYI_REDIS_HOST', 'RUOYI_REDIS_PORT', 'RUOYI_REDIS_DATABASE', 'RUOYI_REDIS_PASSWORD',
-    'RUOYI_JAVA_UNIXDOMAIN_TMPDIR'
+    'RUOYI_JAVA_UNIXDOMAIN_TMPDIR', 'ZHIJIAO_PREVIEW_ROOT'
 )
 $values = @{}
 foreach ($line in Get-Content -LiteralPath $configPath -Encoding UTF8) {
@@ -44,6 +44,13 @@ try {
             throw 'RUOYI_JAVA_UNIXDOMAIN_TMPDIR 指向的目录不存在。'
         }
         $javaArgs += "-Djdk.net.unixdomain.tmpdir=$udsPath"
+    }
+    if ($values.ContainsKey('ZHIJIAO_PREVIEW_ROOT') -and $values['ZHIJIAO_PREVIEW_ROOT']) {
+        $previewRoot = $values['ZHIJIAO_PREVIEW_ROOT']
+        if (-not (Test-Path -LiteralPath $previewRoot -PathType Container)) {
+            throw 'ZHIJIAO_PREVIEW_ROOT 指向的目录不存在。'
+        }
+        $javaArgs += "-Dzhijiao.resource.preview-root=$previewRoot"
     }
     $javaArgs += @('-jar', $jarPath)
     & java @javaArgs

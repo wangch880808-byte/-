@@ -25,7 +25,7 @@
 |------|------|----------|----------|
 | 已发布 `releaseId` + `resourceVersionId` | 开课选课件 | `GET /education/course/bindings/{id}/classroom-prep` | 第 3 组按班发布列表 API |
 | 页码范围 / 总页数 | 翻页边界 | `ResourceAccessPort.countPages` | 第 3 组资源版本元数据 |
-| 页预览 URL | 投影 / 学生跟页 | 路径 `/education/resource/versions/{id}/pages/{n}/preview`（**无实际 Controller**） | 第 3 组预览流或签名 URL API |
+| 页预览 URL | 投影 / 学生跟页 | `/education/resource/versions/{id}/pages/{n}/preview`，已实现权限校验并从 `ZHIJIAO_PREVIEW_ROOT` 本地目录读取 `preview_storage_key`（未配置时 503） | 第 3 组预览流或签名 URL API |
 | 题目公开快照（无答案） | 随堂题展示 | `ResourceAccessPort.getQuestionPublicSnapshot` | 第 3 组题库只读 API |
 
 **替换位置：**

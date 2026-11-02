@@ -78,10 +78,31 @@ mvn -B -pl ruoyi-admin -am package
 ## 已知限制（M0）
 
 - 实时同步为 **3 秒轮询**，非 WebSocket
-- 课件预览 URL 为占位路径，**第 3 组需提供真实预览服务**
+- 课件预览走本地目录（`ZHIJIAO_PREVIEW_ROOT`），**第 3 组仍需提供正式预览服务或签名 URL**
 - `CLASSWORK` 调用第 5 组占位，接口会返回「待第5组接入」
-- `Idempotency-Key` 请求头尚未实现
 - 绑定/资源查询为临时 SQL，待第 2/3 组 HTTP API 替换
+
+## 本轮已补齐（M0 收尾）
+
+| 问题 | 处理 |
+|---|---|
+| 传 `?view=teacher` 可绕过任课校验，读到未公布答案 | `resolveView` 先校验 `isTeacherOfBinding`，非任课教师返回 `403` |
+| `publish-result` 后答案仍不下发（条件写重） | 改为「教师视图 **或** 已到 `answerOpensAt`」才下含答案快照 |
+| 并发翻页可能撞同一 `state_seq` | 改成 `state_seq = state_seq + 1` 原子自增后回读，再写事件 |
+| 暂停/恢复/结束不写事件 | 新增 `SESSION_STATUS_CHANGED` 公开事件并递增 `state_seq` |
+| `Idempotency-Key` 未实现 | `checkin` / `responses` 接入 `edu_idempotency_record`：同键同载荷回放、同键异载荷 `409`、24h 失效 |
+| 预览 URL 指向不存在的 Controller（404） | 新增 `GET /education/resource/versions/{id}/pages/{n}/preview`，带权限校验与 `503` 说明 |
+| 零测试 | 新增 12 个单元测试，覆盖 G2 的 6 条验收规则 |
+
+验证方式：
+
+```powershell
+mvn -B -pl ruoyi-education -am test        # 12 tests, 0 failures
+mvn -B -pl ruoyi-admin -am -DskipTests package
+```
+
+新增 SQL 语句已用 `sql/verify-v3-m0-invariants.sql` 同库 `zhijiao_m0` 实测（事务内执行后回滚），
+未新增表结构，`edu_idempotency_record` 沿用原设计。
 
 ## 修改代码后
 
