@@ -1,6 +1,6 @@
 # 后端工程与本地运行
 
-后端统一位于本目录。已接入 RuoYi-Vue `springboot3` 分支的若依 3.9.2（Spring Boot 3.5.16、Java 17 编译目标），包含六个基础模块。登录页及三端原型导航运行页由 `ruoyi-admin` 同源提供；教学业务模块仍未实现。下表中“规划职责”描述后续教学业务的分工。
+后端统一位于本目录。已接入 RuoYi-Vue `springboot3` 分支的若依 3.9.2（Spring Boot 3.5.16、Java 17 编译目标），包含六个基础模块和已接入构建的 `ruoyi-education`。登录页及三端原型导航运行页由 `ruoyi-admin` 同源提供；教学业务 HTTP 接口仍未实现，`ruoyi-education` 当前已有 6-02 公告领域的 Entity、Mapper 读写、状态规则和教师公告 Service。下表中“规划职责”描述后续教学业务的分工。
 
 ## 在 D 盘运行登录页
 
@@ -24,7 +24,7 @@ mvn -B -pl ruoyi-admin -am package
 | ruoyi-system | 上游用户、角色、菜单、部门及系统管理服务 | 复用身份与组织能力，不承载教学班与正式成绩业务 |
 | ruoyi-framework | 上游安全、Web 配置、权限与基础设施整合 | 沿用选定版本依赖；不能反向依赖 ruoyi-education |
 | ruoyi-admin | 上游应用入口、管理端装配和对外接入 | 装配基础框架及教育业务，不承担九领域的核心逻辑 |
-| ruoyi-education | 独立的教学业务 Maven 模块（未来接入） | 计划依赖 common；仅在需要用户/组织服务时依赖 system；不依赖 admin |
+| ruoyi-education | 已接入的最小教学业务 Maven 模块；当前含 6-02 教师公告读写 Service、Mapper、状态规则和严格草稿权限 | 依赖 common；不依赖 admin；发布/归档幂等；尚无 Controller、DTO、学生通知或通知 fan-out |
 | ruoyi-quartz | 上游调度模块，已导入 | 本轮只供基础工程运行，不配置教学调度任务 |
 | ruoyi-generator | 上游代码生成模块，已导入 | 本轮不生成教学占位代码 |
 
@@ -36,13 +36,20 @@ mvn -B -pl ruoyi-admin -am package
 
 ## 教育业务领域
 
-九个领域属于 **同一个 `ruoyi-education` 模块内的业务包**，不拆成九个独立 Maven 模块。当前已经预留以下空目录，没有 Controller、Service、Mapper 或 Entity。
+九个领域属于 **同一个 `ruoyi-education` 模块内的业务包**，不拆成九个独立 Maven 模块。当前 `course` 包已有 6-02 教师公告的 Entity、Mapper 读写、状态规则、Service 和授权适配端口；没有 Controller、前端 DTO、学生通知或通知 fan-out。其余领域仍为规划目录。
 
 ```text
 ruoyi-education/
+├── pom.xml
 ├── README.md
 └── src/main/java/com/ruoyi/education/
     ├── course/
+    │   ├── authorization/
+    │   ├── domain/
+    │   ├── exception/
+    │   ├── mapper/
+    │   ├── policy/
+    │   └── service/
     ├── resource/
     ├── prepare/
     ├── classroom/
@@ -53,7 +60,7 @@ ruoyi-education/
     └── ai/
 ```
 
-包根 `com.ruoyi.education` 为目录规划，最终跟随真实工程包名与扫描配置确认。只有产生实际实现需求时才新增领域内分层和 Mapper XML、测试、配置等路径。
+包根 `com.ruoyi.education` 已通过父工程构建和组件扫描验证；`course` 领域按实际任务逐步增加分层。其他领域只有产生实际实现需求时才新增代码。
 
 | 领域 | 负责对象和职责 | 主要协作与边界 |
 |---|---|---|

@@ -170,7 +170,7 @@
                 <version>${ruoyi.version}</version>
             </dependency>
 
-            <!-- 教学业务-->
+            <!-- 教育业务模块 -->
             <dependency>
                 <groupId>com.ruoyi</groupId>
                 <artifactId>ruoyi-education</artifactId>

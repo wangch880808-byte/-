@@ -20,7 +20,7 @@
 
 ## 技术架构规划
 
-- 后端已导入若依 RuoYi-Vue `springboot3` 分支固定提交，版本 3.9.2，Spring Boot 3.5.16，Java 17 编译目标；`ruoyi-education` 暂为教学业务规划目录。
+- 后端已导入若依 RuoYi-Vue `springboot3` 分支固定提交，版本 3.9.2，Spring Boot 3.5.16，Java 17 编译目标；`ruoyi-education` 已接入构建，当前仅有 6-02 公告领域的基础查询与状态规则。
 - `frontend/login.html` 和三端原型导航运行页由后端同源提供；原型导航尚未绑定授权路由，页面业务内容及正式前端工程仍待开发。
 - 数据库工作统一置于 `sql/`；[V3.0 M0 数据库设计](docs/database-design.md)与两段教育业务建表脚本覆盖首版教学闭环。本机 `zhijiao_m0` 已整合教育业务演示表和若依登录表，`zhijiao_login_dev` 仅保留为此前的独立测试库。
 - 课件转换、实时同步、文件存储与 AI 适配均为后续技术评审内容，暂不指定服务或协议实现。
@@ -65,7 +65,7 @@
 └── prototypes/README.md
 ```
 
-教学领域包与三端业务页面目录为分工而预留，目前为空。`com.ruoyi.education` 为规划包根，接入时核对扫描配置。若依基础模块和登录页已导入；教学模块首次实现时再加入真实代码。
+教学领域包中 `course` 已有 6-02 教师公告的 Entity、Mapper 读写、状态规则、Service 和授权适配端口，其余领域与三端业务页面仍为预留。`com.ruoyi.education` 已通过父工程构建与扫描配置核对。当前没有公告 Controller/前端 DTO/学生通知/通知 fan-out；教学业务尚无 HTTP、MySQL 或真实教学班授权联调结论。
 
 ## 三端职责
 
