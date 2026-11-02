@@ -116,6 +116,35 @@ mvn -B -pl ruoyi-admin -am -DskipTests package
 验证：`mvn -pl ruoyi-education -am test` → **167 tests, 0 failures**；
 新增统计 SQL 已在 `zhijiao_m0` 实库执行验证（目标 3 / 已提交 1 / 答对 0）。
 
+## Vue 前端（4-03 / 4-04）
+
+课堂页面除原有原生 JS 版本外，已提供 Vue 3 版本，入口 `http://127.0.0.1:8080/app/`。
+
+| 路由 | 页面 | 说明 |
+|---|---|---|
+| `/education/teacher/quick-start` | `QuickStart.vue` | 今日课程 / 快捷上课 |
+| `/education/teacher/classroom` | `Classroom.vue` | 课堂教学控制台（翻页、暂停/继续/结束、签到、随堂题、统计） |
+| `/education/student/join` | `JoinClass.vue` | 正在上课 / 一键加入 |
+| `/education/student/classroom` | `SyncClassroom.vue` | 同步课堂（跟页、签到、作答、断线重连提示） |
+| `/education/projection` | `Projection.vue` | 公开投影页（仅公开载荷） |
+
+代码位置：`frontend/src/views/education/{teacher,student,classroom}`、`frontend/src/api/education/classroom.js`、
+`frontend/src/composables/usePolling.js`。
+
+构建与打包：
+
+```powershell
+cd frontend
+npm install
+npm run build            # 产出 frontend/app/
+cd ../backend
+mvn -B -pl ruoyi-admin -am -DskipTests package
+```
+
+`ruoyi-admin/pom.xml` 已把 `app/**` 加入静态资源条目，构建产物随 jar 一起发布到 `/app/`。
+
+> 注意：`frontend/app/` 是构建产物，已加入 `.gitignore`；克隆后需先执行 `npm run build` 才会有 `/app/` 页面。
+
 ## 修改代码后
 
 ```powershell
