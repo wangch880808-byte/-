@@ -48,7 +48,7 @@ public interface StudentNoticeMapper
      * @param visibleAt 通知对学生可见时间，取公告 opensAt
      * @param createdAt fan-out 写入时间
      * @param recipientUserIds 本批接收人，调用方须保证单批不超过 500 条
-     * @return 实际插入的通知行数；重复键不计入
+     * @return 数据库影响行数；MySQL 默认驱动可能把重复键计为匹配行
      * @throws org.springframework.dao.DataAccessException 数据库写入失败时由调用方转换
      */
     int insertAnnouncementNotices(@Param("announcementId") Long announcementId,
@@ -72,7 +72,7 @@ public interface StudentNoticeMapper
      * @param visibleAt 学生可见时间
      * @param createdAt 事件发生时间
      * @param recipientUserIds 本批接收人，单批不超过 500
-     * @return 实际插入行数；重复键不计入
+     * @return 数据库影响行数；MySQL 默认驱动可能把重复键计为匹配行
      * @throws org.springframework.dao.DataAccessException 数据库写入失败时由调用方转换
      */
     int insertUpstreamNotices(@Param("noticeKind") NoticeKind noticeKind,

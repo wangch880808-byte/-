@@ -16,7 +16,8 @@ public interface AnnouncementNoticeFanoutPort
      *
      * @param announcement 已发布公告，必须包含 ID、绑定、标题和 opensAt
      * @param publishedAt 公告发布动作的服务端 UTC 时间，用于入班区间判断
-     * @return 本次实际插入的通知行数；重复键不计入，无接收人时为 0
+     * @return 数据库返回的处理行数；MySQL 默认驱动可能把重复键计为匹配行，
+     *         幂等以通知行数不增和 readAt 不变为准
      * @throws com.ruoyi.education.course.exception.NoticeAuthorizationUnavailableException
      *         授权适配器缺失、异常、返回 null、跨绑定或字段不完整；映射为 503
      * @throws com.ruoyi.education.course.exception.NoticePersistenceException

@@ -19,7 +19,8 @@ public interface UpstreamNoticeEventPort
      * {@code [joinedAt, leftAt)}；指定学生列表投递时不查询成员表。</p>
      *
      * @param event 上游事件，字段必须完整
-     * @return 本次实际插入的通知行数；重复键不计入，无接收人时为 0
+     * @return 数据库返回的处理行数；MySQL 默认驱动可能把重复键计为匹配行，
+     *         幂等以通知行数不增和 readAt 不变为准
      * @throws com.ruoyi.education.course.exception.NoticeValidationException
      *         事件字段不完整或类型非法；映射为 400
      * @throws com.ruoyi.education.course.exception.NoticeAuthorizationUnavailableException
