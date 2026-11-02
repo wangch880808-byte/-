@@ -105,7 +105,7 @@ public class SecurityConfig
                     .requestMatchers(HttpMethod.GET, "/", "/*.html", "/**.html", "/**.css", "/**.js", "/logo.png", "/profile/**").permitAll()
                     // Vue 前端产物（/app/ 下的 index.html 与 assets），本身不含数据；
                     // 业务接口仍在 /education/**，继续走鉴权。
-                    .requestMatchers(HttpMethod.GET, "/app/**").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/app", "/app/**").permitAll()
                     .requestMatchers("/swagger-ui.html", "/v3/api-docs/**", "/swagger-ui/**", "/druid/**").permitAll()
                     // 除上面外的所有请求全部需要鉴权认证
                     .anyRequest().authenticated();
