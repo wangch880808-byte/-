@@ -205,9 +205,10 @@ CREATE TABLE edu_notification_send_job (
     payload_json JSON NOT NULL COMMENT '已校验的模板变量；不含凭据/敏感原文',
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING/PROCESSING/SUCCEEDED/PARTIAL/FAILED/UNKNOWN/CANCELLED',
     scheduled_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '计划发送时间UTC',
-    lease_owner VARCHAR(80) NULL COMMENT '持有处理权的worker标识；空表示未领取',
-    lease_expires_at DATETIME(3) NULL COMMENT '领取租约到期时间UTC；过期可恢复',
-    next_retry_at DATETIME(3) NULL COMMENT '下次自动重试时间UTC；UNKNOWN为空',
+    lease_owner VARCHAR(80) NULL COMMENT '最近领取的worker标识；仅运维观测，不能单独唯一标识一次领取',
+    lease_token CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '本次领取唯一令牌；首次领取和过期接管均新生成，所有写回必须匹配；空表示未领取；大小写敏感',
+    lease_expires_at DATETIME(3) NULL COMMENT '本次领取租约到期时间UTC；过期可被新令牌接管',
+    next_retry_at DATETIME(3) NULL COMMENT '下次重试排期时间UTC；仅PENDING/FAILED/PARTIAL；自动到期，人工可置当前时间；UNKNOWN为空',
     started_at DATETIME(3) NULL COMMENT '开始处理时间UTC',
     finished_at DATETIME(3) NULL COMMENT '结束时间UTC',
     total_count INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '目标接收人数',
@@ -246,6 +247,7 @@ CREATE TABLE edu_notification_send_job (
         ((audience_kind = 'ORGANIZATION' AND audience_ref_id IS NULL)
          OR (audience_kind IN ('ROLE', 'TEACHING_CLASS') AND audience_ref_id IS NOT NULL)
          OR (audience_kind = 'USER_LIST' AND audience_json IS NOT NULL)),
+    -- 未决（PENDING/缺少当前记录）不计入成功/失败/未知，故三项之和允许小于 total_count。
     CONSTRAINT chk_edu_notification_send_job_counts CHECK
         (total_count >= 0 AND success_count >= 0
          AND failure_count >= 0 AND unknown_count >= 0
@@ -255,11 +257,13 @@ CREATE TABLE edu_notification_send_job (
              AND cancelled_by_user_id IS NOT NULL AND cancel_reason IS NOT NULL)
          OR (status <> 'CANCELLED' AND cancelled_at IS NULL
              AND cancelled_by_user_id IS NULL AND cancel_reason IS NULL)),
+    -- 处理中必须同时有 worker、领取令牌和到期时间；非处理中清空，防止旧令牌继续写回。
     CONSTRAINT chk_edu_notification_send_job_lease CHECK
         ((status = 'PROCESSING' AND lease_owner IS NOT NULL
-             AND lease_expires_at IS NOT NULL)
+             AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
          OR (status <> 'PROCESSING' AND lease_owner IS NULL
-             AND lease_expires_at IS NULL)),
+             AND lease_token IS NULL AND lease_expires_at IS NULL)),
+    -- UNKNOWN 不自动重试；仅排队/失败/部分成功的 job 可保留下次重试排期。
     CONSTRAINT chk_edu_notification_send_job_retry CHECK
         (next_retry_at IS NULL OR status IN ('PENDING', 'FAILED', 'PARTIAL')),
     CONSTRAINT chk_edu_notification_send_job_times CHECK
@@ -268,7 +272,7 @@ CREATE TABLE edu_notification_send_job (
          AND (next_retry_at IS NULL OR next_retry_at >= created_at)),
     CONSTRAINT chk_edu_notification_send_job_row_version CHECK (row_version > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='系统通知逻辑发送任务；固定渠道，与每次发送尝试分离';
+  COMMENT='系统通知逻辑发送任务；固定渠道，与每次发送尝试分离，每次领取使用唯一lease_token';
 
 -- 6. 发送记录：每接收人/每次尝试一行；保留投递、送达、已读和重试历史。
 CREATE TABLE edu_notification_send_record (
@@ -276,17 +280,18 @@ CREATE TABLE edu_notification_send_record (
     organization_id BIGINT NOT NULL COMMENT '组织ID；用于任务同组织约束',
     job_id BIGINT NOT NULL COMMENT '逻辑发送任务ID',
     recipient_user_id BIGINT NOT NULL COMMENT '接收人用户ID',
-    attempt_no INT UNSIGNED NOT NULL COMMENT '尝试序号；从1递增，重试新增行',
+    attempt_no INT UNSIGNED NOT NULL COMMENT '尝试序号；从1递增，重试新增行，最大4',
     channel VARCHAR(16) NOT NULL COMMENT '渠道：IN_APP/EMAIL/SMS',
-    delivery_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING/SENT/DELIVERED/READ/FAILED/UNKNOWN',
+    lease_token CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '创建或接管该尝试的领取令牌；写回必须与job当前令牌一致，旧令牌拒绝；大小写敏感',
+    delivery_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING/SENT/DELIVERED/READ/FAILED/UNKNOWN；仅SENT/DELIVERED/READ为成功证据',
     provider_message_id VARCHAR(120) NULL COMMENT '供应商消息ID；用于对账',
     error_code VARCHAR(60) NULL COMMENT '错误码；受控短文本',
     error_message VARCHAR(500) NULL COMMENT '错误摘要；不含敏感数据',
     sent_at DATETIME(3) NULL COMMENT '平台接受/发送时间UTC',
     delivered_at DATETIME(3) NULL COMMENT '渠道确认送达时间UTC',
     read_at DATETIME(3) NULL COMMENT '用户显式已读时间UTC；仅站内',
-    next_retry_at DATETIME(3) NULL COMMENT '下次重试时间UTC；仅当前有效FAILED',
-    superseded_at DATETIME(3) NULL COMMENT '被新尝试替代时间UTC；NULL表示当前有效逻辑通知',
+    next_retry_at DATETIME(3) NULL COMMENT '下次重试时间UTC；仅当前有效FAILED且attempt_no<4；人工重试可提前置为当前时间',
+    superseded_at DATETIME(3) NULL COMMENT '被新尝试替代时间UTC；NULL表示当前有效；历史行只读审计，不参与可见/未读/重试/计数',
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间UTC',
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间UTC',
     row_version INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '乐观锁版本',
@@ -315,6 +320,10 @@ CREATE TABLE edu_notification_send_record (
     CONSTRAINT chk_edu_notification_send_record_status CHECK
         (delivery_status IN ('PENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED', 'UNKNOWN')),
     CONSTRAINT chk_edu_notification_send_record_attempt CHECK (attempt_no BETWEEN 1 AND 4),
+    -- PENDING 是尚未完成的尝试，必须绑定一次领取令牌，防止无主尝试被旧执行写回。
+    CONSTRAINT chk_edu_notification_send_record_pending_lease CHECK
+        (delivery_status <> 'PENDING' OR lease_token IS NOT NULL),
+    -- 成功时间字段必须完整：SENT 有 sent_at，DELIVERED 有 sent_at/delivered_at，READ 三者齐全。
     CONSTRAINT chk_edu_notification_send_record_status_times CHECK
         ((delivery_status = 'PENDING' AND sent_at IS NULL
              AND delivered_at IS NULL AND read_at IS NULL)
@@ -327,9 +336,10 @@ CREATE TABLE edu_notification_send_record (
          OR (delivery_status IN ('FAILED', 'UNKNOWN') AND read_at IS NULL)),
     CONSTRAINT chk_edu_notification_send_record_read_channel CHECK
         (read_at IS NULL OR channel = 'IN_APP'),
+    -- next_retry_at 只允许当前有效 FAILED 且 attempt_no<4；成功、已读、UNKNOWN 和历史行不得排期。
     CONSTRAINT chk_edu_notification_send_record_retry CHECK
         (next_retry_at IS NULL
-         OR (delivery_status = 'FAILED' AND superseded_at IS NULL)),
+         OR (delivery_status = 'FAILED' AND superseded_at IS NULL AND attempt_no < 4)),
     CONSTRAINT chk_edu_notification_send_record_times CHECK
         ((sent_at IS NULL OR sent_at >= created_at)
          AND (delivered_at IS NULL OR delivered_at >= sent_at)
@@ -338,4 +348,4 @@ CREATE TABLE edu_notification_send_record (
          AND (superseded_at IS NULL OR superseded_at >= created_at)),
     CONSTRAINT chk_edu_notification_send_record_row_version CHECK (row_version > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='系统通知逻辑通知的每接收人/每次尝试记录；历史尝试保留审计';
+  COMMENT='系统通知逻辑通知的每接收人/每次尝试记录；成功以SENT/DELIVERED/READ为准，旧领取令牌不可写回';

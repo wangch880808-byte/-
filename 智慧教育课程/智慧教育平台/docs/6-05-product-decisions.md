@@ -79,7 +79,7 @@
 ### 3.2 送达与已读
 
 - **问题**：发送成功、送达、已读如何区分？列表打开是否自动已读？
-- **建议默认值**：`SENT` 表示平台已接受/写入站内通知；`DELIVERED` 表示渠道确认送达（站内可与 SENT 同时）；`READ` 只由用户显式打开/点击产生；列表浏览不自动已读；未读只统计当前有效、已送达且 `read_at IS NULL` 的记录（`SENT/DELIVERED`），`PENDING/FAILED/UNKNOWN` 不计未读。
+- **建议默认值**：`SENT` 表示平台已接受/写入站内通知；`DELIVERED` 表示渠道确认送达（站内可与 SENT 同时）；`READ` 只由用户显式打开/点击产生；列表浏览不自动已读；未读只统计当前有效、已成功落库且 `read_at IS NULL` 的记录（`SENT/DELIVERED`），`PENDING/FAILED/UNKNOWN` 不计未读。
 - **理由**：避免把“已发送”误报为“已读”，也避免列表轮询造成虚假已读。
 - **待确认**：站内通知是否需要在详情打开时自动已读；是否需要“全部已读”。
 - **影响范围**：`edu_notification_send_record.delivery_status/sent_at/delivered_at/read_at`、未读统计、前端展示。
@@ -95,20 +95,20 @@
 ### 3.4 发送幂等、重试与未知结果
 
 - **问题**：重复提交如何防止重复发送？失败重试几次？超时未知结果如何处理？如何对账？
-- **建议默认值**：发送任务使用 `Idempotency-Key`，作用域为 `(organization_id, idempotency_key)`；同键同请求返回同一 job，同键不同请求返回 409。首次之外最多重试 3 次（`attempt_no=1..4`），建议间隔 60s/300s/1800s；每次尝试写入独立发送记录。超时或供应商结果未知时标记 `UNKNOWN`，不自动重试，进入人工对账/补偿；每日按供应商回执对账。
-- **理由**：逻辑发送与每次尝试分离，保留重试历史；未知结果盲目重发会造成重复通知。
-- **待确认**：重试次数/间隔、未知结果的自动对账窗口、人工补偿权限和审计要求。
+- **建议默认值**：发送任务使用 `Idempotency-Key`，作用域为 `(organization_id, idempotency_key)`；同键同请求返回同一 job，同键不同请求返回 409。首次 `attempt_no=1`，首次之外最多重试 3 次（`attempt_no=2..4`），建议间隔 60s/300s/1800s；每次尝试写入独立发送记录。自动重试只允许 `FAILED/PARTIAL` 且到期、无处理租约的 job，只重试当前有效 `FAILED`、`attempt_no<4` 且 `next_retry_at <= now` 的接收人；跳过 `SENT/DELIVERED/READ/PENDING/UNKNOWN` 和历史尝试。人工重试同样只允许 `FAILED/PARTIAL` 且无 `PROCESSING` 租约，只重试符合条件的当前 `FAILED` 接收人；`PENDING`（已排队）、`PROCESSING`（处理中）、`SUCCEEDED/CANCELLED`（终态）和 `UNKNOWN`（须先对账）拒绝。人工重试不受退避时间限制，但受 `attempt_no<4` 限制；重复请求不重复生成 attempt；无可重试接收人时返回 409，不改状态。超时或结果未知时不得直接判成功或失败：站内任务转 `UNKNOWN` 人工对账，不写记录级 `UNKNOWN`；外部渠道才把记录标记 `UNKNOWN`。`UNKNOWN` 不自动重试，也不能经普通 retry 入口重发；必须取得明确内部证据后走独立对账/补偿；每日按供应商回执对账。
+- **理由**：逻辑发送与每次尝试分离，保留重试历史；未知结果盲目重发会造成重复通知；过宽的重试条件会在终态、排队中或处理中重复生成尝试。
+- **待确认**：重试次数/间隔、自动/人工重试允许状态、未知结果的自动对账窗口、人工补偿权限和审计要求。
 - **影响范围**：`edu_notification_send_job`、`edu_notification_send_record`、调度任务、供应商适配器、审计。
-
-## 4. 教学过程分析与教学问题研判
 
 ### 3.5 逻辑通知与发送尝试
 
-- **问题**：用户看到的一条通知如何标识？重试多次时列表、未读和任务计数如何避免重复？
-- **建议默认值**：逻辑通知身份为 `(job_id, recipient_user_id)`，对外用不透明 `notificationId`；每次尝试用发送记录 `id`/`attemptNo` 标识。用户列表每个逻辑通知最多一条，只展示当前有效且已送达（`SENT/DELIVERED/READ`）的记录；`PENDING/FAILED/UNKNOWN` 不计入个人未读；显式已读作用于逻辑通知，后续回执不得恢复未读；历史尝试只留管理审计。job 的成功/失败/未知人数按逻辑接收人统计，不按 attempt 行数累加；一个 job 固定一个渠道，创建时从模板固定。
-- **理由**：重试是投递手段，不应产生多条用户通知或重复未读；渠道混用会破坏计数和幂等边界。
-- **待确认**：是否需要“全部已读”；`notificationId` 的对外格式和有效期。
-- **影响范围**：`edu_notification_send_job.channel`、`edu_notification_send_record.superseded_at/active_notification_key`、列表/未读/已读接口、任务计数。
+- **问题**：用户看到的一条通知如何标识？重试多次时列表、未读和任务计数如何避免重复？如何判定一次站内投递已经成功？
+- **建议默认值**：逻辑通知身份为 `(job_id, recipient_user_id)`，对外用不透明 `notificationId`；每次尝试用发送记录 `id`/`attemptNo` 标识。用户列表每个逻辑通知最多一条，只展示当前有效且 `SENT/DELIVERED/READ` 的记录；`PENDING/FAILED/UNKNOWN` 不计入个人未读。成功只以当前记录 `SENT/DELIVERED/READ` 及对应时间字段为准；记录存在本身、`PENDING`、`FAILED`、`UNKNOWN` 都不算成功。显式已读作用于逻辑通知，后续回执不得恢复未读；历史尝试只留管理审计。job 的成功/失败/未知人数按当前有效逻辑接收人统计，不按 attempt 行数累加；`PENDING` 或缺少当前记录属于未决，不计入成功、失败或未知。一个 job 固定一个渠道，创建时从模板固定。站内投递结果不确定时先查当前记录：只有 `SENT/DELIVERED/READ` 才转成功，`PENDING` 继续完成，存在但 `FAILED/UNKNOWN` 不转成功；查询超时、异常或证据不足不得当作“无记录”重发。
+- **理由**：重试是投递手段，不应产生多条用户通知或重复未读；把“记录存在”误当成功会漏发，把查询失败误当“无记录”会重发。
+- **待确认**：是否需要“全部已读”；`notificationId` 的对外格式和有效期；`UNKNOWN` 人工对账/补偿的权限和审计要求。
+- **影响范围**：`edu_notification_send_job.channel`、`edu_notification_send_record.superseded_at/active_notification_key/delivery_status`、列表/未读/已读接口、任务计数、对账流程。
+
+## 4. 教学过程分析与教学问题研判
 
 ### 4.1 数据来源与口径
 
@@ -135,6 +135,6 @@
 5. 系统通知 M1 是否只做站内？邮件/短信何时立项？
 6. 站内通知打开详情是否自动已读？是否需要全部已读？
 7. 模板变量清单、类型、长度、日期格式和转义规则？
-8. 发送重试次数/间隔、未知结果对账窗口、人工补偿权限？
+8. 发送重试次数/间隔、自动/人工重试允许状态、未知结果对账窗口、人工补偿权限？
 9. 教学过程分析的指标、分母、样本下限、时间窗和口径版本由谁批准？
 10. 教学问题研判的分类、阈值、通知对象、整改期限和关闭条件？
