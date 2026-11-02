@@ -48,6 +48,13 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- 仅用于可选的真实 MySQL 并发集成测试；未配置 notice.mysql.url 时跳过 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>
