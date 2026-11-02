@@ -114,8 +114,9 @@ PUT /education/teacher/announcements/{announcementId}
 POST /education/teacher/announcements/{announcementId}/publish
 ```
 
-无请求体。权限 `education:announcement:publish`。仅 `DRAFT → PUBLISHED` 合法。
-前端已做二次确认，`409` 时提示"状态已变化，请刷新后重试"并自动刷新列表。
+无请求体。权限 `education:announcement:publish`。
+`DRAFT → PUBLISHED` 为正常流转；**对已 `PUBLISHED` 的公告重复发布是幂等成功**，返回 `200` 与当前对象，不是 `409`。
+只有非法转换（如 `ARCHIVED` 再发布）才返回 `409`。前端已做二次确认，`409` 时提示"状态已变化，请刷新后重试"并自动刷新列表。
 
 ### A-6 归档公告
 
@@ -123,7 +124,9 @@ POST /education/teacher/announcements/{announcementId}/publish
 POST /education/teacher/announcements/{announcementId}/archive
 ```
 
-无请求体。权限 `education:announcement:archive`。仅 `PUBLISHED → ARCHIVED` 合法，不可逆。
+无请求体。权限 `education:announcement:archive`。
+`PUBLISHED → ARCHIVED` 为正常流转，归档不可逆；**对已 `ARCHIVED` 的公告重复归档是幂等成功**（`200` + 当前对象），
+草稿归档才返回 `409`。
 
 ### A-7 学生公告列表
 
@@ -134,7 +137,9 @@ GET /education/student/announcements?bindingId={bindingId}&pageNum=1&pageSize=10
 | 项 | 内容 |
 | --- | --- |
 | 权限 | `hasRole('student') and lacksRole('admin') and lacksRole('teacher')` |
-| 参数 | `bindingId` 可空（空 = 本人全部班级）；`pageNum`/`pageSize` 规则同上 |
+| 参数 | `bindingId` **只有完全不传**才表示本人全部有效班级；传空串 `""` 或纯空白返回 `400`；`pageNum`/`pageSize` 规则同上 |
+
+前端 `http.js` 在参数为 `null/undefined/''` 时直接不拼该参数，因此"未选上下文"等价于"不传"，不会误触发 `400`。
 
 响应行字段（注意：**与教师端不同，没有 `status`、`visibilityState`、`createdByUserId`**，前端页面正是按此渲染的）：
 
@@ -164,14 +169,16 @@ GET /education/student/announcements?bindingId={bindingId}&pageNum=1&pageSize=10
 GET /education/student/announcements/{announcementId}
 ```
 
-响应 `data` = 列表行字段 + `body`。失败：`403`（非本人班级）、`404`。
+响应 `data` = 列表行字段 + `body`。
+失败语义：**外班、已退班、未开放、已关闭、已归档、不存在统一返回 `404`**（前端不区分，统一提示"公告不存在或当前不可访问"）；
+**只有角色不匹配才返回 `403`**（如教师账号调学生接口）。
 
 ---
 
-## B. 待实现接口（学生通知 5 个，6A 尚未提交 Controller）
+## B. 学生通知 5 个接口（已在 PR #18 实现，待合并）
 
-前端代码 `src/api/education/notice.js` 已按下列契约写完，Controller 一上线即可联调，无需改前端。
-当前状态：请求返回 404，页面显示"通知读取失败 / 接口未就绪"，**没有本地假数据兜底**。
+**状态更新（2026-11-02）**：PR #18 已实现这 5 个接口，字段与下列契约一致，前端 `notice.js` 无需改动。
+合并前请求仍返回 404，页面按"接口未就绪"提示，**没有本地假数据兜底**；合并后即可直接联调。
 
 ### B-1 通知列表
 
@@ -260,23 +267,30 @@ GET /education/student/bindings            → [{ bindingId, courseName, classNa
 
 ---
 
-## D. 需要 6A 确认的 4 件事
+## D. 4 个问题的答复（2026-11-02 已确认）
 
-1. **菜单权限种子**：`education:announcement:add|edit|publish|archive|list` 目前 `sql/` 里没有任何 `sys_menu` 记录，教师角色也未分配。代码已就绪，但教师端会全部 403。这块属 1 组，能否请你确认是否已有人跟进？
-2. **授权端口生产实现**：`TeachingClassAuthorizationPort` / `StudentAnnouncementAuthorizationPort` 在 `main` 上仍只有测试 Fake，真实请求会走 `AnnouncementAuthorizationUnavailableException`（503）。2-01 未交付前，接口是否打算先给一个只读实现？
-3. **发布是否 fan-out 通知**：教师发布公告后，是否要为每个学生生成 `kind=ANNOUNCEMENT` 的 `edu_user_notice` 记录？如果不生成，B-1 里永远不会有公告类型通知，学生只能从"课程公告"页签看。
-4. **A-1 列表的 `visibilityState` 语义**：`DRAFT` / `NOT_YET_OPEN` / `OPEN` / `CLOSED` / `ARCHIVED` 是服务端按当前时刻算的，我按它渲染状态徽标。如果后续要改成前端计算，请提前说明。
+| # | 问题 | 结论 | 前端处理 |
+| --- | --- | --- | --- |
+| 1 | 菜单权限种子 | 属第 1 组/负责人统一处理，6A 不改 `sys_menu` 与角色初始化 SQL | 保留 403 失败态与提示，等权限落地后再联调 |
+| 2 | 授权端口生产实现 | 第 2 组尚无公开契约；不读私有表做临时实现、不默认放行，接入前按安全设计返回 `503` | 503 按"服务不可用"展示，不再当作功能缺陷，也不冒充实为空列表 |
+| 3 | 公告通知 fan-out | 计划在教师发布时为班内有效学生生成 `ANNOUNCEMENT` 通知，唯一约束防重；作为独立批次后续实现 | 学生当前仍可从"课程公告"页签查看，不依赖通知存在；通知列表把 `ANNOUNCEMENT` 与公告详情打通 |
+| 4 | `visibilityState` 语义 | 继续服务端按当前时刻计算，教师端固定返回 5 种状态 | 前端只认 `visibilityState`；缺失按"未知状态"展示并记录错误，**不再用 `status` 推算** |
+
+两条沿用现状的约定：学生通知在生产授权不可用时同样可能返回 `503`，前端按失败态处理，不显示成空列表或未读数 0。
 
 ---
 
 ## E. 我已按这些约定做完前端适配
 
 - 学生公告页**不展示** `status`/`visibilityState`（因为 A-7 不返回），只显示开放/关闭时间。
-- 教师页状态徽标读 `visibilityState`，缺失时回退 `status`。
+- 教师页状态徽标**只读 `visibilityState`**；缺失时显示"未知状态"并 `console.error` 记录，
+  不用 `status` 推算（`PUBLISHED` 无法说明当前是否在开放窗口内）。
+- 重复发布、重复归档按幂等成功处理，不弹错误；只有非法状态转换才提示"状态已变化"。
 - `closesAt=null` 显示"不关闭"。
 - 所有 ID 用 `esc()` 输出到 `data-id`，不做数值转换。
 - 失败态带上 `method + url` 与错误码，方便你按日志定位。
 - 404 与"对象不存在"文案已区分：接口未注册时提示"后端尚未部署对应 Controller"。
+- `503`（授权服务不可用）独立文案，不显示成空列表、不显示未读数 0。
 
 ---
 

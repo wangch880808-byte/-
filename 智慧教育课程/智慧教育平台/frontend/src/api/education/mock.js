@@ -152,6 +152,18 @@
       createdByUserId: '102',
       publishedByUserId: null,
       createdAt: isoFromNow(-90)
+    },
+    {
+      id: '820000000000000007',
+      bindingId: '910000000002',
+      title: '数据库原理第 6 周上机安排',
+      body: '第 6 周上机在机房 C401，按座位表就坐。',
+      status: 'PUBLISHED',
+      opensAt: isoFromNow(-24 * 60),
+      closesAt: null,
+      createdByUserId: '102',
+      publishedByUserId: '102',
+      createdAt: isoFromNow(-25 * 60)
     }
   ];
 
@@ -464,7 +476,12 @@
 
   route('GET', /^\/education\/student\/announcements$/, function (ctx) {
     var page = pageParams(ctx.query, ctx.method, ctx.path);
-    var bindingId = ctx.query.bindingId ? String(ctx.query.bindingId) : '';
+    // 与后端一致：只有"完全不传"才表示本人全部班级；空串/纯空白返回 400。
+    var rawBinding = ctx.query.bindingId;
+    if (rawBinding !== undefined && String(rawBinding).trim() === '') {
+      throw apiError(400, 'bindingId 不能为空字符串', ctx.method, ctx.path);
+    }
+    var bindingId = rawBinding ? String(rawBinding).trim() : '';
     if (bindingId) {
       ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     }
@@ -685,7 +702,7 @@
   }
 
   function reset() {
-    announcements = announcements.slice(0, 6);
+    announcements = announcements.slice(0, 7);
     notices = notices.slice(0, 6);
     notices.forEach(function (item) {
       if (item.id === '830000000000000001' || item.id === '830000000000000002'

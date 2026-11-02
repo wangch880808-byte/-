@@ -112,10 +112,22 @@
     return Array.from(text).length;
   }
 
+  /**
+   * 状态徽标只认服务端计算的 visibilityState。
+   *
+   * 缺失时按"未知状态"展示并记录错误，不用 status 兜底：
+   * PUBLISHED 本身不能说明当前是否处于开放窗口，用 status 会把它错显成"展示中"。
+   */
   function statusBadge(item) {
-    var state = item.visibilityState || item.status || 'DRAFT';
-    var label = VISIBILITY_LABEL[state] || STATUS_LABEL[state] || '未知状态';
-    var tone = VISIBILITY_TONE[state] || 'muted';
+    var state = item && item.visibilityState;
+    if (!state) {
+      if (global.console && typeof global.console.error === 'function') {
+        global.console.error('[EduUI] 公告响应缺少 visibilityState，按未知状态展示', item);
+      }
+      return '<span class="edu-badge edu-badge-warn">未知状态</span>';
+    }
+    var label = VISIBILITY_LABEL[state] || ('未知状态（' + state + '）');
+    var tone = VISIBILITY_TONE[state] || 'warn';
     return '<span class="edu-badge edu-badge-' + tone + '">' + esc(label) + '</span>';
   }
 
@@ -149,6 +161,10 @@
       hint = opts.notFoundHint;
     } else if (error.code === 404) {
       hint = '接口路径未注册或对象不可见。若后端尚未部署对应 Controller，请先同步仓库 main 分支。';
+    } else if (error.code === 503) {
+      // 生产授权端口尚未接入时的预期拒绝，不是页面缺陷。
+      hint = '教学班授权服务暂不可用（第 2 组公开契约未接入）。这是服务端的安全拒绝，'
+        + '接口接入后即可正常读取，无需重复重试。';
     } else if (error.isServerSide()) {
       hint = '服务端异常。可稍后重试；仍失败时请把本页错误码与路径交给 6A 排查。';
     } else if (error.isNetwork()) {

@@ -81,6 +81,22 @@
     return parts.length > 0 ? '?' + parts.join('&') : '';
   }
 
+  /** 与 buildQuery 保持同一规则：null / undefined / 空串视为"不传该参数"。 */
+  function normalizeQuery(query) {
+    var result = {};
+    if (!query) {
+      return result;
+    }
+    Object.keys(query).forEach(function (key) {
+      var value = query[key];
+      if (value === undefined || value === null || value === '') {
+        return;
+      }
+      result[key] = value;
+    });
+    return result;
+  }
+
   function clearSession() {
     try {
       global.sessionStorage.removeItem(TOKEN_KEY);
@@ -120,11 +136,12 @@
 
     // Mock 模式：显式开启后业务请求全部走内置数据，不再打后端。
     // 未覆盖的路径直接报错而不是回落到真实请求，避免"一半真一半假"。
+    // 查询串按 buildQuery 的规则剔除空值，保证 Mock 看到的后端入参与真实请求一致。
     if (global.EduMock && global.EduMock.enabled()) {
       return global.EduMock.request({
         method: method,
         path: opts.url,
-        query: opts.query || {},
+        query: normalizeQuery(opts.query),
         body: opts.body
       });
     }
