@@ -1,22 +1,20 @@
 package com.ruoyi.education.overview.exception;
 
+import com.ruoyi.education.course.exception.EducationException;
+
 /**
  * 总览聚合业务异常基类。
  *
- * <p>本阶段与 6-02 解耦：6-02 的 {@code EducationException} 尚未合并到 main，
- * 因此这里先提供等价的本地基类。6-02 合并后应改为继承
- * {@code com.ruoyi.education.course.exception.EducationException}，
- * 以复用统一异常处理和业务码。</p>
+ * <p>6-02 已合并到 main，本类复用其公共 {@link EducationException} 基类，
+ * 从而由教育业务异常处理链统一读取业务码；总览仍保留独立异常类型，
+ * 便于控制器作用域 advice 区分总览错误。</p>
  *
- * <p>TODO：6-02 的 PR #18/#20/#21/#22 合并、{@code EducationException}
- * 在 main 可用后，将本类父类改为 {@code EducationException}；
- * 解除条件为 6-02 通知/公告代码进入 main 且编译通过。</p>
+ * <p>业务码、message 和 cause 的构造语义与 6-02 合并前保持一致；
+ * 本类不重复存储 code，统一由 {@link EducationException} 维护。</p>
  */
-public abstract class OverviewException extends RuntimeException
+public abstract class OverviewException extends EducationException
 {
     private static final long serialVersionUID = 1L;
-
-    private final int code;
 
     /**
      * 创建总览业务异常。
@@ -26,8 +24,7 @@ public abstract class OverviewException extends RuntimeException
      */
     protected OverviewException(String message, int code)
     {
-        super(message);
-        this.code = code;
+        super(message, code);
     }
 
     /**
@@ -39,17 +36,6 @@ public abstract class OverviewException extends RuntimeException
      */
     protected OverviewException(String message, int code, Throwable cause)
     {
-        super(message, cause);
-        this.code = code;
-    }
-
-    /**
-     * 返回业务码。
-     *
-     * @return 若依响应体使用的业务码
-     */
-    public int getCode()
-    {
-        return code;
+        super(message, code, cause);
     }
 }
