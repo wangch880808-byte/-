@@ -60,7 +60,9 @@ CREATE TABLE edu_campus_news (
 CREATE TABLE edu_message_thread (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '线程主键',
     organization_id BIGINT NOT NULL COMMENT '组织ID；若依部门逻辑引用',
-    thread_no VARCHAR(40) NOT NULL COMMENT '组织内业务编号；创建幂等键',
+    thread_no VARCHAR(40) NOT NULL COMMENT '组织内业务编号；展示/引用，不单独承担请求幂等',
+    create_idempotency_key VARCHAR(80) NOT NULL COMMENT '创建线程幂等键；组织+发起人范围内唯一',
+    create_request_hash BINARY(32) NOT NULL COMMENT '创建请求载荷哈希；同键不同载荷冲突',
     scope_kind VARCHAR(20) NOT NULL COMMENT '范围：PLATFORM/COURSE/TEACHING_CLASS',
     scope_ref_id BIGINT NULL COMMENT '课程空间/教学班逻辑ID；PLATFORM为空',
     initiator_user_id BIGINT NOT NULL COMMENT '发起人用户ID',
@@ -82,6 +84,8 @@ CREATE TABLE edu_message_thread (
     row_version INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '乐观锁版本',
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_message_thread_no (organization_id, thread_no),
+    UNIQUE KEY uq_edu_message_thread_create_idempotency
+        (organization_id, initiator_user_id, create_idempotency_key),
     UNIQUE KEY uq_edu_message_thread_id_org (id, organization_id),
     KEY idx_edu_message_thread_org_status (organization_id, status, last_reply_at, id),
     KEY idx_edu_message_thread_initiator (initiator_user_id, created_at, id),
@@ -104,17 +108,21 @@ CREATE TABLE edu_message_thread (
     CONSTRAINT chk_edu_message_thread_times CHECK
         ((last_reply_at IS NULL OR last_reply_at >= created_at)
          AND (closed_at IS NULL OR closed_at >= created_at)),
+    CONSTRAINT chk_edu_message_thread_reply_count CHECK (reply_count >= 0),
     CONSTRAINT chk_edu_message_thread_row_version CHECK (row_version > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='留言线程主记录；参与者和范围待评审';
+  COMMENT='留言线程主记录；创建幂等，首条正文在回复表';
 
 -- 3. 留言回复：参与者可见回复或管理员内部备注；软删除保留审计。
 CREATE TABLE edu_message_reply (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '回复主键',
     organization_id BIGINT NOT NULL COMMENT '组织ID；用于线程同组织约束',
     thread_id BIGINT NOT NULL COMMENT '线程ID',
+    sequence_no INT UNSIGNED NOT NULL COMMENT '线程内回复序号；首条正文为1，事务内递增',
     sender_user_id BIGINT NOT NULL COMMENT '回复人用户ID',
     sender_role VARCHAR(16) NOT NULL COMMENT '回复人角色：TEACHER/STUDENT/ADMIN',
+    idempotency_key VARCHAR(80) NOT NULL COMMENT '回复幂等键；同线程+发送人内唯一',
+    request_hash BINARY(32) NOT NULL COMMENT '回复请求载荷哈希；同键不同载荷冲突',
     body TEXT NOT NULL COMMENT '回复正文；服务端按格式清洗/转义',
     visibility VARCHAR(16) NOT NULL DEFAULT 'PARTICIPANTS' COMMENT '可见性：PARTICIPANTS/ADMIN_INTERNAL',
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间UTC',
@@ -123,10 +131,14 @@ CREATE TABLE edu_message_reply (
     delete_reason VARCHAR(500) NULL COMMENT '软删除原因',
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_message_reply_id_thread (id, thread_id),
+    UNIQUE KEY uq_edu_message_reply_sequence (thread_id, sequence_no),
+    UNIQUE KEY uq_edu_message_reply_idempotency
+        (thread_id, sender_user_id, idempotency_key),
     KEY idx_edu_message_reply_thread (thread_id, created_at, id),
     KEY idx_edu_message_reply_sender (sender_user_id, created_at, id),
     CONSTRAINT fk_edu_message_reply_thread FOREIGN KEY (thread_id, organization_id)
         REFERENCES edu_message_thread (id, organization_id),
+    CONSTRAINT chk_edu_message_reply_sequence CHECK (sequence_no > 0),
     CONSTRAINT chk_edu_message_reply_sender_role CHECK
         (sender_role IN ('TEACHER', 'STUDENT', 'ADMIN')),
     CONSTRAINT chk_edu_message_reply_visibility CHECK
@@ -137,7 +149,7 @@ CREATE TABLE edu_message_reply (
     CONSTRAINT chk_edu_message_reply_deleted_time CHECK
         (deleted_at IS NULL OR deleted_at >= created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='留言回复/内部备注；软删除保留审计';
+  COMMENT='留言回复/内部备注；序号和幂等键防重，软删除保留审计';
 
 -- 4. 系统通知模板：组织内编码+版本；同一编码最多一个 ACTIVE。
 CREATE TABLE edu_notification_template (
@@ -164,7 +176,8 @@ CREATE TABLE edu_notification_template (
         (organization_id, template_code, template_version),
     UNIQUE KEY uq_edu_notification_template_active
         (organization_id, active_template_code),
-    UNIQUE KEY uq_edu_notification_template_id_version (id, template_version),
+    UNIQUE KEY uq_edu_notification_template_id_org_version_channel
+        (id, organization_id, template_version, channel),
     KEY idx_edu_notification_template_org_status
         (organization_id, status, channel),
     CONSTRAINT chk_edu_notification_template_channel CHECK
@@ -182,6 +195,7 @@ CREATE TABLE edu_notification_send_job (
     organization_id BIGINT NOT NULL COMMENT '组织ID；若依部门逻辑引用',
     template_id BIGINT NOT NULL COMMENT '模板ID',
     template_version INT UNSIGNED NOT NULL COMMENT '模板版本号；固定发送时版本',
+    channel VARCHAR(16) NOT NULL COMMENT '发送渠道；创建时从模板固定，M1为IN_APP',
     sender_user_id BIGINT NOT NULL COMMENT '发起人用户ID',
     idempotency_key VARCHAR(80) NOT NULL COMMENT '幂等键；组织内唯一',
     request_hash BINARY(32) NOT NULL COMMENT '请求载荷哈希；同键不同载荷冲突',
@@ -191,6 +205,9 @@ CREATE TABLE edu_notification_send_job (
     payload_json JSON NOT NULL COMMENT '已校验的模板变量；不含凭据/敏感原文',
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING/PROCESSING/SUCCEEDED/PARTIAL/FAILED/UNKNOWN/CANCELLED',
     scheduled_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '计划发送时间UTC',
+    lease_owner VARCHAR(80) NULL COMMENT '持有处理权的worker标识；空表示未领取',
+    lease_expires_at DATETIME(3) NULL COMMENT '领取租约到期时间UTC；过期可恢复',
+    next_retry_at DATETIME(3) NULL COMMENT '下次自动重试时间UTC；UNKNOWN为空',
     started_at DATETIME(3) NULL COMMENT '开始处理时间UTC',
     finished_at DATETIME(3) NULL COMMENT '结束时间UTC',
     total_count INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '目标接收人数',
@@ -208,13 +225,20 @@ CREATE TABLE edu_notification_send_job (
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_notification_send_job_idempotency
         (organization_id, idempotency_key),
-    UNIQUE KEY uq_edu_notification_send_job_id_org (id, organization_id),
+    UNIQUE KEY uq_edu_notification_send_job_id_org_channel
+        (id, organization_id, channel),
     KEY idx_edu_notification_send_job_org_status
         (organization_id, status, scheduled_at, id),
-    KEY idx_edu_notification_send_job_template (template_id, template_version),
+    KEY idx_edu_notification_send_job_template
+        (organization_id, template_id, template_version, channel),
+    KEY idx_edu_notification_send_job_lease (status, lease_expires_at),
+    KEY idx_edu_notification_send_job_retry (status, next_retry_at),
     CONSTRAINT fk_edu_notification_send_job_template
-        FOREIGN KEY (template_id, template_version)
-        REFERENCES edu_notification_template (id, template_version),
+        FOREIGN KEY (template_id, organization_id, template_version, channel)
+        REFERENCES edu_notification_template
+            (id, organization_id, template_version, channel),
+    CONSTRAINT chk_edu_notification_send_job_channel CHECK
+        (channel IN ('IN_APP', 'EMAIL', 'SMS')),
     CONSTRAINT chk_edu_notification_send_job_status CHECK
         (status IN ('PENDING', 'PROCESSING', 'SUCCEEDED', 'PARTIAL',
                     'FAILED', 'UNKNOWN', 'CANCELLED')),
@@ -231,11 +255,20 @@ CREATE TABLE edu_notification_send_job (
              AND cancelled_by_user_id IS NOT NULL AND cancel_reason IS NOT NULL)
          OR (status <> 'CANCELLED' AND cancelled_at IS NULL
              AND cancelled_by_user_id IS NULL AND cancel_reason IS NULL)),
+    CONSTRAINT chk_edu_notification_send_job_lease CHECK
+        ((status = 'PROCESSING' AND lease_owner IS NOT NULL
+             AND lease_expires_at IS NOT NULL)
+         OR (status <> 'PROCESSING' AND lease_owner IS NULL
+             AND lease_expires_at IS NULL)),
+    CONSTRAINT chk_edu_notification_send_job_retry CHECK
+        (next_retry_at IS NULL OR status IN ('PENDING', 'FAILED', 'PARTIAL')),
     CONSTRAINT chk_edu_notification_send_job_times CHECK
-        (finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at),
+        ((finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at)
+         AND (lease_expires_at IS NULL OR lease_expires_at >= created_at)
+         AND (next_retry_at IS NULL OR next_retry_at >= created_at)),
     CONSTRAINT chk_edu_notification_send_job_row_version CHECK (row_version > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='系统通知逻辑发送任务；与每次发送尝试分离';
+  COMMENT='系统通知逻辑发送任务；固定渠道，与每次发送尝试分离';
 
 -- 6. 发送记录：每接收人/每次尝试一行；保留投递、送达、已读和重试历史。
 CREATE TABLE edu_notification_send_record (
@@ -252,28 +285,36 @@ CREATE TABLE edu_notification_send_record (
     sent_at DATETIME(3) NULL COMMENT '平台接受/发送时间UTC',
     delivered_at DATETIME(3) NULL COMMENT '渠道确认送达时间UTC',
     read_at DATETIME(3) NULL COMMENT '用户显式已读时间UTC；仅站内',
-    next_retry_at DATETIME(3) NULL COMMENT '下次重试时间UTC；仅FAILED',
+    next_retry_at DATETIME(3) NULL COMMENT '下次重试时间UTC；仅当前有效FAILED',
+    superseded_at DATETIME(3) NULL COMMENT '被新尝试替代时间UTC；NULL表示当前有效逻辑通知',
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间UTC',
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间UTC',
     row_version INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '乐观锁版本',
+    active_notification_key VARCHAR(80) GENERATED ALWAYS AS
+        (CASE WHEN superseded_at IS NULL
+            THEN CONCAT(organization_id, ':', job_id, ':', recipient_user_id)
+            ELSE NULL END) STORED
+        COMMENT '当前有效逻辑通知键；唯一约束保证每个job+接收人最多一条当前记录',
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_notification_send_record_attempt
         (job_id, recipient_user_id, attempt_no),
-    KEY idx_edu_notification_send_record_recipient
-        (recipient_user_id, delivery_status, created_at, id),
+    UNIQUE KEY uq_edu_notification_send_record_active
+        (active_notification_key),
+    KEY idx_edu_notification_send_record_recipient_active
+        (recipient_user_id, superseded_at, read_at, delivery_status, created_at, id),
     KEY idx_edu_notification_send_record_job
         (job_id, delivery_status, attempt_no),
     KEY idx_edu_notification_send_record_provider
         (channel, provider_message_id),
     KEY idx_edu_notification_send_record_retry (next_retry_at),
     CONSTRAINT fk_edu_notification_send_record_job
-        FOREIGN KEY (job_id, organization_id)
-        REFERENCES edu_notification_send_job (id, organization_id),
+        FOREIGN KEY (job_id, organization_id, channel)
+        REFERENCES edu_notification_send_job (id, organization_id, channel),
     CONSTRAINT chk_edu_notification_send_record_channel CHECK
         (channel IN ('IN_APP', 'EMAIL', 'SMS')),
     CONSTRAINT chk_edu_notification_send_record_status CHECK
         (delivery_status IN ('PENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED', 'UNKNOWN')),
-    CONSTRAINT chk_edu_notification_send_record_attempt CHECK (attempt_no > 0),
+    CONSTRAINT chk_edu_notification_send_record_attempt CHECK (attempt_no BETWEEN 1 AND 4),
     CONSTRAINT chk_edu_notification_send_record_status_times CHECK
         ((delivery_status = 'PENDING' AND sent_at IS NULL
              AND delivered_at IS NULL AND read_at IS NULL)
@@ -287,12 +328,14 @@ CREATE TABLE edu_notification_send_record (
     CONSTRAINT chk_edu_notification_send_record_read_channel CHECK
         (read_at IS NULL OR channel = 'IN_APP'),
     CONSTRAINT chk_edu_notification_send_record_retry CHECK
-        (next_retry_at IS NULL OR delivery_status = 'FAILED'),
+        (next_retry_at IS NULL
+         OR (delivery_status = 'FAILED' AND superseded_at IS NULL)),
     CONSTRAINT chk_edu_notification_send_record_times CHECK
         ((sent_at IS NULL OR sent_at >= created_at)
          AND (delivered_at IS NULL OR delivered_at >= sent_at)
          AND (read_at IS NULL OR read_at >= delivered_at)
-         AND (next_retry_at IS NULL OR next_retry_at >= created_at)),
+         AND (next_retry_at IS NULL OR next_retry_at >= created_at)
+         AND (superseded_at IS NULL OR superseded_at >= created_at)),
     CONSTRAINT chk_edu_notification_send_record_row_version CHECK (row_version > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='系统通知每接收人/每次尝试记录；保留投递/送达/已读/重试历史';
+  COMMENT='系统通知逻辑通知的每接收人/每次尝试记录；历史尝试保留审计';
