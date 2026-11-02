@@ -32,7 +32,7 @@
 12. 学生本人单条通知标记已读。
 13. 学生本人全部通知标记已读。
 
-当前状态：教师公告、学生公告只读列表/详情、学生通知列表/详情/未读数/单条已读/全部已读的后端领域对象、Controller/DTO/Service/Mapper XML 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 已实现；生产学生授权适配器仍缺失，上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收未实现。本文档确认前端调用契约，不代表接口已可生产联调；真实 MySQL、HTTP、登录、角色拦截和审计联调仍未完成。
+当前状态：教师公告、学生公告只读列表/详情、学生通知列表/详情/未读数/单条已读/全部已读的后端领域对象、Controller/DTO/Service/Mapper XML 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 和上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收端已实现；生产学生授权适配器仍缺失，真实上游投递/鉴权联调未完成。本文档确认前端调用契约，不代表接口已可生产联调；真实 MySQL、HTTP、登录、角色拦截和审计联调仍未完成。
 
 ### 1.2 不包含
 
@@ -1553,7 +1553,7 @@ PUT /education/student/notices/read-all
 
 ## 7. 接口汇总表
 
-共 13 个接口：教师端 6 个，学生端 7 个。教师端 6 个、学生公告列表/详情 2 个、学生通知 5 个接口的后端领域对象、Controller/DTO/Service/Mapper XML 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 已实现；生产授权适配器未接入，上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收未实现，真实联调未完成。
+共 13 个接口：教师端 6 个，学生端 7 个。教师端 6 个、学生公告列表/详情 2 个、学生通知 5 个接口的后端领域对象、Controller/DTO/Service/Mapper XML 与隔离测试已实现；公告发布 ANNOUNCEMENT fan-out 和上游事件接收端已实现；生产授权适配器和真实上游投递联调未完成。
 
 ### 7.1 教师端
 
