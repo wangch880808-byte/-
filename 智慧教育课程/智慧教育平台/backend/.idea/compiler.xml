@@ -6,11 +6,12 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="ruoyi-common" />
         <module name="ruoyi-framework" />
-        <module name="ruoyi-generator" />
         <module name="ruoyi-system" />
+        <module name="ruoyi-common" />
+        <module name="ruoyi-generator" />
         <module name="ruoyi-quartz" />
+        <module name="ruoyi-education" />
         <module name="ruoyi-admin" />
       </profile>
     </annotationProcessing>
@@ -20,6 +21,7 @@
       <module name="ruoyi" options="-parameters" />
       <module name="ruoyi-admin" options="-parameters" />
       <module name="ruoyi-common" options="-parameters" />
+      <module name="ruoyi-education" options="-parameters" />
       <module name="ruoyi-framework" options="-parameters" />
       <module name="ruoyi-generator" options="-parameters" />
       <module name="ruoyi-quartz" options="-parameters" />
