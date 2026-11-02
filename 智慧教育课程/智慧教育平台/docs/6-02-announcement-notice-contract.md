@@ -1,6 +1,6 @@
 # 6-02 教学班公告与个人通知 M0 后端契约草案
 
-> 版本：0.2 草案｜日期：2026-10-25｜负责人：6A｜状态：教师公告、学生公告只读、学生通知列表/详情/未读数/单条已读/全部已读、公告发布 ANNOUNCEMENT fan-out 以及上游事件接收端（内部端口）的后端代码与隔离测试已落地；真实上游投递联调、生产学生授权适配器和真实 HTTP/登录/权限/审计联调未完成
+> 版本：0.2 草案｜日期：2026-10-25｜负责人：6A｜状态：教师公告、学生公告只读、学生通知列表/详情/未读数/单条已读/全部已读、公告发布 ANNOUNCEMENT fan-out 以及上游事件接收端（内部端口）的后端代码与隔离测试已落地；MySQL 8.0.43 写入/并发/数据量加固已实测，MySQL 8.0.46 未验证；真实上游投递联调、生产学生授权适配器和真实 HTTP/登录/权限/审计联调未完成
 >
 > 本文只覆盖 `docs/分工.md` 的 6-02：教学班公告发布/读取、学生本班公告、学生本人任务与成绩通知、列表/详情/未读数/单条标记已读/全部标记已读。
 > 本文中的 URL、字段名、错误码、权限标识仍为**待评审建议**，不是已冻结协议；公告与学生通知 Service/Controller 的已实现行为以第 3、4、7 节和实现代码为准。
@@ -12,7 +12,7 @@
 - 若依 3.9.2 三角色登录、验证码、`/getInfo`、`/getRouters`、退出已在本机联调。
 - 服务端可从 `SecurityUtils.getLoginUser()` / `SecurityUtils.getUserId()` 取得可信用户身份。
 - 已有统一响应结构 `AjaxResult`、分页结构 `TableDataInfo`、全局异常处理、`@PreAuthorize` 和 `@Log` 审计能力。
-- `sql/mysql-v3-m0-*.sql` 已在隔离 MySQL 8.0.46 测试库验证建表与部分约束。
+- 历史记录称 `sql/mysql-v3-m0-*.sql` 已在隔离 MySQL 8.0.46 测试库验证建表与部分约束；本轮未获得 8.0.46 实例，未复验。
 - 演示数据中已出现 1 条 `PUBLISHED` 公告和 2 条个人通知（`ANNOUNCEMENT`、`GRADE`）。
 - 教师公告已有 Entity、Mapper 读写、状态规则、Service、授权适配端口、Controller/DTO 和 H2 隔离测试；学生公告已有只读列表/详情 Controller/DTO/Service 和学生授权端口；学生通知已有列表/详情/未读数/单条已读/全部已读 Controller/DTO/Service/Mapper 和 H2/Mockito/MockMvc 隔离测试；公告发布时已实现 ANNOUNCEMENT fan-out（批量 500、唯一键幂等）；上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收端已实现（内部端口、H2 隔离测试）；生产教师/学生授权适配器仍未接入，真实上游投递联调未完成。
 
@@ -21,7 +21,7 @@
 - `edu_course_announcement` 已有教师公告读写和学生公告只读 Controller/DTO/Service/Mapper。
 - `edu_user_notice` 已有 Entity、Mapper、Service、Controller/DTO、学生通知读取/已读实现、公告发布 ANNOUNCEMENT fan-out 和上游 PREVIEW/ACTIVITY/ASSIGNMENT/GRADE 事件接收端口/服务；真实上游投递、鉴权和重试联调仍未完成。
 - `edu_class_teacher`、`edu_class_student`、`edu_course_class_binding`、`edu_teaching_class` 已有表结构和演示数据，但没有教学业务接口；公告/通知模块通过教师教学班授权端口和学生公告授权端口隔离，当前没有生产适配器。
-- `ruoyi-education` 已接入 Maven 构建；当前没有真实 MySQL、HTTP 或完整 Spring Boot 应用联调结论。
+- `ruoyi-education` 已接入 Maven 构建；MySQL 8.0.43 已完成通知写入/并发/数据量加固，`ruoyi-admin` 启动级上下文测试已通过；MySQL 8.0.46、真实 HTTP/登录/角色拦截/审计落库仍未验证。加固结果见 [6-02 MySQL 加固结果](6-02-mysql-hardening-results.md)。
 
 ### 0.3 仍属待评审方案
 
@@ -1440,6 +1440,8 @@ UNIQUE KEY uq_edu_notice_recipient_source
 | `sql/` | 权限菜单种子（若第 1 组要求）；不新增业务表 |
 | `docs/api-contracts.md` | 评审后补契约摘要 |
 | `docs/architecture.md` | 补充公告/通知归属和事件边界 |
+| `docs/6-02-mysql-hardening-results.md` | 已新增：MySQL 8.0.43 写入/并发/数据量/EXPLAIN 实测；8.0.46 未验证 |
+| `docs/6-02-notice-index-draft.sql` | 已新增：列表排序索引草案，待审核，不执行 |
 
 现有实现位于 `com.ruoyi.education.course` 下的 `controller`、`domain`、`dto`、`exception`、`mapper`、`policy`、`service`、`authorization`、`support`、`web` 子包；没有新增 `communication` 领域。数据库设计中两张表仍归 `course` 领域，若未来决定新增独立领域，需要先修改九个领域的固定约定。
 
@@ -1450,7 +1452,7 @@ UNIQUE KEY uq_edu_notice_recipient_source
 - 任何 SQL/数据库变更或测试库写入；
 - 任何菜单/角色/权限数据变更；
 - 管理员公告治理、校园资讯、留言、系统通知模板、AI 功能。
-- 真实 MySQL、完整 Spring Boot 应用、HTTP、真实登录/角色拦截/审计和真实教学班授权联调；当前教师公告、学生公告只读、学生通知读取/已读的 Controller/DTO/Service/Mapper 及隔离测试已落地，但不等于真实联调完成。
+- MySQL 8.0.46、真实 HTTP/登录/角色拦截/审计、真实上游投递/教学班授权联调；当前 MySQL 8.0.43 写入/并发/数据量加固和 `ruoyi-admin` 启动级上下文已实测，但不等于完整生产联调。
 
 ---
 
