@@ -1,7 +1,7 @@
 export const ROLES = ['admin', 'teacher', 'student']
 export const ROLE_LABELS = { admin: '管理员', teacher: '教师', student: '学生' }
 export const ROLE_HOME = {
-  admin: '/403', teacher: '/education/teacher/quick-start', student: '/education/student/join'
+  admin: '/system/user', teacher: '/education/teacher/quick-start', student: '/education/student/join'
 }
 export function pickRole(roles = [], preferred = '') {
   return ROLES.includes(preferred) && roles.includes(preferred)

@@ -77,12 +77,7 @@
                 <directory>${project.basedir}/../../frontend</directory>
                 <targetPath>static</targetPath>
                 <includes>
-                    <include>login.html</include>
                     <include>login.js</include>
-                    <include>admin.html</include>
-                    <include>teacher.html</include>
-                    <include>student.html</include>
-                    <include>projection.html</include>
                     <include>role-home.js</include>
                     <include>classroom.css</include>
                     <include>logo.png</include>

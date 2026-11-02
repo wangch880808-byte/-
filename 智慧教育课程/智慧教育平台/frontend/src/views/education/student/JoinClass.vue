@@ -6,32 +6,30 @@
     <el-card shadow="never" class="hero">
       <div class="icon">{{ active ? '📡' : '💤' }}</div>
       <h2>正在上课 / 一键加入</h2>
+      <p class="course">{{ binding?.courseTitle || '课程' }} · {{ binding?.className || '教学班' }}</p>
       <p class="muted">
         {{ active
-          ? `${binding?.courseTitle || '课程'} 正在进行中，点击加入同步课堂。`
-          : '当前没有进行中的课堂，请稍后再试或从课程详情进入。' }}
+          ? '课堂进行中。加入时服务端会校验本班资格，迟加入也会恢复到最新公开页。'
+          : '当前没有进行中的课堂，请稍后再试。' }}
       </p>
-      <el-button type="primary" size="large" :disabled="!active" :loading="joining" @click="join">
+      <el-button type="primary" size="large" class="join-btn" :disabled="!active" :loading="joining" @click="join">
         一键加入
       </el-button>
-      <el-alert
-        class="hint"
-        type="info"
-        :closable="false"
-        title="加入时由服务端校验本班资格，非本班或已退班将返回 403。"
-      />
+      <p class="hint">外班或已退班账号会被服务端拒绝；不依赖 WebSocket 连接状态。</p>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import * as api from '@/api/education/classroom'
+import { useCourseStore } from '@/store/course'
 import { usePolling } from '@/composables/usePolling'
 
 const router = useRouter()
+const course = useCourseStore()
 const binding = ref(null)
 const snapshot = ref(null)
 const joining = ref(false)
@@ -49,8 +47,8 @@ async function refresh() {
 
 async function load() {
   try {
-    const list = await api.listMyBindings()
-    const match = list.find(item => item.role === 'STUDENT')
+    await course.ensure('STUDENT')
+    const match = course.current?.role === 'STUDENT' ? course.current : null
     if (!match) throw new Error('未找到选课记录（待第 2 组配置）')
     binding.value = match
     await refresh()
@@ -73,13 +71,20 @@ async function join() {
   }
 }
 
+watch(() => course.bindingId, (id, prev) => { if (prev && id !== prev) load() })
 onMounted(load)
 </script>
 
 <style scoped>
-.join-page { display: flex; flex-direction: column; gap: 12px; }
-.hero { text-align: center; padding: 24px 12px; }
+.join-page { display: flex; flex-direction: column; gap: 12px; max-width: 560px; margin: 0 auto; }
+.hero { text-align: center; padding: 28px 16px; }
 .icon { font-size: 44px; }
-.muted { color: #6b7280; margin: 8px 0 20px; }
-.hint { margin-top: 20px; text-align: left; }
+.course { margin: 8px 0 0; font-weight: 600; }
+.muted { color: #6b7280; margin: 8px 0 20px; line-height: 1.7; }
+.join-btn { width: min(100%, 280px); min-height: 44px; }
+.hint { margin-top: 18px; color: #8a96a9; font-size: 12px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .join-page { max-width: none; }
+  .join-btn { width: 100%; }
+}
 </style>

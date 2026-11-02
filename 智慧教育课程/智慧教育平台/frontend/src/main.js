@@ -5,6 +5,8 @@ import App from './App.vue'
 import pinia from './store'
 import router from './router'
 import { useUserStore } from './store/user'
+import { useCourseStore } from './store/course'
+import { useWorkspaceStore } from './store/workspace'
 import modal from './plugins/modal'
 import Pagination from './components/Pagination/index.vue'
 import './styles/index.css'
@@ -21,6 +23,8 @@ app.directive('hasPermi', (el, binding) => {
 window.addEventListener('zhijiao:session-expired', () => {
   const redirect = router.currentRoute.value.fullPath
   useUserStore(pinia).reset()
+  useCourseStore(pinia).reset()
+  useWorkspaceStore(pinia).$reset()
   if (router.currentRoute.value.path !== '/login') router.replace({ path: '/login', query: { reason: 'expired', redirect } })
 })
 router.onError(() => { ElMessage.error('页面加载失败，请刷新后重试') })

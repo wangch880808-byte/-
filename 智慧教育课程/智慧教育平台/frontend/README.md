@@ -1,11 +1,11 @@
 # 前端工程
 
-本目录现在有**两套前端并存**：
+业务页面都在 Vue 3 工程里。源码只保留挂载入口 `index.html`，构建后由 `/app/` 提供。
 
 | 形态 | 位置 | 说明 |
 |---|---|---|
-| 原生页面 | `login.html`、`teacher.html`、`student.html`、`admin.html`、`projection.html`、`js/` | 早期联调页，由后端同源托管，仍可访问 |
-| Vue 3 工程 | `src/`、`index.html`、`vite.config.js` | 第 4 组课堂与同步跟课页面（4-03 / 4-04），构建到 `app/`，由 `/app/` 访问 |
+| 挂载入口 | `index.html` | Vite 入口，挂载 `#app` |
+| Vue 3 工程 | `src/`、`vite.config.js` | 三端菜单、页签、课程上下文和业务页，构建到 `app/`，由 `/app/` 访问 |
 
 ## Vue 工程
 
@@ -27,8 +27,7 @@ npm run build                     # 产出 app/，后端打包时复制到 stati
 ```text
 frontend/
 ├── README.md
-├── login.html、login.js、logo.png
-├── admin.html、teacher.html、student.html
+├── index.html、login.js、logo.png
 ├── role-home.js
 └── src/
     ├── views/education/

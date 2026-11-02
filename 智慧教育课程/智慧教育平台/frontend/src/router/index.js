@@ -3,6 +3,7 @@ import pinia from '@/store'
 import { useUserStore } from '@/store/user'
 import { canAccess, ROLE_HOME } from '@/utils/access'
 import { getToken } from '@/utils/auth'
+import { useWorkspaceStore } from '@/store/workspace'
 import { businessRoutes } from './routes'
 const router = createRouter({
   // 保留实际入口文件路径，使 Spring Boot 的 /app/index.html 刷新仍可访问。
@@ -35,5 +36,8 @@ router.beforeEach(async to => {
   if (to.path === '/' || to.path === '/login') return ROLE_HOME[user.role]
   return canAccess(to.meta, user.roles, user.permissions) ? true : '/403'
 })
-router.afterEach(to => { document.title = `${to.meta.title || '知教'} · 智慧教育平台` })
+router.afterEach(to => {
+  document.title = `${to.meta.title || '知教'} · 智慧教育平台`
+  useWorkspaceStore(pinia).open(to)
+})
 export default router

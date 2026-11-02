@@ -1,7 +1,54 @@
+# 依赖
 node_modules/
-dist/
+
+# 构建产物（Vite 产出 app/，勿提交）
 app/
-.env.local
-.env.*.local
+dist/
+build/
+coverage/
+*.local.tgz
+*.tgz
+
+# 环境与本地配置（含示例以外的全部 env / yaml）
+.env
+.env.*
+!.env.example
+*.yml
+*.yaml
+*.properties
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# Vite / 测试缓存与报告
+.vite/
+.cache/
+.turbo/
+.eslintcache
+.nyc_output/
 test-results/
 playwright-report/
+playwright/.cache/
+blob-report/
+
+# 日志与临时文件
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.swp
+*~
+
+# 编辑器 / IDE / 系统
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini

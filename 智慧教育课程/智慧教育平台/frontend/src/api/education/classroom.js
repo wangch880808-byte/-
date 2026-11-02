@@ -15,7 +15,18 @@ export const startSession = data =>
   request({ url: '/education/classroom/sessions', method: 'post', data }).then(r => r.data)
 
 export const getSnapshot = (sessionId, view) =>
-  request({ url: `/education/classroom/sessions/${sessionId}/snapshot?view=${view}` }).then(r => r.data)
+  request({
+    url: `/education/classroom/sessions/${sessionId}/snapshot`,
+    params: { view },
+    auth: view !== 'public'
+  }).then(r => r.data)
+
+/** 断线补查：先 snapshot，再用 afterSeq 拉增量事件。 */
+export const getEvents = (sessionId, afterSeq = 0, view = 'public') =>
+  request({
+    url: `/education/classroom/sessions/${sessionId}/events`,
+    params: { afterSeq, view }
+  }).then(r => r.data || [])
 
 export const pauseSession = sessionId =>
   request({ url: `/education/classroom/sessions/${sessionId}/pause`, method: 'post' })
@@ -39,18 +50,38 @@ export const joinSession = sessionId =>
 export const createActivity = data =>
   request({ url: '/education/activity/instances', method: 'post', data }).then(r => r.data)
 
-export const checkin = activityId =>
-  request({ url: `/education/activity/instances/${activityId}/checkin`, method: 'post' }).then(r => r.data)
+export const checkin = (activityId, idempotencyKey) =>
+  request({
+    url: `/education/activity/instances/${activityId}/checkin`,
+    method: 'post',
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined
+  }).then(r => r.data)
 
-export const submitResponse = (activityId, answers) =>
+export const submitResponse = (activityId, answers, idempotencyKey) =>
   request({
     url: `/education/activity/instances/${activityId}/responses`,
     method: 'post',
-    data: { answers }
+    data: { answers },
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined
   }).then(r => r.data)
+
+export const closeActivity = activityId =>
+  request({ url: `/education/activity/instances/${activityId}/close`, method: 'post' })
 
 export const publishResult = activityId =>
   request({ url: `/education/activity/instances/${activityId}/publish-result`, method: 'post' })
 
 export const getStatistics = activityId =>
   request({ url: `/education/activity/instances/${activityId}/statistics` }).then(r => r.data)
+
+/** 带令牌拉取预览图；失败时返回 null，不阻断课堂主流程。 */
+export async function fetchPreviewObjectUrl(previewUrl) {
+  if (!previewUrl) return null
+  try {
+    const blob = await request({ url: previewUrl, responseType: 'blob', skipSessionRedirect: true })
+    if (!(blob instanceof Blob) || blob.type.includes('json')) return null
+    return URL.createObjectURL(blob)
+  } catch {
+    return null
+  }
+}

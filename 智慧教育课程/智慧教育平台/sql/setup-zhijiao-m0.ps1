@@ -10,7 +10,9 @@ param(
     [string]$Database = 'zhijiao_m0',
     [string]$MySqlExe = 'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe',
     [switch]$WriteEnv,
-    [switch]$ForceRecreate
+    [switch]$ForceRecreate,
+    # 默认使用合成脚本；需要逐步导入时加 -UseSplitScripts
+    [switch]$UseSplitScripts
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +26,7 @@ if (-not (Test-Path -LiteralPath $MySqlExe)) {
     throw "未找到 mysql.exe：$MySqlExe"
 }
 
+$allInOne = Join-Path $sqlDir 'zhijiao-m0-all-in-one.sql'
 $scripts = @(
     (Join-Path $sqlDir 'upstream\ruoyi\ry_20260417.sql'),
     (Join-Path $sqlDir 'upstream\ruoyi\quartz.sql'),
@@ -33,9 +36,15 @@ $scripts = @(
     (Join-Path $sqlDir 'demo-v3-m0-ruoyi-login-seed.sql')
 )
 
-foreach ($script in $scripts) {
-    if (-not (Test-Path -LiteralPath $script)) {
-        throw "缺少 SQL 文件：$script"
+if (-not $UseSplitScripts) {
+    if (-not (Test-Path -LiteralPath $allInOne)) {
+        throw "缺少合成 SQL：$allInOne"
+    }
+} else {
+    foreach ($script in $scripts) {
+        if (-not (Test-Path -LiteralPath $script)) {
+            throw "缺少 SQL 文件：$script"
+        }
     }
 }
 
@@ -67,11 +76,23 @@ if ($ForceRecreate) {
     Invoke-MySql "DROP DATABASE IF EXISTS ``$Database``;"
 }
 
-Write-Host "创建数据库 $Database ..."
-Invoke-MySql "CREATE DATABASE IF NOT EXISTS ``$Database`` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
-
-foreach ($script in $scripts) {
-    Import-SqlFile -Path $script -DatabaseName $Database
+if (-not $UseSplitScripts) {
+    if ($Database -ne 'zhijiao_m0') {
+        throw '合成脚本固定写入 zhijiao_m0；请使用默认库名，或加 -UseSplitScripts 指定其他库。'
+    }
+    Write-Host "导入合成脚本 zhijiao-m0-all-in-one.sql ..."
+    # 合成脚本自带 CREATE DATABASE / USE zhijiao_m0
+    $args = @('-u', $MySqlUser, "-p$MySqlPassword", '--default-character-set=utf8mb4')
+    Get-Content -LiteralPath $allInOne -Raw -Encoding UTF8 | & $MySqlExe @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "导入失败：$allInOne"
+    }
+} else {
+    Write-Host "创建数据库 $Database ..."
+    Invoke-MySql "CREATE DATABASE IF NOT EXISTS ``$Database`` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+    foreach ($script in $scripts) {
+        Import-SqlFile -Path $script -DatabaseName $Database
+    }
 }
 
 Write-Host "验证导入结果..."

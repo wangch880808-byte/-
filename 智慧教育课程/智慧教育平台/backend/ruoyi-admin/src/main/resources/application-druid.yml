@@ -1,58 +1,50 @@
-# 数据源配置
+# Druid 数据源（profile=druid）。库连接必填项来自环境变量，见 backend/.env.example。
+# 推荐本机库：zhijiao_m0（若依 sys_*/QRTZ_* + 教育业务表 + 演示数据）
+# 一键初始化：sql/zhijiao-m0-all-in-one.sql 或 sql/setup-zhijiao-m0.ps1
+
 spring:
-    datasource:
-        type: com.alibaba.druid.pool.DruidDataSource
-        driverClassName: com.mysql.cj.jdbc.Driver
-        druid:
-            # 主库数据源
-            master:
-                url: ${RUOYI_DB_URL}
-                username: ${RUOYI_DB_USERNAME}
-                password: ${RUOYI_DB_PASSWORD}
-            # 从库数据源
-            slave:
-                # 从数据源开关/默认关闭
-                enabled: false
-                url: 
-                username: 
-                password: 
-            # 初始连接数
-            initialSize: 5
-            # 最小连接池数量
-            minIdle: 10
-            # 最大连接池数量
-            maxActive: 20
-            # 配置获取连接等待超时的时间
-            maxWait: 60000
-            # 配置连接超时时间
-            connectTimeout: 30000
-            # 配置网络超时时间
-            socketTimeout: 60000
-            # 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒
-            timeBetweenEvictionRunsMillis: 60000
-            # 配置一个连接在池中最小生存的时间，单位是毫秒
-            minEvictableIdleTimeMillis: 300000
-            # 配置一个连接在池中最大生存的时间，单位是毫秒
-            maxEvictableIdleTimeMillis: 900000
-            # 配置检测连接是否有效
-            validationQuery: SELECT 1 FROM DUAL
-            testWhileIdle: true
-            testOnBorrow: false
-            testOnReturn: false
-            webStatFilter:
-                enabled: true
-            statViewServlet:
-                enabled: false
-                # 设置白名单，不填则允许所有访问
-                allow:
-                url-pattern: /druid/*
-            filter:
-                stat:
-                    enabled: true
-                    # 慢SQL记录
-                    log-slow-sql: true
-                    slow-sql-millis: 1000
-                    merge-sql: true
-                wall:
-                    config:
-                        multi-statement-allow: true
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    druid:
+      master:
+        # 例：jdbc:mysql://127.0.0.1:3306/zhijiao_m0?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+        url: jdbc:mysql://127.0.0.1:3306/zhijiao_m0?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+        username: root
+        password: Qln521++
+#      slave:
+#        enabled: false
+#        url:
+#        username:
+#        password:
+      initialSize: 5
+      minIdle: 10
+      maxActive: 20
+      maxWait: 60000
+      connectTimeout: 30000
+      socketTimeout: 60000
+      timeBetweenEvictionRunsMillis: 60000
+      minEvictableIdleTimeMillis: 300000
+      maxEvictableIdleTimeMillis: 900000
+      validationQuery: SELECT 1
+      testWhileIdle: true
+      testOnBorrow: false
+      testOnReturn: false
+      webStatFilter:
+        enabled: true
+      statViewServlet:
+        enabled: false
+        allow:
+        url-pattern: /druid/*
+        # 若开启控制台，务必改掉默认口令并限制 allow
+        login-username: ${DRUID_STAT_USERNAME:ruoyi}
+        login-password: ${DRUID_STAT_PASSWORD:123456}
+      filter:
+        stat:
+          enabled: true
+          log-slow-sql: true
+          slow-sql-millis: 1000
+          merge-sql: true
+        wall:
+          config:
+            multi-statement-allow: true
