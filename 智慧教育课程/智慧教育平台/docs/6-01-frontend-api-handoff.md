@@ -1,10 +1,12 @@
 # 6-01 三端总览前端接口交接文档（M0）
 
-> 版本：1.0｜日期：2026-10-30｜读者：第六组前端 6B
+> 版本：1.1｜日期：2026-11-02（基于 1.0/2026-10-30 核对更正）｜读者：第六组前端 6B
 >
 > 依据：`docs/6-01-overview-contract.md`（草案）。本文用于前端 6-03/6-04 对齐字段、状态和页面展示；路径、指标编码、默认时间窗仍可能随评审调整。
 >
 > 当前状态：后端已完成四端点 Service/Controller、DTO 和单元测试；**生产数据适配器未接入，当前没有真实业务数据**。所有 `OK` 示例仅用于说明字段，不代表联调结果。缺适配器时返回 `UNAVAILABLE`，禁止前端显示为 0 或空页面。
+>
+> 2026-11-02 后端静态核对更正：实际后端以 `feature/6-01-overview-api@22898ae27a90779709b0c29b846181aa7054e0b0` 为准；6B 6-03/6-04 尚未取得可核验版本。参数表已按实际 Controller 修正；逐项证据、差异和待确认项见 `docs/6-01-frontend-review-checklist.md`。本文不构成 6B 已确认或真实联调结论。
 
 ## 1. 端点一览
 
@@ -15,17 +17,23 @@
 | 管理员管理总览 | `GET /education/admin/overview` | 管理员 | `education:overview:admin` |
 | 管理员待办事项 | `GET /education/admin/todos` | 管理员 | `education:overview:admin` |
 
-查询参数（四个端点共用）：
+查询参数按端点区分（以实际 Controller 为准）：
 
-| 参数 | 类型 | 必填 | 说明 |
+| 端点 | 参数 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `from` | string | 否 | RFC 3339 UTC 开始时间；与 `to` 必须同时提供 |
-| `to` | string | 否 | RFC 3339 UTC 结束时间；左闭右开 |
-| `classId` | string/number | 否 | 仅教师端点；只能传本人授权教学班，越权返回 403 |
+| 教师总览 | `from`、`to` | 否 | 必须成对；RFC 3339 时间；左闭右开 |
+| 教师总览 | `classId` | 否 | 仅教师端点接收；`Long` 类型；只能传本人授权教学班 |
+| 学生今日待办 | `from`、`to` | 否 | 必须成对；实际不接收 `date`/`classId` |
+| 管理员总览 | `from`、`to` | 否 | 必须成对；实际不接收 `organizationId` |
+| 管理员待办 | `from`、`to` | 否 | 必须成对；实际不接收 `organizationId` |
 
-- 不传 `from`/`to` 时，服务端使用当前 UTC 自然日；默认窗口待评审，前端不得自行推算“今天”。
+- `from`/`to` 都不传或都为空：服务端使用当前 **UTC 自然日** `[00:00, 次日 00:00)`；只传一个、格式错误或 `from >= to` 返回业务码 400（HTTP 200）。
+- `Instant.parse` 可接受 `Z` 或 RFC 3339 偏移并归一化为 UTC；前端建议统一发送 `Z`，不要依赖非 UTC 偏移。
+- 默认 UTC 自然日可能与前端本地时区显示的“今天”不一致；这是待产品决策项（见核对清单 D-02），前端不得自行改口径。
+- 教师 `classId`：课程范围源为 `OK` 且 `classId` 不在授权范围时返回业务码 403（HTTP 200）；若课程范围源为 `NO_DATA`/`UNAVAILABLE`，服务端无法判定授权，返回对应 `NO_DATA`/`UNAVAILABLE` item（HTTP 200），不返回 403。前端不得把后者当成“有权限”。
+- 学生/管理员端点的方法签名不接收 `classId`、`date`、`organizationId`；Spring MVC 默认不会因未知查询参数返回 400，但前端不得发送这些参数。
 - 身份由服务端认证上下文取得，前端不传 `userId`/`studentId`。
-- 管理员组织范围由服务端身份/部门上下文取得，前端不传 `organizationId`。
+- 管理员组织范围由服务端 `SecurityUtils.getDeptId()` 取得，前端不传 `organizationId`；为 null 时业务码 403。
 
 ## 2. 通用响应
 
@@ -55,6 +63,8 @@
   }
 }
 ```
+
+> 示例中的 `.000Z` 只示意；Java `Instant` 经 Jackson 序列化的小数位可能为 0/3/6/9 位，前端必须用 RFC 3339 解析器，不要硬编码三位毫秒。真实 HTTP 序列化仍待 L3 验证。
 
 `data` 字段：
 
@@ -95,6 +105,8 @@
 ## 4. 四端点响应示例
 
 以下示例只说明字段和状态，**当前无生产适配器，真实调用会返回 UNAVAILABLE 或 NO_DATA，不会返回这些数值**。
+
+> 指标名不能直接当口径：教师/管理员 `assignment.pending` 当前代码是待提交学生数合计，`student.assignment.due` 是待办记录条数；`sampleCount` 在不同指标上分别表示班级数/绑定数/记录数/null；`window` 只传给课堂和作业端口。逐项公式见 `docs/6-01-frontend-review-checklist.md` 第 3 节。
 
 ### 4.1 教师教学总览
 
@@ -368,11 +380,13 @@
 说明：
 
 - 本阶段缺适配器**不返回 503**，而是 HTTP 200 + item `UNAVAILABLE`；如果网关返回 503，按“暂不可用”处理。
-- 总览接口不返回 404；教师越权班级返回 403，避免用 404 泄露班级是否存在。
+- 总览接口不返回 404；教师越权班级在课程范围源可用时返回 403，避免用 404 泄露班级是否存在；课程范围源不可用时按 `NO_DATA/UNAVAILABLE` 返回，见 D-05。
 - 任何错误都不要把旧缓存值继续标成最新数据。
+- 2026-11-02 代码核对：`@PreAuthorize` 拒绝由若依 `GlobalExceptionHandler` 返回 HTTP 200 + `body.code=403`；认证失败由 `AuthenticationEntryPointImpl` 经 `ServletUtils.renderString` 返回 HTTP 200 + `body.code=401`。真实网关/HTTP 行为仍未验证。
 
 ## 6. 权限与联调状态
 
+- 6B 6-03/6-04 分支/PR 尚未在远端仓库出现；本地 `frontend/` 是静态联调壳，未调用总览端点，不能作为 6B 已完成实现。前端字段、状态和路由均未确认。
 - 权限串：`education:overview:teacher`、`education:overview:student`、`education:overview:admin`，待第 1 组配置菜单/角色后联调。
 - 当前仓库没有生产课程/课堂/任务/成绩/通知适配器；后端通过端口聚合，端口缺失时返回 `UNAVAILABLE`。
 - 6-02 通知 PR #18/#20/#21/#22 已合并到 main（`f21f51d55c363738c03ee6f626c7c67b904d6b36`）；但 6-02 未提供 `NoticeSummaryPort` 所需的批量未读汇总契约，适配器仍未接入。当前通知项为 `UNAVAILABLE`。
