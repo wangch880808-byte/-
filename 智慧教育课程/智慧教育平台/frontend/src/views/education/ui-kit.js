@@ -160,11 +160,18 @@
     } else if (isNotFound && opts.notFoundHint) {
       hint = opts.notFoundHint;
     } else if (error.code === 404) {
-      hint = '接口路径未注册或对象不可见。若后端尚未部署对应 Controller，请先同步仓库 main 分支。';
+      // 404 只说明"对象不存在或当前不可见"，不能推断为 Controller 未部署。
+      hint = '对象不存在或当前不可见：可能不属于当前账号、尚未开放，或你已不在对应教学班。';
     } else if (error.code === 503) {
-      // 生产授权端口尚未接入时的预期拒绝，不是页面缺陷。
-      hint = '教学班授权服务暂不可用（第 2 组公开契约未接入）。这是服务端的安全拒绝，'
-        + '接口接入后即可正常读取，无需重复重试。';
+      // 只有服务端明确回传授权相关原因时，才按授权未接入解释；
+      // 其余 503 一律按通用服务不可用处理，避免把网关/上游故障误判成授权问题。
+      var serviceMessage = String(error.message || '');
+      if (serviceMessage.indexOf('授权') >= 0) {
+        hint = '教学班授权服务暂不可用（第 2 组公开契约未接入）。这是服务端的安全拒绝，'
+          + '接口接入后即可正常读取，无需重复重试。';
+      } else {
+        hint = '服务端暂时不可用，与页面数据无关。请稍后重试；持续失败时请把上面的错误信息与请求路径一并反馈。';
+      }
     } else if (error.isServerSide()) {
       hint = '服务端异常。可稍后重试；仍失败时请把本页错误码与路径交给 6A 排查。';
     } else if (error.isNetwork()) {

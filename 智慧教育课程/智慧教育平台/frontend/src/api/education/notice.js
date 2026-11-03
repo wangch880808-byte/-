@@ -2,8 +2,9 @@
  * 6-02 学生个人通知接口（第 6 组 6B）。
  *
  * 契约来源：docs/6-02-frontend-api-handoff.md 第 5.3–5.7 节。
- * 后端 main 分支当前只有 StudentAnnouncementController，通知 Controller 尚未落地；
- * 本文件按契约实现，接口未注册时由页面显示"接口未就绪"，不写本地假数据。
+ * 后端已在 main@f21f51d 合并 StudentNoticeController，下列 5 个接口均已实现；
+ * 前端按源码核对一致，真实联调仍受生产授权契约与 bindingId 来源阻塞
+ * （见 docs/6-02-6B-http-interface-request.md 的 E 段）。
  */
 (function (global) {
   'use strict';

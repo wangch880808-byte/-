@@ -61,7 +61,7 @@
     return this.code === 409;
   };
 
-  /** 路径未注册（后端 Controller 未部署）与"对象不存在"无法仅凭 code 区分，统一由调用方决定文案。 */
+  /** 404 无法区分"路径未注册"与"对象不存在/不可见"，一律按后者处理，不做 Controller 推断。 */
   ApiError.prototype.isServerSide = function () {
     return this.code === 500 || this.code === 503;
   };

@@ -1,8 +1,9 @@
 /**
  * 学生端「学习通知 / 课程公告」视图（6-04，第 6 组 6B）。
  *
- * 通知接口按 docs/6-02-frontend-api-handoff.md 5.3–5.7 实现，后端 main 尚未提供
- * StudentNoticeController，接口未注册时页面显示"接口未就绪"，不展示任何本地假数据。
+ * 通知接口已由 6A 合并到 main（main@f21f51d）：GET 列表/详情/未读数、
+ * POST 单条已读、PUT 全部已读，字段与 docs/6-02-frontend-api-handoff.md 5.3–5.7 一致。
+ * 源码核对一致不等于真实联调通过：生产授权契约与 bindingId 来源仍是外部阻塞。
  * 公告页签复用 student/announcements.js 的视图。
  */
 (function (global) {
@@ -188,7 +189,7 @@
         region.innerHTML = UI.stateError(error, {
           title: '通知读取失败',
           onRetry: true,
-          notFoundHint: '学生通知接口未在后端注册时也会返回 404。6A 交付 NoticeController 前，本页无可联调数据。',
+          notFoundHint: '通知列表不可用：可能你已不在该教学班，或 bindingId 不属于当前账号。接口已实现，404 不代表 Controller 未部署。',
           permissionHint: '当前账号没有该课程上下文，或不是学生账号。'
         });
       });
@@ -268,15 +269,23 @@
         if (markButton) {
           markButton.addEventListener('click', function () {
             markButton.disabled = true;
-            API.markRead(noticeId).then(function (marked) {
-              var readAt = marked && marked.data ? marked.data.readAt : null;
+            API.markRead(noticeId).then(function () {
+              // 不依赖 alreadyRead / readAt 做前端推算：成功后统一重拉列表与未读数，
+              // 以服务端返回的状态为准（学长 2026-11-03 确认的使用方式）。
               UI.toast('已标记为已读', 'ok');
               dialog.close();
               loadNotices();
               loadUnread();
-              return readAt;
             }).catch(function (error) {
               markButton.disabled = false;
+              if (error.isNotFound()) {
+                // 仅当通知仍可见时重复请求才返回原 readAt；退班或内容不可见时可能 404。
+                UI.toast('该通知已不可见：可能已退出该班级，或来源内容已下架', 'info');
+                dialog.close();
+                loadNotices();
+                loadUnread();
+                return;
+              }
               UI.toast(error.message, 'error');
             });
           });
