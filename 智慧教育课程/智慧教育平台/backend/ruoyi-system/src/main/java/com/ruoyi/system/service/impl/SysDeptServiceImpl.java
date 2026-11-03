@@ -197,7 +197,7 @@ public class SysDeptServiceImpl implements ISysDeptService
             List<SysDept> depts = SpringUtils.getAopProxy(this).selectDeptList(dept);
             if (StringUtils.isEmpty(depts))
             {
-                throw new ServiceException("没有权限访问部门数据！");
+                throw new com.ruoyi.common.exception.ForbiddenException("没有权限访问部门数据！");
             }
         }
     }

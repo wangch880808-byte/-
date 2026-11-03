@@ -21,6 +21,8 @@ import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.service.ISysMenuService;
+import com.ruoyi.system.service.ISysRoleService;
+import com.ruoyi.framework.web.service.TokenService;
 
 /**
  * 菜单信息
@@ -33,6 +35,12 @@ public class SysMenuController extends BaseController
 {
     @Autowired
     private ISysMenuService menuService;
+
+    @Autowired
+    private TokenService tokenService;
+
+    @Autowired
+    private ISysRoleService roleService;
 
     /**
      * 获取菜单列表
@@ -71,6 +79,7 @@ public class SysMenuController extends BaseController
     @GetMapping(value = "/roleMenuTreeselect/{roleId}")
     public AjaxResult roleMenuTreeselect(@PathVariable("roleId") Long roleId)
     {
+        roleService.checkRoleDataScope(roleId);
         List<SysMenu> menus = menuService.selectMenuList(getUserId());
         AjaxResult ajax = AjaxResult.success();
         ajax.put("checkedKeys", menuService.selectMenuListByRoleId(roleId));
@@ -127,7 +136,9 @@ public class SysMenuController extends BaseController
             return error("修改菜单'" + menu.getMenuName() + "'失败，路由名称或地址已存在");
         }
         menu.setUpdateBy(getUsername());
-        return toAjax(menuService.updateMenu(menu));
+        int rows = menuService.updateMenu(menu);
+        if (rows > 0) tokenService.invalidateNonAdminSessions();
+        return toAjax(rows);
     }
 
     /**
@@ -160,6 +171,8 @@ public class SysMenuController extends BaseController
         {
             return warn("菜单已分配,不允许删除");
         }
-        return toAjax(menuService.deleteMenuById(menuId));
+        int rows = menuService.deleteMenuById(menuId);
+        if (rows > 0) tokenService.invalidateNonAdminSessions();
+        return toAjax(rows);
     }
 }

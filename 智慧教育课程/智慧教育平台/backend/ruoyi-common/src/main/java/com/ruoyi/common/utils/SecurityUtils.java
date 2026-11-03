@@ -167,9 +167,7 @@ public class SecurityUtils
      */
     public static boolean hasRole(String role)
     {
-        List<SysRole> roleList = getLoginUser().getUser().getRoles();
-        Collection<String> roles = roleList.stream().map(SysRole::getRoleKey).collect(Collectors.toSet());
-        return hasRole(roles, role);
+        return hasRole(getRoles(), role);
     }
 
     /**
@@ -183,6 +181,46 @@ public class SecurityUtils
     {
         return roles.stream().filter(StringUtils::hasText)
                 .anyMatch(x -> Constants.SUPER_ADMIN.equals(x) || PatternMatchUtils.simpleMatch(x, role));
+    }
+
+    /**
+     * 获取当前登录用户的角色标识（role_key）列表
+     *
+     * @return 角色标识列表，无角色时返回空列表
+     */
+    public static List<String> getRoles()
+    {
+        List<SysRole> roleList = getLoginUser().getUser().getRoles();
+        if (roleList == null || roleList.isEmpty())
+        {
+            return java.util.Collections.emptyList();
+        }
+        return roleList.stream()
+                .filter(role -> "0".equals(role.getStatus()))
+                .map(SysRole::getRoleKey).collect(Collectors.toList());
+    }
+
+    /**
+     * 验证用户是否拥有给定角色中的任意一个
+     *
+     * @param roles 角色标识（role_key），可为空
+     * @return 用户是否拥有其中任一角色
+     */
+    public static boolean hasAnyRole(String... roles)
+    {
+        if (roles == null || roles.length == 0)
+        {
+            return false;
+        }
+        List<String> roleList = getRoles();
+        for (String role : roles)
+        {
+            if (hasRole(roleList, role))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

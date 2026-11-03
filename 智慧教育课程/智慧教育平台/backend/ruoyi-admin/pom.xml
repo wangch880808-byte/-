@@ -85,10 +85,24 @@
                     <include>student.html</include>
                     <include>role-home.js</include>
                     <include>logo.png</include>
+                    <include>shell/**</include>
+                    <include>pages/**</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../../frontend/vue/dist</directory>
+                <targetPath>static/vue</targetPath>
+                <includes>
+                    <include>**/*</include>
                 </includes>
             </resource>
         </resources>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
