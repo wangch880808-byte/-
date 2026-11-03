@@ -74,6 +74,9 @@ class CourseAnnouncementServiceTest
     private FakeAuthorizationPort authorizationPort;
 
     @Autowired
+    private FakeFanoutPort fanoutPort;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private int nextId;
@@ -83,6 +86,7 @@ class CourseAnnouncementServiceTest
     {
         SecurityContextHolder.clearContext();
         authenticate(TEACHER_ID);
+        fanoutPort.reset();
         jdbcTemplate.execute("DROP TABLE IF EXISTS edu_course_announcement");
         jdbcTemplate.execute("""
                 CREATE TABLE edu_course_announcement (
@@ -361,6 +365,24 @@ class CourseAnnouncementServiceTest
         assertEquals(first.getPublishedByUserId(), second.getPublishedByUserId());
         assertEquals(first.getOpensAt(), second.getOpensAt());
         assertEquals(AnnouncementStatus.PUBLISHED, statusOf(id));
+        // 重复发布只走幂等返回，不重复 fan-out。
+        assertEquals(1, fanoutPort.calls);
+    }
+
+    @Test
+    void fanoutFailureRollsBackAnnouncementPublish()
+    {
+        long id = insertRow(BINDING_ID, "draft", "DRAFT", TEACHER_ID, null);
+        authorizationPort.allow(BINDING_ID, true);
+        fanoutPort.failure = new com.ruoyi.education.course.exception.NoticeAuthorizationUnavailableException(
+                "学生教学班授权服务尚未接入");
+
+        assertThrows(com.ruoyi.education.course.exception.NoticeAuthorizationUnavailableException.class,
+                () -> service.publish(BINDING_ID, id));
+
+        // fan-out 与发布同事务：授权 503 必须回滚公告状态。
+        assertEquals(AnnouncementStatus.DRAFT, statusOf(id));
+        assertEquals(1, fanoutPort.calls);
     }
 
     @Test
@@ -1216,6 +1238,38 @@ class CourseAnnouncementServiceTest
         }
     }
 
+    static class FakeFanoutPort implements AnnouncementNoticeFanoutPort
+    {
+        int calls;
+
+        CourseAnnouncement lastAnnouncement;
+
+        LocalDateTime lastPublishedAt;
+
+        RuntimeException failure;
+
+        void reset()
+        {
+            calls = 0;
+            lastAnnouncement = null;
+            lastPublishedAt = null;
+            failure = null;
+        }
+
+        @Override
+        public int fanOutAnnouncement(CourseAnnouncement announcement, LocalDateTime publishedAt)
+        {
+            calls++;
+            lastAnnouncement = announcement;
+            lastPublishedAt = publishedAt;
+            if (failure != null)
+            {
+                throw failure;
+            }
+            return 0;
+        }
+    }
+
     @Configuration
     @EnableTransactionManagement
     static class TestConfig
@@ -1274,6 +1328,12 @@ class CourseAnnouncementServiceTest
         }
 
         @Bean
+        FakeFanoutPort fanoutService()
+        {
+            return new FakeFanoutPort();
+        }
+
+        @Bean
         PlatformTransactionManager transactionManager(DataSource dataSource)
         {
             return new DataSourceTransactionManager(dataSource);
@@ -1287,10 +1347,11 @@ class CourseAnnouncementServiceTest
 
         @Bean
         CourseAnnouncementService announcementService(CourseAnnouncementMapper announcementMapper,
-                FakeAuthorizationPort authorizationPort)
+                FakeAuthorizationPort authorizationPort,
+                AnnouncementNoticeFanoutPort fanoutService)
         {
             return new CourseAnnouncementService(announcementMapper, authorizationPort,
-                    Clock.fixed(Instant.parse("2026-10-24T12:00:00Z"), ZoneOffset.UTC));
+                    fanoutService, Clock.fixed(Instant.parse("2026-10-24T12:00:00Z"), ZoneOffset.UTC));
         }
     }
 }
