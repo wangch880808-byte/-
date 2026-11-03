@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-03",
+  "scope": [
+    "1-01",
+    "1-02",
+    "1-03",
+    "1-04"
+  ],
+  "roles": [
+    "admin",
+    "teacher",
+    "student"
+  ],
+  "primaryEntry": "/vue/",
+  "checks": {
+    "node": {
+      "passed": 68,
+      "failed": 0,
+      "staticCompatibility": 51,
+      "vueCore": 17
+    },
+    "javaGroup1": {
+      "passed": 8,
+      "failed": 0
+    },
+    "vueProductionBuild": "passed",
+    "outerBackendBuild": {
+      "modules": 7,
+      "result": "passed"
+    },
+    "browserFixtures": {
+      "passed": 14,
+      "failed": 0,
+      "realDatabase": false
+    },
+    "integratedBackend": {
+      "baseCommit": "f21f51d55c363738c03ee6f626c7c67b904d6b36",
+      "modules": 8,
+      "tests": 272,
+      "passed": 266,
+      "skipped": 6,
+      "failures": 0,
+      "errors": 0,
+      "result": "passed",
+      "realDatabase": false
+    }
+  },
+  "pendingExternal": [
+    "2A options/check 实际接口联调",
+    "第 2～5 组实际对象级权限独立复核",
+    "各业务组真实页面/通知内容接入"
+  ],
+  "notes": [
+    "不增加受限管理员",
+    "浏览器夹具仅用于隔离测试",
+    "未声称真实 MySQL/Redis 端到端联调已完成"
+  ]
+}
