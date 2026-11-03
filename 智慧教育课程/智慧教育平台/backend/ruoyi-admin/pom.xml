@@ -85,6 +85,8 @@
                     <include>student.html</include>
                     <include>role-home.js</include>
                     <include>logo.png</include>
+                    <include>group3.css</include>
+                    <include>group3.js</include>
                 </includes>
             </resource>
         </resources>
