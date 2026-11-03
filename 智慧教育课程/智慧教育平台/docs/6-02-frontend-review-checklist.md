@@ -2,6 +2,8 @@
 
 > 状态：**核对中，不是联调完成，也不是 6B 已确认。**
 >
+> 文档收口：2026-11-03 已在本 PR 修正 handoff 的 A-3 错误码、逐端点 503 条件、B-4 已读可见性条件和 404 文案；不代表 6B 已确认或真实联调完成。
+>
 > 核对日期：2026-11-03
 >
 > 范围：6-02 教师公告 6 个、学生公告 2 个、学生通知 5 个接口，共 13 个；另核对 C-1 bindingId 来源和 6B 失败态。
@@ -34,7 +36,7 @@
 | 6-02 后端 | `main@f21f51d55c363738c03ee6f626c7c67b904d6b36`；#18/#20/#21/#22 已合并 | `git ls-remote`；Controller/Service/Mapper | 待确认（不代签） | 待确认 | 未完成 |
 | 6B 前端 | `six@97ad8bda702949c9710afe44694bd878e443d92b`；无 PR | 分支树、代码、`docs/6-02-frontend-integration.md` | 待确认 | 待确认 | 未完成 |
 | 6B 输入清单 | 同 6B 分支 `docs/6-02-6B-http-interface-request.md`；最后更新 2026-10-28，对应 main `4f7b801` | 与 E: 输入文件逐字相同（diff 为空） | 不适用 | 待 6B 更新 | 未完成 |
-| 交接文档 | `docs/6-02-frontend-api-handoff.md` v0.2（2026-11-03 核对更正） | 本次修订 | 待确认 | 待 6B | 未完成 |
+| 交接文档 | `docs/6-02-frontend-api-handoff.md` v0.3（2026-11-03 文档收口） | 本 PR 修订 | 待确认 | 待 6B | 未完成 |
 | 第 2 组 #26 | PR #26 head `3e74e875edf759a0887f49f56e5b82103339878b`；state=closed、draft=true；base main `4f7b801` | GitHub API；`origin/pr26`；`docs/group2/api-provided.md` v1.0-draft | 待确认 | 待确认 | 未完成 |
 
 ### 1.1 合并、部署、确认、联调
@@ -61,7 +63,7 @@
 | A-1 | `GET /education/teacher/announcements` | 查询 `bindingId` 必填；`status` 可选；`pageNum`/`pageSize` | 教师；`education:announcement:list` | `TableDataInfo total/rows`；行不含 body；ID 字符串、时间 `.SSSZ`；bindingId 缺失/空/非正整数 400；status 非法 400；pageSize 1–100；授权缺失 503；非本班 403 | `announcement.js:teacherList`；`teacher/announcements.js:104-121` 无 bindingId 不发请求；`http.js` 同时判 HTTP/code | 形状/参数一致；输入已列 503，交接文档端点失败表漏列 | 只读 |
 | A-2 | `GET /education/teacher/announcements/{announcementId}` | 路径 ID | 教师；`education:announcement:list` | 详情含 body；不存在/跨班/草稿无权 → 404；授权端口缺失 → 503；角色不符 → 403 | `announcement.js:teacherDetail`；`teacher/announcements.js:176-199` | 字段一致；503 未在输入失败表列出 | 只读 |
 | A-3 | `POST /education/teacher/announcements` | JSON `bindingId/title/body/opensAt/closesAt` | 教师；`education:announcement:add` | 创建 DRAFT；标题 1–200 码点，正文非空 ≤20000 码点且 ≤65535 UTF-8 字节；时间毫秒精度；无 404、无 409；授权 503；参数 400；持久化 500 | `announcement.js:teacherCreate`；`teacher/announcements.js:315-360` | **差异**：输入期望 409，代码无 409；输入/交接的 binding 404 不成立 | 创建无幂等键；网络重试可能重复草稿 |
-| A-4 | `PUT /education/teacher/announcements/{announcementId}` | 路径 ID；JSON 不含 bindingId | 教师；`education:announcement:edit` | 完整覆盖；只有 DRAFT；不存在/跨班 404；非草稿/真实并发 409；授权 503；参数 400 | `announcement.js:teacherUpdate`；`teacher/announcements.js:315-360` | 字段一致；输入已列 503，交接文档端点失败表漏列 | 幂等：同内容 0 行重读后返回当前；不同内容并发 409 |
+| A-4 | `PUT /education/teacher/announcements/{announcementId}` | 路径 ID；JSON 不含 bindingId | 教师；`education:announcement:edit` | 完整覆盖；只有 DRAFT；不存在 404；跨班/无该班权限 403；非草稿/真实并发 409；授权 503；参数 400 | `announcement.js:teacherUpdate`；`teacher/announcements.js:315-360` | 字段一致；输入已列 503，交接文档端点失败表漏列 | 幂等：同内容 0 行重读后返回当前；不同内容并发 409 |
 | A-5 | `POST /education/teacher/announcements/{announcementId}/publish` | 无请求体（可 `{}`） | 教师；`education:announcement:publish` | DRAFT→PUBLISHED；首次同事务 fan-out；已 PUBLISHED 返回 200 且不重复 fan-out；ARCHIVED 409；不存在 404；授权/fan-out 503；关闭时间非法 400 | `announcement.js:teacherPublish`；`teacher/announcements.js:201-226` | 幂等语义一致；503 条件未在输入完整列出 | 重复发布 200；授权不可用时可能 503 |
 | A-6 | `POST /education/teacher/announcements/{announcementId}/archive` | 无请求体（可 `{}`） | 教师；`education:announcement:archive` | PUBLISHED→ARCHIVED；已 ARCHIVED 返回 200；DRAFT 409；不存在 404；授权 503 | `announcement.js:teacherArchive`；`teacher/announcements.js:201-226` | 幂等语义一致；503 未列 | 重复归档 200；授权不可用时可能 503 |
 | A-7 | `GET /education/student/announcements` | 查询 `bindingId` 可空；`pageNum/pageSize` | 学生角色（非 admin/teacher） | bindingId 不传 = 本人全部有效班级；空串/空白 400；显式非本班 403；仅返回 PUBLISHED 且 `[opensAt,closesAt)` 内；授权缺失 503；分页 400/500 | `announcement.js:studentList`；`student/announcements.js`；`http.js` 空串剔除 | 形状/参数一致；503 未列 | 只读 |
@@ -124,7 +126,7 @@
 
 - 后端 `StudentNoticeUnreadCountResult(unreadCount, at)`；`asOf` 即本次请求的服务端 UTC 时间（`StudentNoticeService.java:111-124`；`StudentNoticeResponseMapper.toUnreadCount`）。
 - `unreadCount` 只统计当前可见、本人、未读；无未读为 0，仍为 200。
-- 6B `refreshBadge/loadUnread` 只用 `data.unreadCount`；**未读取/展示 `asOf`**。如果产品要求“统计时点”，前端尚缺展示（D-09）。
+- 6B `refreshBadge/loadUnread` 只用 `data.unreadCount`；**未读取/展示 `asOf`**。该字段的使用方式待 6B/产品确认，不构成缺陷；重新拉列表或未读数可接受（D-09）。
 
 ### 3.5 单条已读 id/readAt/alreadyRead
 
@@ -224,16 +226,16 @@
 | D-02 | 6B `six@97ad8bd` 无 PR，落后 main 14 | 无 PR 评审、代码可能漂移 | `git` 引用；分支 log | 6B | 提供 PR/head；同步 main 后复核 | 是 |
 | D-03 | 404 不能区分路径未注册与对象不存在 | 错误文案/联调判断失真 | `http.js:56-57`；`ui-kit.js:162-163`；`student/notices.js:191` | 6B | 用真实 HTTP/路由上下文区分；不要凭 404 断言 Controller 未部署 | 是 |
 | D-04 | 所有 503 被标为授权服务不可用 | 网关/其他 503 被误归为已知阻塞 | `ui-kit.js:164-167`；`http.js:65-66` | 6B | 区分已知授权 503 与通用 503；保留 body.msg/路径 | 是 |
-| D-05 | 交接文档逐端点失败表未列 503；A-3 写 binding 404、输入写 409，代码均无 | 错误码契约不完整 | `AnnouncementExceptionHandler`；`CourseAnnouncementService`；handoff §4.1/4.2 | 6A 文档 | 以本文错误矩阵修正；A-3 明确无 404/409 | 是 |
-| D-06 | A-3 创建无幂等键；网络重试可能重复草稿 | 重复草稿 | `TeacherAnnouncementController.create`；`CourseAnnouncementService.createDraft`；handoff 9.4 | 6A/6B/产品 | 前端先查列表；后续决定 Idempotency-Key/409 | 是（幂等） |
-| D-07 | 发布/归档“重复 200”仍需授权可解析；授权缺失 503 | 6B 可能把 503 当幂等失败 | `CourseAnnouncementService.publish/archive` | 6A/6B | 文档明确条件；前端按 503 失败态 | 部分 |
-| D-08 | 重复单条已读仅在通知仍可见时幂等；不可见返回 404 | 输入“总是返回同一 readAt”不成立 | `StudentNoticeService.markRead`；`StudentNoticeServiceTest` | 6A/6B | 文档写清可见性条件；前端 404 移除 | 是 |
-| D-09 | 6B 未消费 `asOf`/`alreadyRead`/`unreadCount`/`operatedAt` | 时点/幂等/剩余量展示缺失 | `student/notices.js:163-173,232-238,271-280` | 6B | 确认是否需要展示/使用；否则删除依赖 | 部分 |
+| D-05 | 交接文档逐端点失败表未列 503；A-3 写 binding 404、输入写 409，代码均无 | 错误码契约不完整 | `AnnouncementExceptionHandler`；`CourseAnnouncementService`；handoff §2.6、§4.1–§5.7 | 6A 文档 | **本 PR 已修正**：按实际异常路径补逐端点 503；A-3 明确无 404/409 | 否（文档已修，待 6B 确认） |
+| D-06 | A-3 创建无幂等键；网络重试可能重复草稿 | 重复草稿 | `TeacherAnnouncementController.create`；`CourseAnnouncementService.createDraft`；handoff §9.4 | 6A/6B/产品 | 前端先查列表；后续决定 Idempotency-Key/409 | 是（幂等） |
+| D-07 | 发布/归档“重复 200”仍需授权可解析；授权缺失 503 | 6B 可能把 503 当幂等失败 | `CourseAnnouncementService.publish/archive` | 6A/6B | **本 PR 已修正 6A 文档**：handoff §4.3/§4.4 写明重复 200 仍以授权可解析为前提、授权缺失 503；6B 仍需按 503 失败态处理 | 部分（6B 待改） |
+| D-08 | 重复单条已读仅在通知仍可见时幂等；不可见返回 404 | 输入“总是返回同一 readAt”不成立 | `StudentNoticeService.markRead`；`StudentNoticeServiceTest` | 6A/6B | **本 PR 已修正 6A 文档**：handoff §3.4/§5.6/§9.3 写明可见性条件、404 与异常并发 409；前端 404 移除 | 否（文档已修，待 6B 确认） |
+| D-09 | 6B 未消费 `asOf`/`alreadyRead`/`unreadCount`/`operatedAt` | 使用方式待确认；未消费不构成缺陷 | `student/notices.js:163-173,232-238,271-280` | 6B/产品 | 记录是否需要展示/使用；重新拉列表或未读数可接受；不强制展示全部字段 | 否 |
 | D-10 | C-1 无 binding 汇总端点；教师非 owner 无 courseName；学生 binding 需 K1+K2；学生有效日期区间缺失 | 前端仍需手工填 bindingId；课程名不完整 | #26 S2/S5/K1/K2；`EduClassRef`/`EduCourseRef` | 第 2 组/负责人 | 由 2 组决定聚合端点/字段；6A 不实现 | 是 |
 | D-11 | #26 为 closed/draft、base 4f7b801、api-provided v1.0-draft、运行未联调 | 不能当契约冻结/生产授权已接入 | GitHub PR #26；docs/group2/README | 第 2 组/负责人 | 冻结/联调后再引用；授权仍缺失 | 是 |
 | D-12 | 6B 注释/文档仍称学生通知未实现、fan-out 未实现 | 误导联调 | `notice.js:5-6`；`student/notices.js:5,191`；`teacher/announcements.js:206`；integration doc | 6B | 更新注释/文档；不改后端 | 否 |
 | D-13 | bindingId/classId/courseSpaceId 易混用 | 传错 ID → 403/404/空数据 | #26 docs §3.6/§4；`teacher/announcements.js` 手工 bindingId | 6B/第 2 组 | 下拉只存 bindingId；展示名与 ID 分离；D-10 解决来源 | 是 |
-| D-14 | 公告 404 文案 `公告不存在或不可访问` 与 handoff 的“不可查看”不一致 | 前端若硬编码文案会不一致 | `AnnouncementNotFoundException`；handoff §4.6 | 6A 文档/6B | 以代码 msg 或产品文案为准；不要硬编码 | 否 |
+| D-14 | 公告 404 文案 `公告不存在或不可访问` 与 handoff 的“不可查看”不一致 | 前端若硬编码文案会不一致 | `AnnouncementNotFoundException`；handoff 全文 | 6A 文档/6B | **本 PR 已修正**：handoff 统一为代码 msg“公告不存在或不可访问”；前端展示服务端 msg，不硬编码 | 否 |
 
 ## 8. 三份清单
 
@@ -241,24 +243,30 @@
 
 - D-01/D-02：更新输入清单状态；提供 6-02 分支/PR/head；同步 main 后复核。
 - D-03/D-04：修正 404/503 失败态，不要把 404 一律当 Controller 未部署、不要把 503 一律当授权阻塞。
-- D-09：确认是否展示 `asOf`、`alreadyRead`、`unreadCount`、`operatedAt`；当前未消费。
+- D-09：记录 `asOf`、`alreadyRead`、`unreadCount`、`operatedAt` 的使用方式；当前未消费不构成缺陷，不强制展示全部字段。
 - D-12：更新 `notice.js`、`student/notices.js`、`teacher/announcements.js` 的旧状态文案。
 - D-13：bindingId/classId/courseSpaceId 不得混用；下拉只保存 bindingId。
 - 用真实接口验证 13 个请求、字段、空值、分页、错误码；Mock 只算页面自测。
 
-### 8.2 需要 6A 后续修复的已证实问题
+### 8.2 本轮 #31 文档收口的处理结果
 
 - **未发现会改变 13 个接口形状的代码级阻断缺陷。**
-- A-3 创建无幂等键/无 409：需产品/6A 决定是否补 Idempotency-Key 或维持“前端查列表”策略（`TeacherAnnouncementController.create`；`CourseAnnouncementService.createDraft`）。
-- 文档问题：逐端点失败表漏 503；A-3 的 404/409 与代码不符；公告 404 文案与 handoff 不一致。应在后续文档修订中统一，不改业务代码本轮。
-- B-4 已读幂等受可见性限制；如产品要求“永远返回原 readAt”，需另议；当前代码安全优先，先文档化。
+- 已在本 PR 修正 handoff：
+  - A-3 创建草稿：删除不存在的 404 示例和“`bindingId` 不存在/已结束 404”行，明确当前无 404/409；非法 `bindingId` 为 400，无权限为 403，授权不可用为 503。
+  - 逐端点失败表：A-1–A-8、B-1–B-5 按实际异常路径补 503；发布 A-5 另列 fan-out 学生授权 503，并说明发布事务回滚。
+  - B-4 单条已读：明确只有通知仍可见时幂等；已读但当前不可见返回 404；异常并发返回 409。
+  - 404 文案：全文统一为后端 msg“公告不存在或不可访问”“通知不存在或不可访问”。
+  - 删除“前端已按现清单对齐”的过早表述，改为已做源码核对、6B 未确认、真实联调未完成。
+- 仍待产品/技术决定：A-3 无幂等键/无 409，是否补 Idempotency-Key 或维持“先查列表”策略（`TeacherAnnouncementController.create`；`CourseAnnouncementService.createDraft`）。
+- 仍待 6B 确认：`asOf`/`alreadyRead`/`unreadCount`/`operatedAt` 的使用方式；不强制全部展示，重新拉列表/未读数可接受。
+- B-4 若产品要求“永远返回原 readAt”，需另议；当前代码以可见性安全优先，已在文档写明。
 
 ### 8.3 需要第 1/2 组或负责人提供
 
 - 第 1 组：`education:announcement:*` 的 `sys_menu`/角色授权；真实登录、角色拦截、审计；否则公告接口 403 阻塞。
 - 第 2 组：`StudentAnnouncementAuthorizationPort`、`TeachingClassAuthorizationPort` 的生产实现/公开契约；否则公告/通知/ fan-out 503。
 - 第 2 组/负责人：C-1 binding 汇总方案；教师非 owner courseName；学生有效日期区间；#26 冻结/联调。
-- 产品：公告/通知 404 文案、打开通知是否自动已读、`asOf`/`alreadyRead`/剩余量展示、创建幂等策略。
+- 产品：公告/通知 404 文案、打开通知是否自动已读、`asOf`/`alreadyRead`/剩余量的使用方式、创建幂等策略。
 
 ## 9. 检查记录
 
@@ -266,11 +274,11 @@
 - 6B 分支 `six@97ad8bd` 只读核对：`frontend/src/api/education/http.js`、`announcement.js`、`notice.js`；`frontend/src/views/education/teacher/announcements.js`、`student/announcements.js`、`student/notices.js`、`ui-kit.js`、`view-host.js`、`frontend/mock-preview.html`、`docs/6-02-frontend-integration.md`。
 - 第 2 组 #26：`origin/pr26@3e74e875` 的 `backend/ruoyi-admin/.../education/EduScopeController.java`、`EduCourseController.java`、`EduTeachingClassController.java`，以及 `backend/ruoyi-education/.../course/api/*` 与 `docs/group2/*`。
 - 引用说明：`docs/6-02-6B-http-interface-request.md`、`docs/6-02-frontend-integration.md` 只存在于 6B 分支；`docs/group2/api-provided.md` 只存在于 #26；main 中不存在这些文件，引用时已注明来源分支。
-- `git diff --check`：通过；Markdown 表格列数：通过；Java 行号引用：7 处均在文件范围内。
+- #31 文档收口静态检查：`git diff --check` 通过；Markdown 表格列数通过；handoff 13 个端点均按实际异常路径列出 503；A-3 不再包含 404/409；404 文案 grep 无旧串。Java 行号引用 7 处均在文件范围内（上轮核对，本轮未改代码）。
 - 未运行 Maven/测试；未执行 SQL/数据库；未做真实 HTTP/登录/权限/审计/MySQL 联调；Mock 不计入真实联调。
 
 ## 10. 停止点
 
 - 本轮只新增/修订文档，不改业务代码、前端、SQL、权限或生产适配器。
-- 不修改 #23/#24/#29 已合并/在途分支；新分支 base 为 main。
+- 不修改 #23/#24/#29 已合并/在途分支；本轮在 #31 既有分支修订文档，不新建实现分支。
 - 等待独立复审、6B 回应和第 2 组契约确认。
