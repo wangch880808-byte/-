@@ -478,6 +478,64 @@ body[data-role] .content > .page-title {
   line-height: 1.5;
 }
 
+/* === 文件上传控件 === */
+.g3-file-input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px dashed var(--g3-line-strong);
+  border-radius: 6px;
+  background: #fafbfc;
+  color: var(--g3-muted);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: border-color .15s, background .15s;
+  font-size: 13px;
+}
+
+.g3-file-input:hover {
+  border-color: var(--g3-blue);
+  color: var(--g3-blue);
+  background: var(--g3-blue-soft);
+}
+
+.g3-file-input input[type="file"] {
+  display: none;
+}
+
+.g3-file-input.has-file {
+  border-style: solid;
+  border-color: var(--g3-teal);
+  background: var(--g3-teal-soft);
+  color: var(--g3-teal);
+  justify-content: flex-start;
+}
+
+.g3-file-input-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.g3-file-input-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.g3-file-input-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--g3-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .g3-inline-note {
   display: flex;
   align-items: flex-start;

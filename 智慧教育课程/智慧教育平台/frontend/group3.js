@@ -53,6 +53,13 @@
       .replace(/'/g, '&#39;');
   }
 
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  }
+
   function authHeaders(extra = {}) {
     const token = sessionStorage.getItem(tokenKey);
     return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
@@ -456,19 +463,43 @@
           <input id="g3UploadTitle" class="g3-input" name="title" maxlength="200" placeholder="不填写时使用文件名"></div>
         <div class="g3-field"><label for="g3UploadUnit">归档章节</label>
           <select id="g3UploadUnit" class="g3-select" name="unitId"><option value="">不归档章节</option>${units}</select></div>
-        <div class="g3-field"><label for="g3UploadFile">文件</label>
-          <input id="g3UploadFile" class="g3-input" name="file" type="file" required
-            accept=".pptx,.pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.mov,.docx,.txt,.md"></div>
+        <div class="g3-field full"><label>文件</label>
+          <label class="g3-file-input" id="g3UploadFileBox">
+            <input id="g3UploadFile" name="file" type="file" required
+              accept=".pptx,.pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.mov,.docx,.txt,.md">
+            <span class="g3-file-input-icon" id="g3UploadFileIcon">📄</span>
+            <span class="g3-file-input-label" id="g3UploadFileLabel">点击选择 PPTX、PDF、图片、视频或文档</span>
+          </label>
+          <span class="g3-file-input-hint">支持格式：.pptx、.pdf、.png/.jpg/.gif/.webp、.mp4/.mov/.webm、.docx/.txt/.md</span>
+        </div>
         <div class="g3-field full"><div class="g3-inline-note">PPTX 和 PDF 会转换为受控逐页预览；视频与文档保留原文件受控下载。</div></div>
       </form>`,
       footer: `<button class="g3-btn" type="button" data-modal-close>取消</button>
         <button class="g3-btn primary" type="submit" form="g3UploadForm">上传并处理</button>`
     });
+    const fileInput = modal.querySelector('#g3UploadFile');
+    const fileBox = modal.querySelector('#g3UploadFileBox');
+    const fileLabel = modal.querySelector('#g3UploadFileLabel');
+    const fileIcon = modal.querySelector('#g3UploadFileIcon');
+    const fileIconMap = { pdf: '📕', pptx: '📊', docx: '📘', txt: '📝', md: '📝', mp4: '🎬', mov: '🎬', webm: '🎬', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️' };
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (file) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        fileBox.classList.add('has-file');
+        fileIcon.textContent = fileIconMap[ext] || '📄';
+        fileLabel.textContent = `${file.name} (${formatFileSize(file.size)})`;
+      } else {
+        fileBox.classList.remove('has-file');
+        fileIcon.textContent = '📄';
+        fileLabel.textContent = '点击选择 PPTX、PDF、图片、视频或文档';
+      }
+    });
     modal.querySelector('#g3UploadForm').addEventListener('submit', async event => {
       event.preventDefault();
       const button = modal.querySelector('.g3-modal-foot .primary');
       const form = event.currentTarget;
-      if (!form.file.files.length) return;
+      if (!form.file.files.length) return toast('请选择要上传的文件', true);
       const data = new FormData();
       data.append('bindingId', state.bindingId);
       data.append('title', form.title.value.trim());
@@ -492,19 +523,43 @@
     const modal = openModal({
       title: `上传新版本 · ${title}`,
       body: `<form id="g3VersionForm" class="g3-form-grid">
-        <div class="g3-field full"><label for="g3VersionFile">新文件</label>
-          <input id="g3VersionFile" class="g3-input" type="file" name="file" required
-            accept=".pptx,.pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.mov,.docx,.txt,.md"></div>
+        <div class="g3-field full"><label>新文件</label>
+          <label class="g3-file-input" id="g3VersionFileBox">
+            <input id="g3VersionFile" name="file" type="file" required
+              accept=".pptx,.pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.mov,.docx,.txt,.md">
+            <span class="g3-file-input-icon" id="g3VersionFileIcon">📄</span>
+            <span class="g3-file-input-label" id="g3VersionFileLabel">点击选择要上传的新文件</span>
+          </label>
+          <span class="g3-file-input-hint">支持格式：.pptx、.pdf、.png/.jpg/.gif/.webp、.mp4/.mov/.webm、.docx/.txt/.md</span>
+        </div>
         <div class="g3-field full"><div class="g3-inline-note warn">新版本不会改写已发布版本；需要重新选择该版本发布。</div></div>
       </form>`,
       footer: `<button class="g3-btn" type="button" data-modal-close>取消</button>
         <button class="g3-btn primary" type="submit" form="g3VersionForm">保存新版本</button>`
     });
+    const fileInput = modal.querySelector('#g3VersionFile');
+    const fileBox = modal.querySelector('#g3VersionFileBox');
+    const fileLabel = modal.querySelector('#g3VersionFileLabel');
+    const fileIcon = modal.querySelector('#g3VersionFileIcon');
+    const fileIconMap = { pdf: '📕', pptx: '📊', docx: '📘', txt: '📝', md: '📝', mp4: '🎬', mov: '🎬', webm: '🎬', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️' };
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (file) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        fileBox.classList.add('has-file');
+        fileIcon.textContent = fileIconMap[ext] || '📄';
+        fileLabel.textContent = `${file.name} (${formatFileSize(file.size)})`;
+      } else {
+        fileBox.classList.remove('has-file');
+        fileIcon.textContent = '📄';
+        fileLabel.textContent = '点击选择要上传的新文件';
+      }
+    });
     modal.querySelector('#g3VersionForm').addEventListener('submit', async event => {
       event.preventDefault();
       const button = modal.querySelector('.g3-modal-foot .primary');
       const file = event.currentTarget.file.files[0];
-      if (!file) return;
+      if (!file) return toast('请选择要上传的文件', true);
       const data = new FormData();
       data.append('bindingId', state.bindingId);
       data.append('file', file);
