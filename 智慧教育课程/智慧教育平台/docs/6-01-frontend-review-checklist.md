@@ -94,7 +94,7 @@
 
 | 检查项 | 实际行为 | 证据 | 结论 |
 | --- | --- | --- | --- |
-| 总预算 | 一次请求创建一个单调时钟 deadline；课程范围阶段与后续并行阶段共享 `overallTimeout`，不会各得一份 | `OverviewQueryService` 的 `RequestBudget`、`awaitSingle`、`awaitAll`；`OverviewConfiguration.java:37-39` | 已修；预算耗尽后未派发/未完成来源 UNAVAILABLE，已完成来源保留 |
+| 总预算 | 一次聚合调用创建一个单调时钟 deadline；课程范围阶段与后续并行阶段共享 `overallTimeout`，不会各得一份 | `OverviewQueryService` 的 `RequestBudget`、`awaitSingle`、`awaitAll`；`OverviewConfiguration.java:37-39` | 已修；预算耗尽后未派发/未完成来源 UNAVAILABLE，已完成来源保留 |
 | 取消语义 | `future.cancel(true)` 只发中断，不保证底层阻塞 I/O 停止 | `OverviewQueryService` 的 `awaitAll` / `RequestBudget` 注释 | 文档已写明，不能宣称 I/O 已停止 |
 | 嵌套列表 null | 课程范围、session、assignment 列表含 null → 受影响指标 UNAVAILABLE | `OverviewQueryService` 的 `userScopeView` / `organizationScopeView` / `sessionItem` / `assignmentItem` / `bindingAssignmentItem`；新增测试 | 已修；不让 NPE 变成整个请求 500 |
 | Map key/对象 ID | `SessionStatus`、`GradeTodo`、按绑定的 `AssignmentTodo` 的 `bindingId` 与 key 不一致，或 `NoticeSummary.recipientUserId` 与请求用户不一致 → UNAVAILABLE | 同上；新增 mismatch 测试 | 已修；不计入错误数据 |

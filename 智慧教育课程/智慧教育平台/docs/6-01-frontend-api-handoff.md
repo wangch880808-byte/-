@@ -34,7 +34,7 @@
 - 默认 UTC 自然日可能与前端本地时区显示的“今天”不一致；这是待产品决策项（见核对清单 D-02），前端不得自行改口径。
 - 教师 `classId`：`0` 或负数在调用课程端口前返回业务码 400（HTTP 200），不因课程范围源状态改变。课程范围源为 `OK` 且正数 `classId` 不在授权范围时返回业务码 403（HTTP 200）；若课程范围源为 `NO_DATA`/`UNAVAILABLE`，服务端无法判定授权，返回对应 `NO_DATA`/`UNAVAILABLE` item（HTTP 200），不返回 403。前端不得把后者当成“有权限”。
 - `classId` 过滤作用于教师班级相关指标：`teacher.class.count`、`teacher.student.count`、`teacher.session.running`、`teacher.assignment.pending`、`teacher.grade.pending`。教师合法拥有但未选中的班级待办会被排除；适配器返回授权范围外 `bindingId` 的待办属于契约违约，该指标返回 `UNAVAILABLE`，不计入结果。`teacher.notice.unread` 是本人通知维度，不按 `classId` 过滤。
-- 一次请求使用单一总预算（当前配置 2500ms），从请求开始计时，课程范围阶段和后续并行阶段共享；预算耗尽后未派发或未完成的来源返回 `UNAVAILABLE`，已完成来源的结果保留。future 取消只发出中断信号，不保证底层阻塞 I/O 已停止。
+- 一次聚合调用使用单一总预算（当前配置 2500ms），从聚合服务入口开始计时，课程范围阶段和后续并行阶段共享；预算耗尽后未派发或未完成的来源返回 `UNAVAILABLE`，已完成来源的结果保留。future 取消只发出中断信号，不保证底层阻塞 I/O 已停止。
 - 共享固定线程池和无界队列仍是未关闭风险；生产适配器接入前需完成容量、拒绝策略、隔离和压测评审，本轮未引入熔断框架或大规模线程池改造。
 - 端口结果在聚合边界校验：列表含 null、Map 缺 key/值为 null、`SessionStatus`/`GradeTodo`/按绑定的 `AssignmentTodo` 的 `bindingId` 与 key 不一致、`NoticeSummary.recipientUserId` 与请求用户不一致，均使受影响指标为 `UNAVAILABLE`，不返回假零，也不让 NPE 变成整个请求 500；独立通知来源仍按自身结果处理。
 - 学生/管理员端点的方法签名不接收 `classId`、`date`、`organizationId`；Spring MVC 默认不会因未知查询参数返回 400，但前端不得发送这些参数。
