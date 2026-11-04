@@ -2,15 +2,17 @@
 
 > 状态：**核对中，不是联调完成，也不是前后端评审通过。**
 >
-> 核对日期：2026-11-02；2026-11-04 第一轮修复复核；2026-11-04 第二轮预算边界收口
+> 核对日期：2026-11-02；2026-11-04 第一轮修复复核；2026-11-04 第二轮预算边界收口；2026-11-04 记录 6B 答复
 >
 > 2026-11-04 第一、二轮修复：教师 `assignment.pending` 的 `classId` binding 过滤、`classId<=0` 400、单次请求总预算、嵌套端口结果违约收敛；第二轮补充来源提交/排队前预算检查与取消语义。仍不代表 6B 已确认或真实联调完成。
+>
+> 2026-11-04 6B 明确答复：6-03/6-04 总览前端尚未实现，无可核验页面/API/字段/三态/导航版本。该答复只记录开发状态，不等于接口契约确认或真实联调。
 >
 > 范围：第六组后端 6A 的 6-01 四端点，与 6B 前端 6-03/6-04 的接口/字段/状态/路由对齐。
 >
 > 依据：`docs/6-01-overview-contract.md`、`docs/6-01-frontend-api-handoff.md`、`feature/6-01-overview-api` 当前 PR head；`22898ae27a90779709b0c29b846181aa7054e0b0` 只是历史代码快照。
 >
-> 本文只记录核对事实和待确认项。未取得 6B 可核验版本，因此**不写“前后端已确认”，不写“已完成联调”**。
+> 本文只记录核对事实和待确认项。已收到 6B “总览前端未实现”的明确答复，但**不写“前后端已确认”，不写“已完成联调”**。
 
 ## 0. 证据层级与结论边界
 
@@ -29,10 +31,10 @@
 
 | 项目 | 实际版本/引用 | 证据 | 代码核对状态 | 6A 确认 | 6B 确认 | 真实联调 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@98830733ea3ceb57d7d6da299c90f3e92e22fecc`；上一代码快照 `22898ae...` 为历史记录，`3ce2451...` 为历史合同 head；2026-11-04 第一、二轮修订后 head 见 PR | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；`337 tests` 对应代码版本 `7df24a3`，后续纯文档未重跑 | 待确认（不代签） | 未取得 | 未完成 |
+| 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@98830733ea3ceb57d7d6da299c90f3e92e22fecc`；上一代码快照 `22898ae...` 为历史记录，`3ce2451...` 为历史合同 head；2026-11-04 第一、二轮修订后 head 见 PR | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；`337 tests` 对应代码版本 `7df24a3`，后续纯文档未重跑 | 待确认（不代签） | 开发状态已回复；接口契约待确认 | 未开始 |
 | 后端契约分支 | `feature/6-01-overview-contract@98830733ea3ceb57d7d6da299c90f3e92e22fecc`，PR #23；`3ce2451...` 为历史 head | 远端引用；契约文档 | 已读契约并同步 | 待确认 | 不适用 | 未完成 |
-| 6B 前端 6-03/6-04 | **未取得可核验版本** | 远端无 6-03/6-04 分支/PR；本地静态壳无总览调用；第 2 组 Vue/`feat/admin` 不是 6B 实现 | 无法核对 | 待确认 | 待 6B 提供 | 未完成 |
-| 交接文档 | `docs/6-01-frontend-api-handoff.md` v1.3（2026-11-04 第二轮收口），位于 #24 分支 | 文档正文与本次修订 | 已核对并修订参数/时间/错误/过滤/预算/取消说明 | 待确认 | 待 6B | 不适用 |
+| 6B 前端 6-03/6-04 | **已回复：未实现，无可核验版本** | 6B 本次答复：无分支/PR/页面/总览 API 封装；现有总览菜单仍为“内容区（待实现）” | 无法核对 | 待确认 | 仅开发状态已回复；接口契约待逐项确认 | 未开始 |
+| 交接文档 | `docs/6-01-frontend-api-handoff.md` v1.4（2026-11-04 记录 6B 答复），位于 #24 分支 | 文档正文与本次修订 | 已核对并修订参数/时间/错误/过滤/预算/取消/6B 状态说明 | 待确认 | 待 6B | 不适用 |
 | main 基线 | `f21f51d55c363738c03ee6f626c7c67b904d6b36` | `git ls-remote origin refs/heads/main` | 已核对 | 不适用 | 不适用 | 未完成 |
 
 ### 1.2 版本获取与前端检索证据
@@ -41,26 +43,30 @@
 - GitHub API 查询：远端分支 28 个、PR（`state=all`）29 个；没有 `6-03`/`6-04` 命名的分支或 PR。
 - 本地 `frontend/` 是静态联调壳：`frontend/README.md` 明确“内容区仍待实现”“尚未接入若依 Vue 前端”；`role-home.js` 只做登录/角色/菜单壳，不调用总览端点。
 - 搜索过的非 6B 外壳：PR #26（第 2 组 `feat/course-2-03-2-04-teaching-pages`）文件清单无总览端点；`feature/login-role-style`、`feat/admin`、`liu`、`qln`、`six`、`hzt1254-patch-1`、`feature-demo` 的树中也未发现 overview/todo 命名文件。**这些都不作为 6B 已完成实现。**
-- 结论：前端侧只能记录“未取得可核验版本”，不能填“字段一致”“页面已接”“路由可用”。
+- 6B 本次答复（仅作事实记录）：6-03 三端总览页面未实现，无分支、PR、页面或总览 API 封装；现有总览菜单仍为“内容区（待实现）”；`six`/`#32`/`ffa1cf2` 仅交付公告和通知，不含总览（6B 本次提供的历史状态，不表示永久最新 head）。项目采用角色 HTML 与 `Views.register` 挂载视图，没有前端路由框架；总览拟挂 `(0,0)`，公告/通知占 `(0,3)`，`admin.html` 尚未接入 view-host。以上为 6B 提供的信息，具体源码待核验。
+- 结论：前端开发状态已明确为“未实现”；接口契约仍待逐项确认，页面/API/字段/三态/导航无法核对，不能填“字段一致”“页面已接”“路由可用”。
 
 ### 1.3 确认记录
 
-| 角色 | 姓名/账号 | 日期 | 核对范围 | 结论 |
+| 角色/维度 | 姓名/账号 | 日期 | 核对范围 | 结论 |
 | --- | --- | --- | --- | --- |
 | 6A | 待填 | 待填 | 后端四端点/字段/错误语义 | 待确认（不代签） |
-| 6B | 待填 | 待填 | 6-03/6-04 页面、API、字段、状态、路由 | 待确认 |
+| 6B 开发状态 | 6B | 本次答复（日期未提供） | 6-03/6-04 是否实现 | **已回复：未实现；无分支/PR/页面/API 封装** |
+| 6B 接口契约 | 6B | 待逐项 | 路径、参数、字段、三态、错误、actionPath | **待逐项确认；开发状态答复不等于接口签署** |
+| 6B 前端实现 | 6B | 未实现 | 页面、API、字段映射、三态、导航 | **未实现，无可核验运行证据** |
+| 真实联调 | 6A/6B | 未开始 | HTTP/登录/授权/数据 | **未开始** |
 | 负责人/产品 | 待填 | 待填 | 默认时间窗、指标口径、管理员待办来源 | 待确认 |
 
 ## 2. 四端点矩阵
 
-> 前端“消费页面”均为候选描述；未取得 6B 版本，不能确认页面名称或路由。
+> 前端“消费页面”均为候选描述；6B 已明确总览前端未实现，不能确认页面名称或导航。
 
 | 端点 | 消费页面（待 6B 确认） | 方法/路径 | 参数 | 权限串 | 响应包装 | 后端证据 | 前端证据 | 差异/待确认 | 处理建议 | 确认状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 教师教学总览 | 教师教学总览（6-03 候选） | `GET /education/teacher/overview` | `from`、`to`、`classId` | `education:overview:teacher` | HTTP 200；`AjaxResult`：`code/msg/data`，`data=OverviewResponse` | `OverviewController.teacherOverview`；`OverviewQueryService.teacherOverview` | 未取得 | D-01、D-02、D-05、D-09、D-10、D-11、D-12、D-13、D-18 | 6B 提供版本后逐项核对；不要在无证据时标一致 | 后端 L1 已核；6B 待确认 |
-| 学生今日待办 | 学生今日待办（6-04 候选） | `GET /education/student/today-todos` | `from`、`to` | `education:overview:student` | 同上 | `OverviewController.studentTodayTodos`；`OverviewQueryService.studentTodayTodos` | 未取得 | D-01、D-02、D-03、D-09、D-10、D-11、D-12、D-13、D-18 | 实际不接收 `date`/`classId`；6B 按 `from/to` 对齐或提出契约变更 | 后端 L1 已核；6B 待确认 |
-| 管理员管理总览 | 管理员管理总览（6-03 候选） | `GET /education/admin/overview` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.adminOverview`；`OverviewQueryService.adminOverview` | 未取得 | D-01、D-02、D-04、D-09、D-10、D-11、D-12、D-13、D-14、D-18 | 实际不接收 `organizationId`；组织来自服务端 `SecurityUtils.getDeptId()` | 后端 L1 已核；6B 待确认 |
-| 管理员待办事项 | 管理员待办事项（6-04 候选） | `GET /education/admin/todos` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.adminTodos`；`OverviewQueryService.adminTodos` | 未取得 | D-01、D-02、D-04、D-10、D-15 | 当前只返回 `admin.todo.pending` 的 `NO_DATA`；禁止前端显示 0/全部完成 | 后端 L1 已核；6B 待确认 |
+| 教师教学总览 | 教师教学总览（6-03 候选） | `GET /education/teacher/overview` | `from`、`to`、`classId` | `education:overview:teacher` | HTTP 200；`AjaxResult`：`code/msg/data`，`data=OverviewResponse` | `OverviewController.teacherOverview`；`OverviewQueryService.teacherOverview` | 6B 未实现 | D-01、D-02、D-05、D-09、D-10、D-11、D-12、D-13、D-18 | 契约可先确认理解；页面/API 待实现后核对，不在无证据时标一致 | 后端 L1 已核；6B 未实现 |
+| 学生今日待办 | 学生今日待办（6-04 候选） | `GET /education/student/today-todos` | `from`、`to` | `education:overview:student` | 同上 | `OverviewController.studentTodayTodos`；`OverviewQueryService.studentTodayTodos` | 6B 未实现 | D-01、D-02、D-03、D-09、D-10、D-11、D-12、D-13、D-18 | 实际不接收 `date`/`classId`；6B 按 `from/to` 对齐或提出契约变更 | 后端 L1 已核；6B 未实现 |
+| 管理员管理总览 | 管理员管理总览（6-03 候选） | `GET /education/admin/overview` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.adminOverview`；`OverviewQueryService.adminOverview` | 6B 未实现 | D-01、D-02、D-04、D-09、D-10、D-11、D-12、D-13、D-14、D-18 | 实际不接收 `organizationId`；组织来自服务端 `SecurityUtils.getDeptId()` | 后端 L1 已核；6B 未实现 |
+| 管理员待办事项 | 管理员待办事项（6-04 候选） | `GET /education/admin/todos` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.adminTodos`；`OverviewQueryService.adminTodos` | 6B 未实现 | D-01、D-02、D-04、D-10、D-15 | 当前只返回 `admin.todo.pending` 的 `NO_DATA`；禁止前端显示 0/全部完成 | 后端 L1 已核；6B 未实现 |
 
 通用差异 D-06（sampleCount）、D-07（window）、D-08（asOf）、D-09（时间序列化）适用于全部端点；行内只列端点特有或最直接相关的差异。
 
@@ -115,7 +121,7 @@
 | `status` | `OK`/`NO_DATA`/`UNAVAILABLE` | `OverviewStatus.java`；`OverviewItem.java` | 三态分别展示 |
 | `source` | `course`/`classroom`/`assignment`/`grade`/`notice`/`pending_product_confirmation` | `OverviewQueryService` 的 SOURCE_* 常量；各 item 构造 | 用于诊断/标签，不替代 status |
 | `sampleCount` | `Long` 或 null；不同指标含义不同 | 3.2-3.5；`OverviewQueryService` 各 item 构造方法 | 不得当统一分母；D-06 |
-| `actionPath` | 后端相对路径或 null；实际值见 3.2-3.5 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos` | 必须由 6B 路由表确认；D-10 |
+| `actionPath` | 后端相对路径或 null；实际值见 3.2-3.5 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos` | 后端候选，前端未实现；映射到角色 HTML/Views.register 待确认；D-10 |
 
 ### 3.2 教师端点实际指标
 
@@ -172,34 +178,36 @@
 
 | metricCode | 后端 actionPath | 现有前端路由证据 | 结论 |
 | --- | --- | --- | --- |
-| `teacher.class.count`/`teacher.student.count`/`teacher.session.running` | `/teacher/classes` | 未取得 6B 路由 | 未确认 |
-| `teacher.assignment.pending` | `/teacher/assignments` | 未取得 | 未确认 |
-| `teacher.grade.pending` | `/teacher/grades` | 未取得 | 未确认 |
-| `teacher.notice.unread` | `/teacher/notices` | 未取得 | 未确认 |
-| `student.class.count` | `/student/classes` | 未取得 | 未确认 |
-| `student.session.active`/`student.assignment.due` | `/student/todos` | 未取得 | 未确认 |
-| `student.notice.unread` | `/student/notices` | 未取得 | 未确认 |
-| `admin.class.count`/`admin.student.count`/`admin.session.running` | `/admin/classes` | 未取得 | 未确认 |
-| `admin.assignment.pending` | `/admin/assignments` | 未取得 | 未确认 |
-| `admin.grade.pending` | `/admin/grades` | 未取得 | 未确认 |
-| `admin.todo.pending` | `null` | 未取得 | 后端明确无下钻；前端不得拼接 |
+| `teacher.class.count`/`teacher.student.count`/`teacher.session.running` | `/teacher/classes` | 6B 未实现；角色 HTML/Views.register 信息待源码核验 | 未确认 |
+| `teacher.assignment.pending` | `/teacher/assignments` | 6B 未实现；待确认 | 未确认 |
+| `teacher.grade.pending` | `/teacher/grades` | 6B 未实现；待确认 | 未确认 |
+| `teacher.notice.unread` | `/teacher/notices` | 6B 未实现；待确认 | 未确认 |
+| `student.class.count` | `/student/classes` | 6B 未实现；待确认 | 未确认 |
+| `student.session.active`/`student.assignment.due` | `/student/todos` | 6B 未实现；待确认 | 未确认 |
+| `student.notice.unread` | `/student/notices` | 6B 未实现；待确认 | 未确认 |
+| `admin.class.count`/`admin.student.count`/`admin.session.running` | `/admin/classes` | 6B 未实现；待确认 | 未确认 |
+| `admin.assignment.pending` | `/admin/assignments` | 6B 未实现；待确认 | 未确认 |
+| `admin.grade.pending` | `/admin/grades` | 6B 未实现；待确认 | 未确认 |
+| `admin.todo.pending` | `null` | 6B 未实现；待确认 | 后端明确无下钻；前端不得拼接 |
 
-**未取得 6B 路由表，以上路径不能宣称可定位；不得由 6A 擅自新增或改写前端路由。**
+**6B 已明确总览前端未实现，以上 actionPath 仍是后端候选路径，不能宣称可定位；不得由 6A 擅自新增或改写前端路由。**
 
-前端卡片名称、卡片分组、下钻参数和空态文案均未取得 6B 版本；3.2-3.5 只记录后端 `actionPath`，不能当作前端卡片/路由已存在。
+6B 本次答复称：项目采用角色 HTML 与 `Views.register` 挂载视图，没有前端路由框架；总览拟挂 `(0,0)`，公告/通知占 `(0,3)`，`admin.html` 尚未接入 view-host。以上为 6B 提供的信息，具体源码待核验；后续需双方确认 actionPath 如何映射到角色 HTML、视图注册项或来源页面导航。
+
+前端卡片名称、卡片分组、下钻参数和空态文案随页面未实现；3.2-3.5 只记录后端 `actionPath`，不能当作前端卡片/路由已存在。
 
 ## 4. 三态展示矩阵
 
-> 后端三态语义来自 `OverviewStatus`、`OverviewItem`、`OverviewResponse`；前端证据均未取得。以下“前端预期”是核对要求，不是已实现结论。
+> 后端三态语义来自 `OverviewStatus`、`OverviewItem`、`OverviewResponse`；6B 已回复总览前端未实现，因此没有前端证据。以下“前端预期”是核对要求，不是已实现结论。
 
 | 场景 | 后端输入/预期 | 前端预期 | 证据 | 当前状态 |
 | --- | --- | --- | --- | --- |
-| OK 且 `value=0` | 真实测量 0，status=OK，value=0；例如通知未读 0、成绩待办 0 | 显示“0”，不得显示“暂无数据” | `OverviewItemTest.okZeroIsMeasuredZeroNotNoData`；`OverviewQueryServiceTest.emptyListsAreNoDataButExplicitZeroCountsAreOk` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| OK 且有值 | status=OK，value>0 | 显示数值；保留卡片位置 | `OverviewQueryServiceTest` 正常聚合测试 | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| NO_DATA 且 `value=null` | 源可用但无证据/空列表；value=null | 显示“暂无数据”；不得显示 0、空数组或空白卡 | `OverviewQueryServiceTest.emptyListsAreNoDataButExplicitZeroCountsAreOk`；`OverviewResponse` 构造校验 | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| UNAVAILABLE 且 `value=null` | 适配器缺失/超时/异常/契约违约；value=null | 显示“暂不可用/稍后重试”；保留卡片标题，不显示 0 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable`、`missingAdaptersReturnUnavailableNotZero`；`OverviewSourceGuard.query` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| 单卡片失败、其他正常 | 单源 UNAVAILABLE，其他项 OK；HTTP 200/code 200 | 只替换对应卡片；其他卡片继续显示 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| 请求整体失败 | 参数 400/越权 403/未认证 401/网络失败；无完整 data | 显示页面级错误；保留页面结构；清空或标记旧数据 | `OverviewControllerTest` 错误场景测试；认证/网络仅 L1/L0 | 后端部分 L2；真实 HTTP/前端未取得 |
+| OK 且 `value=0` | 真实测量 0，status=OK，value=0；例如通知未读 0、成绩待办 0 | 显示“0”，不得显示“暂无数据” | `OverviewItemTest.okZeroIsMeasuredZeroNotNoData`；`OverviewQueryServiceTest.emptyListsAreNoDataButExplicitZeroCountsAreOk` | 现有 L2 用例（2026-11-04 已运行）；6B 未实现 |
+| OK 且有值 | status=OK，value>0 | 显示数值；保留卡片位置 | `OverviewQueryServiceTest` 正常聚合测试 | 现有 L2 用例（2026-11-04 已运行）；6B 未实现 |
+| NO_DATA 且 `value=null` | 源可用但无证据/空列表；value=null | 显示“暂无数据”；不得显示 0、空数组或空白卡 | `OverviewQueryServiceTest.emptyListsAreNoDataButExplicitZeroCountsAreOk`；`OverviewResponse` 构造校验 | 现有 L2 用例（2026-11-04 已运行）；6B 未实现 |
+| UNAVAILABLE 且 `value=null` | 适配器缺失/超时/异常/契约违约；value=null | 显示“暂不可用/稍后重试”；保留卡片标题，不显示 0 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable`、`missingAdaptersReturnUnavailableNotZero`；`OverviewSourceGuard.query` | 现有 L2 用例（2026-11-04 已运行）；6B 未实现 |
+| 单卡片失败、其他正常 | 单源 UNAVAILABLE，其他项 OK；HTTP 200/code 200 | 只替换对应卡片；其他卡片继续显示 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable` | 现有 L2 用例（2026-11-04 已运行）；6B 未实现 |
+| 请求整体失败 | 参数 400/越权 403/未认证 401/网络失败；无完整 data | 显示页面级错误；保留页面结构；清空或标记旧数据 | `OverviewControllerTest` 错误场景测试；认证/网络仅 L1/L0 | 后端部分 L2；真实 HTTP/前端未实现 |
 | 切换角色/课程/教学班 | 后端不保存前端状态；新请求返回新 window | 清理旧角色/班级数据、旧错误和旧缓存，显示加载态 | 无前端版本 | 未核对 |
 | 刷新失败后缓存值 | 请求失败时无新 `asOf`/window | 若保留缓存，必须显示旧数据时间/失败标识，不能标“最新” | 无前端版本 | 未核对 |
 
@@ -264,7 +272,7 @@
 
 | 编号 | 问题 | 影响 | 证据 | 建议负责方 | 处理建议 | 是否阻塞契约确认 |
 | --- | --- | --- | --- | --- | --- | --- |
-| D-01 | 未取得 6B 6-03/6-04 可核验版本 | 无法核对页面、API 调用、字段映射、状态、路由；无法确认前后端一致 | 远端分支/PR 检索；本地静态壳无总览调用；PR #26/feat/admin 非 6B | 6B | 提供分支/PR/head SHA、页面与 API 文件、路由表 | 是（前端确认） |
+| D-01 | 已收到 6B 明确回复：6-03/6-04 总览前端尚未实现，无可核验版本；页面/API/字段/三态/导航核对尚未开始 | 无法进行前端契约和实现核对；不能把开发状态回复当接口确认 | 6B 本次答复；无 6-03/6-04 分支/PR/页面/API 封装 | 6B | 先确认合同理解和展示预期；实现后提供分支/PR/head、页面/API、截图/运行证据 | 是（前端核对仍阻塞，但已明确未实现） |
 | D-02 | 默认窗口是 UTC 自然日；前端可能按本地时区显示“今天” | 跨时区用户看到的“今日”范围与卡片/待办日期可能不一致 | `OverviewWindowFactory.defaultWindow`；handoff 参数节；契约 2.2/3.2 待评审 | 产品/6A/6B | 决定业务时区或当前学期；前端显示服务端 window；不自行改口径 | 是（展示口径） |
 | D-03 | 6A 合同/handoff 已统一学生端点为 `from/to`，本轮已修；6B 是否仍发送 `date` 尚未确认 | 6B 若仍按旧合同发 `date`，参数会被忽略 | 契约 3.2；`OverviewController.studentTodayTodos`；handoff 参数节 | 6B | 6B 按 `from/to` 调用；如坚持 `date` 另立需求 | 部分（6A 文档已修，6B 待确认） |
 | D-04 | 6A 合同/handoff 已改为 `from/to` + 服务端 `getDeptId()`，本轮已修；6B 是否仍发送 `organizationId`、deptId 与组织范围映射尚未确认 | 6B 若仍传 organizationId 会被忽略；组织范围可能不符合业务预期 | 契约 3.3/3.4；`OverviewController.adminOverview/adminTodos`；`SecurityOverviewIdentityProvider.currentOrganizationId` | 6B/第 1、2 组 | 6B 不传 organizationId；第 1/2 组确认 deptId 映射 | 部分（6A 文档已修，6B/第2组待确认） |
@@ -273,7 +281,7 @@
 | D-07 | `window` 只传给课堂/作业端口；班级/学生/成绩/通知是当前快照 | 前端把 window 当所有卡片统计范围会误导 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/gradeItem/noticeItem` | 6A/产品/6B | 标出每个指标是否受 window 影响；不要统一显示“统计范围” | 部分 |
 | D-08 | 顶层 `asOf` 是响应时刻；`NoticeSummary.asOf` 未使用；无逐项来源截止时间 | 前端“数据截至”可能早于/晚于实际来源；无法判断单项新鲜度 | `OverviewResponse`；`OverviewQueryService.noticeItem/response` | 6A/6B | 明确 asOf 语义；后续如需逐项 asOf 再扩展字段 | 部分 |
 | D-09 | 契约/交接示例固定 `.000Z`；实际 Java `Instant`/Jackson 序列化精度未在真实 HTTP 验证 | 前端若硬编码毫秒位数可能解析失败 | 契约 2.2；`OverviewWindowFactory.parse`；JDK 17 `Instant.parse` 核对 | 6A/6B | 前端用 RFC 3339 解析器；请求统一 `Z`；L3 再确认实际字符串 | 否（解析健壮即可） |
-| D-10 | 后端 actionPath 已给出，但未取得 6B 路由表 | 下钻可能 404；无法确认卡片可点击 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos`；无 6B 版本 | 6B | 提供路由表并逐项确认；不存在就返回 null/改路径，不由 6A 猜 | 是（下钻确认） |
+| D-10 | 后端 actionPath 已给出，但 6B 总览前端未实现，挂载机制仅为本次答复 | 下钻可能无法定位；不能确认卡片可点击 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos`；6B 本次答复 | 6B/6A | 实现后提供角色 HTML/Views.register/来源导航映射并逐项确认；不存在就返回 null/改路径，不由 6A 猜 | 是（下钻确认） |
 | D-11 | `session.running`/`session.active` 把 `PAUSED` 也计入 | 卡片写“进行中”会把暂停课堂算进去 | `OverviewQueryService.sessionItem` | 产品/6A/6B | 明确标签“进行中/暂停”或调整口径 | 部分 |
 | D-12 | 教师/管理员 `assignment.pending` 是待提交学生数合计；学生 `assignment.due` 是记录条数；classId 过滤已修，统计单位未定 | 前端按“任务数”展示会误读；不同端不可直接比较 | `OverviewQueryService` 的 `assignmentItem` / `bindingAssignmentItem` | 6A/第 5 组/6B | 卡片标题按实际口径；确认适配器数据粒度 | 是（指标口径） |
 | D-13 | 学生数是各范围 `studentCount` 求和，未证明跨班去重 | 同一学生多班可能重复计数 | `OverviewQueryService.studentCountItem`；`CourseScope` 定义 | 第 2 组/产品/6A | 确认适配器是否按人去重；前端标题写“班内人次/人数”需明确 | 是（指标口径） |
@@ -296,12 +304,12 @@
 
 **需要 6B 修改或确认**
 
-- D-01：提供 6-03/6-04 版本、页面、API、路由。
+- D-01：6B 已回复总览前端未实现；先确认合同理解和展示预期，页面/API/截图/运行证据留待实现后补充，不要求提供不存在的证据。
 - D-03/D-04：6B 确认只发 `from/to`；管理员不传 `organizationId`；学生/管理员不发 `classId`/`date`。
 - D-05：区分 403 与 NO_DATA/UNAVAILABLE。
 - D-06/D-07：按指标口径展示 sampleCount/window。
 - D-08：正确处理 asOf；不要把顶层 asOf 当逐项来源时间。
-- D-10：逐项确认 actionPath 路由。
+- D-10：确认 actionPath 与角色 HTML、Views.register 或来源导航的映射；未实现前不要求路由证据。
 - D-11/D-12/D-13/D-14：按实际口径写卡片标题和单位。
 - D-15：管理员待办不得显示 0/全部完成。
 - 三态矩阵、单卡失败、整体失败、角色/班级切换、刷新失败缓存，全部需要 6B 证据。
@@ -352,7 +360,7 @@
 以下内容只起草，不代发。发送前请负责人确认收件人和版本。
 
 ```text
-6B 同学好，6-01 后端已完成四端点静态核对和隔离测试，但远端仓库未找到 6-03/6-04 分支或 PR，无法核对前端页面、API 调用、字段映射、状态和路由。请提供可核验版本并逐项回复。
+6B 同学好，已收到你们“6-03/6-04 总览前端尚未实现”的明确答复。本轮不要求为未实现页面提供截图或运行证据，请先确认合同理解、展示预期和后续实现约束；接口契约逐项确认与页面实现分开记录。
 
 文档：
 https://github.com/wangch880808-byte/-/blob/feature/6-01-overview-api/智慧教育课程/智慧教育平台/docs/6-01-frontend-review-checklist.md
@@ -363,19 +371,19 @@ PR：#24 https://github.com/wangch880808-byte/-/pull/24
 main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 
 请回复：
-1. 6-03/6-04 的分支、PR、head SHA；页面/API/字段映射/路由文件路径。
-2. D-01：是否确认上述版本就是待核对前端；若不是，请给正确版本。
+1. 确认当前总览前端状态仍为未实现；后续实现时再提供 6-03/6-04 分支、PR、head SHA、页面/API/字段映射/导航文件。
+2. D-01：请确认“未实现、无可核验版本”的事实；接口契约可先确认理解，不要把开发状态答复当作接口签署。
 3. D-03/D-04：学生端点是否只发 from/to；管理员端点是否不传 organizationId；是否已移除 date/organizationId/学生/管理员 classId。
 4. D-05：课程范围源 NO_DATA/UNAVAILABLE 时，前端如何区分“无权限”和“暂不可用”。
 5. D-06/D-07/D-08：sampleCount、window、asOf 的卡片展示方式；是否把 window 当所有指标统一统计范围。
-6. D-10：逐项确认 actionPath 能否定位到实际路由；列出缺失路由。
+6. D-10：请确认角色 HTML、Views.register 挂载项与 actionPath 的映射方式；当前 actionPath 只是后端候选路径，不要求现在提供已存在的路由证据。
 7. D-11/D-12/D-13/D-14/D-18：课堂 PAUSED、assignment pending 学生数口径、学生数去重、班级数去重、成绩两计数重叠的展示文案。
 8. D-15：管理员待办当前 admin.todo.pending / NO_DATA / source=pending_product_confirmation / value=null / actionPath=null，前端是否避免显示 0 或“全部处理完成”。
-9. 三态展示：OK 0、OK 有值、NO_DATA、UNAVAILABLE、单卡失败、整体失败、角色/班级切换旧数据清理、刷新失败缓存标识，分别给截图/代码/测试证据。
+9. 三态与失败展示：请先确认 OK 0、OK 有值、NO_DATA、UNAVAILABLE、单卡失败、整体失败、角色/班级切换旧数据清理、刷新失败缓存标识的展示预期；截图/代码/测试证据可在实现后补充。
 10. 错误场景：参数 400、业务 403、未登录 401、源不可用、网络失败、部分源失败；请说明是否同时判断 HTTP 状态和 body.code。
-11. 2026-11-04 第一/二轮修复已明确：教师 classId 过滤 assignment.pending；classId=0/负数返回 400；一次请求共用总预算，来源提交前和端口调用前检查；嵌套端口结果违约对应 item UNAVAILABLE；取消不等于 I/O 停止。请按 handoff v1.3 核对，不要把 D-12 统计单位当作已冻结。
+11. 2026-11-04 第一/二轮修复已明确：教师 classId 过滤 assignment.pending；classId=0/负数返回 400；一次请求共用总预算，来源提交前和端口调用前检查；嵌套端口结果违约对应 item UNAVAILABLE；取消不等于 I/O 停止。请按 handoff v1.4 核对，不要把 D-12 统计单位当作已冻结。
 
-请明确区分“代码看起来一致”“6B 已确认”“真实联调通过”，不要只回复“已对齐”。在收到版本和逐项回复前，6A 不会宣称前后端评审完成或联调完成。
+请明确区分“开发状态已回复”“接口契约已确认”“页面已实现”“真实联调通过”。在实现和逐项回复前，6A 不会宣称前后端评审完成或联调完成。
 ```
 
 ## 9. 检查记录与未验证项
@@ -385,7 +393,7 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 - 2026-11-04 `git fetch`/GitHub API：main `f21f51d...`；#23 当前 `9883073...`（`3ce2451...` 为历史 head）；#24 当前 head 见 PR（`a8ba69c...` 为历史修复前快照）。
 - 后端源码/测试静态核对：Controller、DTO、WindowFactory、QueryService、ExceptionHandler、IdentityProvider、RuoYi 安全处理链、AjaxResult。
 - 证据路径：业务代码在 `backend/ruoyi-education/src/main/java/com/ruoyi/education/overview/`；测试在 `backend/ruoyi-education/src/test/java/com/ruoyi/education/overview/`；安全处理在 `backend/ruoyi-framework/src/main/java/com/ruoyi/framework/`；统一响应在 `backend/ruoyi-common/src/main/java/com/ruoyi/common/core/domain/AjaxResult.java`。
-- 前端检索：远端分支/PR、本地 `frontend/`、PR #26/`feature/login-role-style`/`feat/admin` 树和文件；未发现 6-03/6-04 总览实现；#32 是 6-02。
+- 前端检索：远端分支/PR、本地 `frontend/`、PR #26/`feature/login-role-style`/`feat/admin` 树和文件；未发现 6-03/6-04 总览实现；6B 本次明确答复总览前端未实现，`six`/`#32`/`ffa1cf2` 仅含公告/通知。
 - 2026-11-04 已运行：
   - `mvn -B -o -pl ruoyi-education -am test`：337 tests，0 failures/errors，5 skipped（真实 MySQL 用例）；测试记录对应代码版本 `7df24a3`，此后纯文档修订未重跑。
   - `mvn -B -o -pl ruoyi-admin -am -DskipTests package`：BUILD SUCCESS。
@@ -399,7 +407,7 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 - 未运行真实 HTTP、未登录、未验证角色拦截/权限串、未验证审计落库。
 - 未接入生产课程/课堂/作业/成绩/通知适配器；真实数据、样本、时间窗、性能未验证。
 - 未执行 MySQL 8.0.46、未连接数据库、未执行 SQL；`StudentNoticeMySqlConcurrencyTest` 1 个、`NoticeMySqlHardeningTest` 4 个因缺少真实 MySQL 参数 skipped，不能宣称真实 MySQL 验证通过。
-- 未取得 6B 前端版本；页面、API 调用、字段映射、三态展示、路由、缓存/切换清理均未核对。
+- 6B 已明确总览前端未实现；页面、API 调用、字段映射、三态展示、导航、缓存/切换清理均未核对，无可核验运行证据。
 - 已运行 ruoyi-education 测试和 ruoyi-admin 打包；没有启动完整 Spring 上下文，没有真实 HTTP/登录/角色拦截/审计联调。
 - 现有 MockMvc/Mockito 仅隔离测试证据；不作为真实联调结论。
 - 未由 6A/6B 负责人签署确认；确认记录见 1.3。
