@@ -29,15 +29,15 @@
 
 | 项目 | 实际版本/引用 | 证据 | 代码核对状态 | 6A 确认 | 6B 确认 | 真实联调 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`；上一代码快照 `22898ae27a90779709b0c29b846181aa7054e0b0`，2026-11-04 第一、二轮修订后 head 见 PR；合同已于 2026-11-04 同步 #24 当前行为 | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；2026-11-04 已运行测试（L2） | 待确认（不代签） | 未取得 | 未完成 |
-| 后端契约分支 | `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`，PR #23 | 远端引用；契约文档 | 已读契约，未改 #23 | 待确认 | 不适用 | 未完成 |
+| 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@98830733ea3ceb57d7d6da299c90f3e92e22fecc`；上一代码快照 `22898ae...` 为历史记录，`3ce2451...` 为历史合同 head；2026-11-04 第一、二轮修订后 head 见 PR | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；`337 tests` 对应代码版本 `7df24a3`，后续纯文档未重跑 | 待确认（不代签） | 未取得 | 未完成 |
+| 后端契约分支 | `feature/6-01-overview-contract@98830733ea3ceb57d7d6da299c90f3e92e22fecc`，PR #23；`3ce2451...` 为历史 head | 远端引用；契约文档 | 已读契约并同步 | 待确认 | 不适用 | 未完成 |
 | 6B 前端 6-03/6-04 | **未取得可核验版本** | 远端无 6-03/6-04 分支/PR；本地静态壳无总览调用；第 2 组 Vue/`feat/admin` 不是 6B 实现 | 无法核对 | 待确认 | 待 6B 提供 | 未完成 |
 | 交接文档 | `docs/6-01-frontend-api-handoff.md` v1.3（2026-11-04 第二轮收口），位于 #24 分支 | 文档正文与本次修订 | 已核对并修订参数/时间/错误/过滤/预算/取消说明 | 待确认 | 待 6B | 不适用 |
 | main 基线 | `f21f51d55c363738c03ee6f626c7c67b904d6b36` | `git ls-remote origin refs/heads/main` | 已核对 | 不适用 | 不适用 | 未完成 |
 
 ### 1.2 版本获取与前端检索证据
 
-- 2026-11-02 `git fetch origin --prune` 成功；2026-11-04 重新核验 `main=f21f51d...`、#23 `3ce2451...`、#24 `a8ba69c...`（修复前）与任务基线一致；第一、二轮修订及合同同步后的 head 见 PR #24。
+- 2026-11-02 `git fetch origin --prune` 成功；2026-11-04 重新核验 `main=f21f51d...`、#23 `3ce2451...`（历史）、#24 `a8ba69c...`（历史，修复前）；当前 #23 head `9883073...`，当前 #24 head 见 PR。
 - GitHub API 查询：远端分支 28 个、PR（`state=all`）29 个；没有 `6-03`/`6-04` 命名的分支或 PR。
 - 本地 `frontend/` 是静态联调壳：`frontend/README.md` 明确“内容区仍待实现”“尚未接入若依 Vue 前端”；`role-home.js` 只做登录/角色/菜单壳，不调用总览端点。
 - 搜索过的非 6B 外壳：PR #26（第 2 组 `feat/course-2-03-2-04-teaching-pages`）文件清单无总览端点；`feature/login-role-style`、`feat/admin`、`liu`、`qln`、`six`、`hzt1254-patch-1`、`feature-demo` 的树中也未发现 overview/todo 命名文件。**这些都不作为 6B 已完成实现。**
@@ -57,10 +57,10 @@
 
 | 端点 | 消费页面（待 6B 确认） | 方法/路径 | 参数 | 权限串 | 响应包装 | 后端证据 | 前端证据 | 差异/待确认 | 处理建议 | 确认状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 教师教学总览 | 教师教学总览（6-03 候选） | `GET /education/teacher/overview` | `from`、`to`、`classId` | `education:overview:teacher` | HTTP 200；`AjaxResult`：`code/msg/data`，`data=OverviewResponse` | `OverviewController.java:59-68`；`OverviewQueryService.java:153-213` | 未取得 | D-01、D-02、D-05、D-09、D-10、D-11、D-12、D-13、D-18 | 6B 提供版本后逐项核对；不要在无证据时标一致 | 后端 L1 已核；6B 待确认 |
-| 学生今日待办 | 学生今日待办（6-04 候选） | `GET /education/student/today-todos` | `from`、`to` | `education:overview:student` | 同上 | `OverviewController.java:77-85`；`OverviewQueryService.java:224-263` | 未取得 | D-01、D-02、D-03、D-09、D-10、D-11、D-12、D-13、D-18 | 实际不接收 `date`/`classId`；6B 按 `from/to` 对齐或提出契约变更 | 后端 L1 已核；6B 待确认 |
-| 管理员管理总览 | 管理员管理总览（6-03 候选） | `GET /education/admin/overview` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.java:94-102`；`OverviewQueryService.java:275-316` | 未取得 | D-01、D-02、D-04、D-09、D-10、D-11、D-12、D-13、D-14、D-18 | 实际不接收 `organizationId`；组织来自服务端 `SecurityUtils.getDeptId()` | 后端 L1 已核；6B 待确认 |
-| 管理员待办事项 | 管理员待办事项（6-04 候选） | `GET /education/admin/todos` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.java:113-121`；`OverviewQueryService.java:331-337` | 未取得 | D-01、D-02、D-04、D-10、D-15 | 当前只返回 `admin.todo.pending` 的 `NO_DATA`；禁止前端显示 0/全部完成 | 后端 L1 已核；6B 待确认 |
+| 教师教学总览 | 教师教学总览（6-03 候选） | `GET /education/teacher/overview` | `from`、`to`、`classId` | `education:overview:teacher` | HTTP 200；`AjaxResult`：`code/msg/data`，`data=OverviewResponse` | `OverviewController.teacherOverview`；`OverviewQueryService.teacherOverview` | 未取得 | D-01、D-02、D-05、D-09、D-10、D-11、D-12、D-13、D-18 | 6B 提供版本后逐项核对；不要在无证据时标一致 | 后端 L1 已核；6B 待确认 |
+| 学生今日待办 | 学生今日待办（6-04 候选） | `GET /education/student/today-todos` | `from`、`to` | `education:overview:student` | 同上 | `OverviewController.studentTodayTodos`；`OverviewQueryService.studentTodayTodos` | 未取得 | D-01、D-02、D-03、D-09、D-10、D-11、D-12、D-13、D-18 | 实际不接收 `date`/`classId`；6B 按 `from/to` 对齐或提出契约变更 | 后端 L1 已核；6B 待确认 |
+| 管理员管理总览 | 管理员管理总览（6-03 候选） | `GET /education/admin/overview` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.adminOverview`；`OverviewQueryService.adminOverview` | 未取得 | D-01、D-02、D-04、D-09、D-10、D-11、D-12、D-13、D-14、D-18 | 实际不接收 `organizationId`；组织来自服务端 `SecurityUtils.getDeptId()` | 后端 L1 已核；6B 待确认 |
+| 管理员待办事项 | 管理员待办事项（6-04 候选） | `GET /education/admin/todos` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.adminTodos`；`OverviewQueryService.adminTodos` | 未取得 | D-01、D-02、D-04、D-10、D-15 | 当前只返回 `admin.todo.pending` 的 `NO_DATA`；禁止前端显示 0/全部完成 | 后端 L1 已核；6B 待确认 |
 
 通用差异 D-06（sampleCount）、D-07（window）、D-08（asOf）、D-09（时间序列化）适用于全部端点；行内只列端点特有或最直接相关的差异。
 
@@ -68,33 +68,33 @@
 
 | 检查项 | 实际后端行为 | 证据 | 结论/待确认 |
 | --- | --- | --- | --- |
-| `from`/`to` 成对 | 都缺省/都空白 → 默认窗口；只传一个 → `OverviewValidationException`（400）；都传 → 解析后校验 `from < to` | `OverviewWindowFactory.java:46-82`；`OverviewWindowFactoryTest.java:40-52`；`OverviewWindowTest.java:26-40` | 成对和顺序已核；前端必须成对发送 |
-| 时间格式 | `Instant.parse` 接受 `Z` 或 RFC 3339 偏移（JDK 17 实测 `+08:00` 归一化为 UTC）；不接受非 RFC 3339 字符串 | `OverviewWindowFactory.java:72-82`；JDK 17 `Instant.parse` 行为核对 | 建议前端统一发 `Z`；不依赖偏移格式 |
-| 左闭右开 | DTO/Javadoc 规定 `[startsAt, endsAt)`；服务端只把窗口传给课堂/作业端口，不能从聚合层验证下游适配器是否遵守 | `OverviewWindow.java:8-32`；`OverviewQueryService.java:180-193,239-247,290-303` | 契约语义已记录；下游适配器未接入，无法 L3 验证 |
-| 默认窗口 | 当前按服务端 UTC 自然日：`LocalDate.now(clock).atStartOfDay(ZoneOffset.UTC)` 到次日 | `OverviewWindowFactory.java:66-70`；`OverviewWindowFactoryTest.java:21-28` | 与前端本地“今天”可能不一致，D-02 待产品决策 |
-| `classId` 支持端点 | 仅教师端点接收，类型 `Long`；学生/管理员方法签名不接收 | `OverviewController.java:61-63,79-80,96-97,115-116` | 前端不得向学生/管理员发送 `classId`；未知参数不会触发 400 |
-| `classId` 校验与越权 | `classId<=0` 在调用课程端口前 → 400；课程范围源为 `OK` 且正数 `classId` 不在授权范围 → 403；课程范围源为 `NO_DATA/UNAVAILABLE` → 返回对应 `NO_DATA/UNAVAILABLE`，不返回 403 | `OverviewController.java:61-70`；`OverviewQueryService.java` 的 `validateClassId` / `teacherOverview`；`OverviewQueryServiceTest` 的 `nonPositiveClassIdIsRejectedBeforeCoursePort`、`rejectsMissingIdentityAndUnauthorizedClass` | D-05 待决策：是否要求 scope 不可用时也 fail-closed 403；非正整数已定为 400 |
+| `from`/`to` 成对 | 都缺省/都空白 → 默认窗口；只传一个 → `OverviewValidationException`（400）；都传 → 解析后校验 `from < to` | `OverviewWindowFactory.fromQuery/defaultWindow/parse`；`OverviewWindowFactoryTest` 参数测试；`OverviewWindowTest` 时间窗校验测试 | 成对和顺序已核；前端必须成对发送 |
+| 时间格式 | `Instant.parse` 接受 `Z` 或 RFC 3339 偏移（JDK 17 实测 `+08:00` 归一化为 UTC）；不接受非 RFC 3339 字符串 | `OverviewWindowFactory.parse`；JDK 17 `Instant.parse` 行为核对 | 建议前端统一发 `Z`；不依赖偏移格式 |
+| 左闭右开 | DTO/Javadoc 规定 `[startsAt, endsAt)`；服务端只把窗口传给课堂/作业端口，不能从聚合层验证下游适配器是否遵守 | `OverviewWindow`；`OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview` | 契约语义已记录；下游适配器未接入，无法 L3 验证 |
+| 默认窗口 | 当前按服务端 UTC 自然日：`LocalDate.now(clock).atStartOfDay(ZoneOffset.UTC)` 到次日 | `OverviewWindowFactory.defaultWindow`；`OverviewWindowFactoryTest.defaultWindowUsesCurrentUtcDay` | 与前端本地“今天”可能不一致，D-02 待产品决策 |
+| `classId` 支持端点 | 仅教师端点接收，类型 `Long`；学生/管理员方法签名不接收 | `OverviewController` 四端点签名 | 前端不得向学生/管理员发送 `classId`；未知参数不会触发 400 |
+| `classId` 校验与越权 | `classId<=0` 在调用课程端口前 → 400；课程范围源为 `OK` 且正数 `classId` 不在授权范围 → 403；课程范围源为 `NO_DATA/UNAVAILABLE` → 返回对应 `NO_DATA/UNAVAILABLE`，不返回 403 | `OverviewController.teacherOverview`；`OverviewQueryService.java` 的 `validateClassId` / `teacherOverview`；`OverviewQueryServiceTest` 的 `nonPositiveClassIdIsRejectedBeforeCoursePort`、`rejectsMissingIdentityAndUnauthorizedClass` | D-05 待决策：是否要求 scope 不可用时也 fail-closed 403；非正整数已定为 400 |
 | 教师 `classId` 对 assignment 的过滤 | 课程范围 `OK` 时按选中 `teachingClassId` 对应 `bindingIds` 过滤教师待办；授权范围内但未选中的班级正常排除；授权范围外的 `bindingId` 属于契约违约 → `UNAVAILABLE` | `OverviewQueryService` 的 `teacherOverview` / `assignmentItem`；`OverviewQueryServiceTest` 的 `teacherClassIdFiltersAssignmentTodosBySelectedBinding`、`teacherClassIdWithNoIncludedTodosReturnsNoData`、`teacherAssignmentOutsideAuthorizedBindingsIsUnavailable` | 已修；统计单位仍是待确认项 D-12 |
-| 管理员组织范围 | 服务端 `SecurityUtils.getDeptId()`；不读取客户端 `organizationId`；为 null → 403 | `SecurityOverviewIdentityProvider.java:24-38`；`OverviewQueryService.java:275-278,331-334` | 符合“不信任客户端”；契约草案的 `organizationId` 未实现，D-04 |
-| 身份 | 服务端 `SecurityUtils.getUserId()`；不接收 `userId/studentId` | `SecurityOverviewIdentityProvider.java:24-27`；`OverviewController.java:66,83,100,119` | 已核 |
-| 未知查询参数 | 方法签名不声明的参数（如学生 `date`、管理员 `organizationId`、学生/管理员 `classId`）按 Spring MVC 默认不会触发 400；未做真实 HTTP 验证 | Controller 方法签名；未做真实 HTTP 验证 | 前端不得发送；契约/文档需统一，D-03/D-04 |
+| 管理员组织范围 | 服务端 `SecurityUtils.getDeptId()`；不读取客户端 `organizationId`；为 null → 403 | `SecurityOverviewIdentityProvider.currentUserId/currentOrganizationId`；`OverviewQueryService.adminOverview/adminTodos` | 符合“不信任客户端”；组织范围来自 deptId，deptId/业务组织映射仍待第 1/2 组确认，D-04 |
+| 身份 | 服务端 `SecurityUtils.getUserId()`；不接收 `userId/studentId` | `SecurityOverviewIdentityProvider.currentUserId`；`OverviewController` 身份获取调用 | 已核 |
+| 未知查询参数 | 方法签名不声明的参数（如学生 `date`、管理员 `organizationId`、学生/管理员 `classId`）按 Spring MVC 默认不会触发 400；未做真实 HTTP 验证 | Controller 方法签名；未做真实 HTTP 验证 | 前端不得发送；6A 合同/handoff 已修，6B 待确认，D-03/D-04 |
 
 ### 2.2 HTTP 状态与 body.code
 
 | 场景 | HTTP | body.code | 证据 | 前端动作 |
 | --- | --- | --- | --- | --- |
-| 正常聚合 | 200 | 200 | `OverviewController.java:67,84,101,120`；`AjaxResult.java:77` | 读 `data` |
-| 业务参数/越权 | 200 | 400/403 | `OverviewExceptionHandler.java:38-57`；`OverviewException.java` | 同时判断 HTTP 与 `body.code` |
+| 正常聚合 | 200 | 200 | `OverviewController` 四端点返回调用；`AjaxResult` | 读 `data` |
+| 业务参数/越权 | 200 | 400/403 | `OverviewExceptionHandler.handleOverviewException/handleTypeMismatch`；`OverviewException.java` | 同时判断 HTTP 与 `body.code` |
 | `@PreAuthorize` 权限拒绝 | 200 | 403 | `GlobalExceptionHandler.java:35-41` | 显示无权限，清空旧数据 |
 | 未认证/令牌失效 | 200（当前 RuoYi handler；网关可能 401） | 401 | `AuthenticationEntryPointImpl.java:27-33`；`ServletUtils.java:139-146` | 清登录态并跳登录 |
-| 缺适配器/单源失败 | 200 | 200 + item `UNAVAILABLE` | `OverviewSourceGuard.java:96-157`；服务测试 | 单卡片“暂不可用”，其他卡片正常 |
+| 缺适配器/单源失败 | 200 | 200 + item `UNAVAILABLE` | `OverviewSourceGuard.query`；服务测试 | 单卡片“暂不可用”，其他卡片正常 |
 | 网关/网络失败 | 非 200/无响应 | 无 | 未验证 | 网络错误，可重试；不得把缓存标最新 |
 
 ### 2.3 总预算与嵌套端口契约
 
 | 检查项 | 实际行为 | 证据 | 结论 |
 | --- | --- | --- | --- |
-| 总预算 | 一次聚合调用创建一个单调时钟 deadline；课程范围阶段与后续并行阶段共享 `overallTimeout`，不会各得一份；每个来源提交前检查，源线程真正调用端口前再检查 | `OverviewQueryService` 的 `RequestBudget`、`async`、`awaitSingle`、`awaitAll`；`OverviewSourceGuard` 的预算重载；`OverviewConfiguration.java:37-39` | 已修；预算耗尽后未派发/未完成来源 UNAVAILABLE，已完成来源保留 |
+| 总预算 | 一次聚合调用创建一个单调时钟 deadline；课程范围阶段与后续并行阶段共享 `overallTimeout`，不会各得一份；每个来源提交前检查，源线程真正调用端口前再检查 | `OverviewQueryService` 的 `RequestBudget`、`async`、`awaitSingle`、`awaitAll`；`OverviewSourceGuard` 的预算重载；`OverviewConfiguration` 的超时常量 | 已修；预算耗尽后未派发/未完成来源 UNAVAILABLE，已完成来源保留 |
 | 取消语义 | 外层 `CompletableFuture.cancel(true)` 只改变完成状态，不主动中断执行线程；SourceGuard 内部 `FutureTask` 的取消才请求中断，且不保证底层阻塞 I/O 停止 | `OverviewQueryService` 的 `awaitSingle` / `awaitAll` / `RequestBudget` 注释；`OverviewSourceGuard` 类注释 | 文档已写明；请求返回不代表源任务已停止，不能把 future 已取消当作 I/O 已停止 |
 | 嵌套列表 null | 课程范围、session、assignment 列表含 null → 受影响指标 UNAVAILABLE | `OverviewQueryService` 的 `userScopeView` / `organizationScopeView` / `sessionItem` / `assignmentItem` / `bindingAssignmentItem`；新增测试 | 已修；不让 NPE 变成整个请求 500 |
 | Map key/对象 ID | `SessionStatus`、`GradeTodo`、按绑定的 `AssignmentTodo` 的 `bindingId` 与 key 不一致，或 `NoticeSummary.recipientUserId` 与请求用户不一致 → UNAVAILABLE | 同上；新增 mismatch 测试 | 已修；不计入错误数据 |
@@ -106,16 +106,16 @@
 
 | 字段 | 实际类型/输出 | 证据 | 前端要求/待确认 |
 | --- | --- | --- | --- |
-| `asOf` | `Instant`，服务端响应时刻；不是每个来源的截止时间 | `OverviewResponse.java:18-58`；`OverviewQueryService.java:580-583` | 显示“数据截至”；D-08 |
-| `window.startsAt/endsAt` | `Instant`；默认 UTC 自然日或显式 `from/to`；左闭右开 | `OverviewWindow.java:8-32`；`OverviewWindowFactory.java:46-82` | 显示服务端返回窗口，不自行算“今天”；D-02 |
-| `items` | 非空数组；DTO 拒绝空数组 | `OverviewResponse.java:35-43` | 不得用 `items.length===0` 表示无数据 |
-| `metricCode` | 稳定字符串；实际 16 个编码见 3.2-3.5 | `OverviewQueryService.java:201-211,255-262,308-315,335-336` | 按编码映射卡片，不按数组下标 |
-| `value` | `BigDecimal` 或 null；OK 非 null，NO_DATA/UNAVAILABLE 为 null | `OverviewItem.java:57-64` | 0 是真实值；null 不得显示为 0 |
-| `unit` | 当前所有指标均为 `COUNT` | `OverviewQueryService.java:397,418,454,483,516,543,560,576` | 不要假设 PERCENT/SCORE |
+| `asOf` | `Instant`，服务端响应时刻；不是每个来源的截止时间 | `OverviewResponse`；`OverviewQueryService.response` | 显示“数据截至”；D-08 |
+| `window.startsAt/endsAt` | `Instant`；默认 UTC 自然日或显式 `from/to`；左闭右开 | `OverviewWindow`；`OverviewWindowFactory.fromQuery/defaultWindow/parse` | 显示服务端返回窗口，不自行算“今天”；D-02 |
+| `items` | 非空数组；DTO 拒绝空数组 | `OverviewResponse` 构造校验 | 不得用 `items.length===0` 表示无数据 |
+| `metricCode` | 稳定字符串；实际 16 个编码见 3.2-3.5 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos` | 按编码映射卡片，不按数组下标 |
+| `value` | `BigDecimal` 或 null；OK 非 null，NO_DATA/UNAVAILABLE 为 null | `OverviewItem` 构造校验 | 0 是真实值；null 不得显示为 0 |
+| `unit` | 当前所有指标均为 `COUNT` | `OverviewQueryService` 各 item 构造方法 | 不要假设 PERCENT/SCORE |
 | `status` | `OK`/`NO_DATA`/`UNAVAILABLE` | `OverviewStatus.java`；`OverviewItem.java` | 三态分别展示 |
-| `source` | `course`/`classroom`/`assignment`/`grade`/`notice`/`pending_product_confirmation` | `OverviewQueryService.java:62-72`；各 item 构造 | 用于诊断/标签，不替代 status |
-| `sampleCount` | `Long` 或 null；不同指标含义不同 | 3.2-3.5；`OverviewQueryService.java:397,418,454,483,516,543,560` | 不得当统一分母；D-06 |
-| `actionPath` | 后端相对路径或 null；实际值见 3.2-3.5 | `OverviewQueryService.java:201-211,255-262,308-315,335-336` | 必须由 6B 路由表确认；D-10 |
+| `source` | `course`/`classroom`/`assignment`/`grade`/`notice`/`pending_product_confirmation` | `OverviewQueryService` 的 SOURCE_* 常量；各 item 构造 | 用于诊断/标签，不替代 status |
+| `sampleCount` | `Long` 或 null；不同指标含义不同 | 3.2-3.5；`OverviewQueryService` 各 item 构造方法 | 不得当统一分母；D-06 |
+| `actionPath` | 后端相对路径或 null；实际值见 3.2-3.5 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos` | 必须由 6B 路由表确认；D-10 |
 
 ### 3.2 教师端点实际指标
 
@@ -155,7 +155,7 @@
 
 ### 3.6 指标口径结论
 
-- 通用失败规则：端口缺失/异常/超时 → 对应 item `UNAVAILABLE`；Map 缺请求 key 或值为 null → `UNAVAILABLE`；空 List/空范围 → `NO_DATA`；显式计数 0 → `OK` + `value=0`（`OverviewQueryService.java:339-363,422-561`）。
+- 通用失败规则：端口缺失/异常/超时 → 对应 item `UNAVAILABLE`；Map 缺请求 key 或值为 null → `UNAVAILABLE`；空 List/空范围 → `NO_DATA`；显式计数 0 → `OK` + `value=0`（`OverviewQueryService.userScopeView` 与各 item 构造方法）。
 - 代码实际输出的 metricCode 共 16 个：教师 6、学生 4、管理员总览 5、管理员待办 1；没有其他动态编码。
 - `unit` 当前全部为 `COUNT`；`value` 是 JSON 数值，不是字符串。
 - 响应没有独立 `denominator` 字段；`sampleCount` 不是统一分母：班级/学生数是范围条数，课堂/管理员作业/成绩是绑定数，教师/学生作业是记录条数，通知为 null（D-06）。
@@ -194,24 +194,24 @@
 
 | 场景 | 后端输入/预期 | 前端预期 | 证据 | 当前状态 |
 | --- | --- | --- | --- | --- |
-| OK 且 `value=0` | 真实测量 0，status=OK，value=0；例如通知未读 0、成绩待办 0 | 显示“0”，不得显示“暂无数据” | `OverviewItemTest.java:16-25`；`OverviewQueryServiceTest.java:227-250` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| OK 且有值 | status=OK，value>0 | 显示数值；保留卡片位置 | `OverviewQueryServiceTest.java:81-162` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| NO_DATA 且 `value=null` | 源可用但无证据/空列表；value=null | 显示“暂无数据”；不得显示 0、空数组或空白卡 | `OverviewQueryServiceTest.java:227-250`；`OverviewResponse.java:35-43` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| UNAVAILABLE 且 `value=null` | 适配器缺失/超时/异常/契约违约；value=null | 显示“暂不可用/稍后重试”；保留卡片标题，不显示 0 | `OverviewQueryServiceTest.java:165-190,253-263`；`OverviewSourceGuard.java:96-157` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| 单卡片失败、其他正常 | 单源 UNAVAILABLE，其他项 OK；HTTP 200/code 200 | 只替换对应卡片；其他卡片继续显示 | `OverviewQueryServiceTest.java:165-190` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
-| 请求整体失败 | 参数 400/越权 403/未认证 401/网络失败；无完整 data | 显示页面级错误；保留页面结构；清空或标记旧数据 | `OverviewControllerTest.java:188-227`；认证/网络仅 L1/L0 | 后端部分 L2；真实 HTTP/前端未取得 |
+| OK 且 `value=0` | 真实测量 0，status=OK，value=0；例如通知未读 0、成绩待办 0 | 显示“0”，不得显示“暂无数据” | `OverviewItemTest.okZeroIsMeasuredZeroNotNoData`；`OverviewQueryServiceTest.emptyListsAreNoDataButExplicitZeroCountsAreOk` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
+| OK 且有值 | status=OK，value>0 | 显示数值；保留卡片位置 | `OverviewQueryServiceTest` 正常聚合测试 | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
+| NO_DATA 且 `value=null` | 源可用但无证据/空列表；value=null | 显示“暂无数据”；不得显示 0、空数组或空白卡 | `OverviewQueryServiceTest.emptyListsAreNoDataButExplicitZeroCountsAreOk`；`OverviewResponse` 构造校验 | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
+| UNAVAILABLE 且 `value=null` | 适配器缺失/超时/异常/契约违约；value=null | 显示“暂不可用/稍后重试”；保留卡片标题，不显示 0 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable`、`missingAdaptersReturnUnavailableNotZero`；`OverviewSourceGuard.query` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
+| 单卡片失败、其他正常 | 单源 UNAVAILABLE，其他项 OK；HTTP 200/code 200 | 只替换对应卡片；其他卡片继续显示 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable` | 现有 L2 用例（2026-11-04 已运行）；前端未取得 |
+| 请求整体失败 | 参数 400/越权 403/未认证 401/网络失败；无完整 data | 显示页面级错误；保留页面结构；清空或标记旧数据 | `OverviewControllerTest` 错误场景测试；认证/网络仅 L1/L0 | 后端部分 L2；真实 HTTP/前端未取得 |
 | 切换角色/课程/教学班 | 后端不保存前端状态；新请求返回新 window | 清理旧角色/班级数据、旧错误和旧缓存，显示加载态 | 无前端版本 | 未核对 |
 | 刷新失败后缓存值 | 请求失败时无新 `asOf`/window | 若保留缓存，必须显示旧数据时间/失败标识，不能标“最新” | 无前端版本 | 未核对 |
 
 补充：
 
-- 后端不会返回空 `items`；`OverviewResponse` 构造器拒绝空列表（`OverviewResponse.java:35-43`）。前端不得用 `items.length===0` 判断无数据。
+- 后端不会返回空 `items`；`OverviewResponse` 构造器拒绝空列表（`OverviewResponse` 构造校验）。前端不得用 `items.length===0` 判断无数据。
 - `NO_DATA` 和 `UNAVAILABLE` 的 `value` 必须为 null；不得把“无数据/源不可用”显示为 0。
 - 单卡片失败不等于整个请求失败；前端必须按 `metricCode` 合并，不应按数组下标。
 
 ## 5. 管理员待办专节
 
-当前后端固定输出（`OverviewQueryService.java:331-337`；`OverviewQueryServiceTest.java:355-367`）：
+当前后端固定输出（`OverviewQueryService.adminTodos`；`OverviewQueryServiceTest.adminTodosNeverFabricatesSource`）：
 
 | 字段 | 值 |
 | --- | --- |
@@ -237,17 +237,17 @@
 
 | 场景 | 输入 | 后端预期 | 前端预期 | 证据 | 验证层级 |
 | --- | --- | --- | --- | --- | --- |
-| `from`/`to` 单个缺失 | 只传 `from` 或只传 `to` | HTTP 200；body.code=400 | 参数错误提示；不重试同参数 | `OverviewWindowFactory.java:54-57`；`OverviewWindowFactoryTest.java:40-44` | L1/L2 |
-| 时间格式错误 | `from=not-a-time` | HTTP 200；body.code=400 | 参数错误；不重试 | `OverviewWindowFactory.java:72-82`；`OverviewControllerTest.java:211-219` | L1/L2 |
-| 时间窗为空/反向 | `from >= to` | HTTP 200；body.code=400 | 参数错误 | `OverviewWindow.java:22-32`；`OverviewWindowTest.java:26-40` | L1/L2 |
-| `classId` 类型错误 | `classId=abc` | HTTP 200；body.code=400 | 参数错误 | `OverviewExceptionHandler.java:54-57`；`OverviewControllerTest.java:221-227` | L1/L2 |
-| 教师班级越权（范围 OK） | `classId` 不在授权范围 | HTTP 200；body.code=403 | “无权查看该范围”；清空旧数据 | `OverviewQueryService.java:162-172`；`OverviewQueryServiceTest.java:369-390` | L1/L2 |
-| 教师班级范围不可用 | `classId` 任意；课程范围源 NO_DATA/UNAVAILABLE | HTTP 200；body.code=200；对应 item NO_DATA/UNAVAILABLE，不返回 403 | 显示“暂无数据/暂不可用”，不得显示“有权限” | `OverviewQueryService.java:339-363`；D-05 | L1/L2 |
-| 管理员组织范围缺失 | `SecurityUtils.getDeptId()` 为 null | HTTP 200；body.code=403 | 无权限；清空旧数据 | `OverviewQueryService.java:275-278,331-334`；`OverviewControllerTest.java:199-208` | L1/L2 |
+| `from`/`to` 单个缺失 | 只传 `from` 或只传 `to` | HTTP 200；body.code=400 | 参数错误提示；不重试同参数 | `OverviewWindowFactory.fromQuery`；`OverviewWindowFactoryTest.rejectsSingleBound` | L1/L2 |
+| 时间格式错误 | `from=not-a-time` | HTTP 200；body.code=400 | 参数错误；不重试 | `OverviewWindowFactory.parse`；`OverviewControllerTest.invalidWindowMapsTo400` | L1/L2 |
+| 时间窗为空/反向 | `from >= to` | HTTP 200；body.code=400 | 参数错误 | `OverviewWindow` 构造校验；`OverviewWindowTest` 时间窗校验测试 | L1/L2 |
+| `classId` 类型错误 | `classId=abc` | HTTP 200；body.code=400 | 参数错误 | `OverviewExceptionHandler.handleTypeMismatch`；`OverviewControllerTest.invalidClassIdTypeMapsTo400` | L1/L2 |
+| 教师班级越权（范围 OK） | `classId` 不在授权范围 | HTTP 200；body.code=403 | “无权查看该范围”；清空旧数据 | `OverviewQueryService.teacherOverview`；`OverviewQueryServiceTest.rejectsMissingIdentityAndUnauthorizedClass` | L1/L2 |
+| 教师班级范围不可用 | `classId` 任意；课程范围源 NO_DATA/UNAVAILABLE | HTTP 200；body.code=200；对应 item NO_DATA/UNAVAILABLE，不返回 403 | 显示“暂无数据/暂不可用”，不得显示“有权限” | `OverviewQueryService.userScopeView`；D-05 | L1/L2 |
+| 管理员组织范围缺失 | `SecurityUtils.getDeptId()` 为 null | HTTP 200；body.code=403 | 无权限；清空旧数据 | `OverviewQueryService.adminOverview/adminTodos`；`OverviewControllerTest.missingAdminOrganizationMapsTo403` | L1/L2 |
 | 未登录/令牌失效 | 无/失效 token | 当前 RuoYi handler：HTTP 200 + body.code=401；网关可能 HTTP 401 | 清登录态，跳登录 | `AuthenticationEntryPointImpl.java:27-33`；`ServletUtils.java:139-146` | L1；L3 未验证 |
-| 权限串不匹配 | 有登录但无 `education:overview:*` | HTTP 200 + body.code=403（GlobalExceptionHandler） | 显示无权限；不显示数据 | `OverviewController.java:59,77,94,113`；`GlobalExceptionHandler.java:35-41`；`OverviewControllerTest.java:229-240`（仅反射） | L1/L2；L3 未验证 |
-| 缺适配器/源不可用 | 端口为 null/超时/异常 | HTTP 200 + body.code=200；对应 item UNAVAILABLE | 单卡“暂不可用”；其他卡片正常 | `OverviewSourceGuard.java:96-157`；`OverviewQueryServiceTest.java:253-263` | L1/L2 |
-| 部分源失败 | 一个端口抛异常，其他正常 | 该项 UNAVAILABLE，其他 OK | 只替换失败卡片 | `OverviewQueryServiceTest.java:165-190` | L1/L2 |
+| 权限串不匹配 | 有登录但无 `education:overview:*` | HTTP 200 + body.code=403（GlobalExceptionHandler） | 显示无权限；不显示数据 | `OverviewController` 权限注解；`GlobalExceptionHandler.java:35-41`；`OverviewControllerTest.usesPlannedPermissionAnnotations`（仅反射） | L1/L2；L3 未验证 |
+| 缺适配器/源不可用 | 端口为 null/超时/异常 | HTTP 200 + body.code=200；对应 item UNAVAILABLE | 单卡“暂不可用”；其他卡片正常 | `OverviewSourceGuard.query`；`OverviewQueryServiceTest.missingAdaptersReturnUnavailableNotZero` | L1/L2 |
+| 部分源失败 | 一个端口抛异常，其他正常 | 该项 UNAVAILABLE，其他 OK | 只替换失败卡片 | `OverviewQueryServiceTest.partialSourceFailureOnlyMarksThatItemUnavailable` | L1/L2 |
 | 网络失败 | 请求未到后端/连接断开 | 无 body | 网络错误提示；可重试；不把缓存标最新 | 无 L3 证据 | L0 |
 | 学生/管理员发未知参数 | 学生发 `date`/`classId`，管理员发 `organizationId` | 方法签名不接收；默认忽略，不 400 | 前端不得发送；按支持参数表调用 | Controller 签名；D-03/D-04 | L1；L3 未验证 |
 
@@ -265,30 +265,30 @@
 | 编号 | 问题 | 影响 | 证据 | 建议负责方 | 处理建议 | 是否阻塞契约确认 |
 | --- | --- | --- | --- | --- | --- | --- |
 | D-01 | 未取得 6B 6-03/6-04 可核验版本 | 无法核对页面、API 调用、字段映射、状态、路由；无法确认前后端一致 | 远端分支/PR 检索；本地静态壳无总览调用；PR #26/feat/admin 非 6B | 6B | 提供分支/PR/head SHA、页面与 API 文件、路由表 | 是（前端确认） |
-| D-02 | 默认窗口是 UTC 自然日；前端可能按本地时区显示“今天” | 跨时区用户看到的“今日”范围与卡片/待办日期可能不一致 | `OverviewWindowFactory.java:66-70`；handoff 参数节；契约 2.2/3.2 待评审 | 产品/6A/6B | 决定业务时区或当前学期；前端显示服务端 window；不自行改口径 | 是（展示口径） |
-| D-03 | 契约草案学生端点有 `date` 参数，实际 Controller 只接收 `from/to`；`date` 被忽略 | 按契约草案开发的前端传 `date` 不会生效，可能默认到 UTC 日 | 契约 3.2；`OverviewController.java:77-85`；handoff 参数节 | 6A 文档/6B | 统一用 `from/to`，或另立 `date` 需求；本轮不改代码 | 是（学生参数） |
-| D-04 | 契约草案管理员端点有可选 `organizationId`，实际不接收；组织来自服务端 `getDeptId()` | 前端传 `organizationId` 无效；契约文字与实现不一致 | 契约 3.3/3.4；`OverviewController.java:94-121`；`SecurityOverviewIdentityProvider.java:35-38` | 6A 文档/6B | 保留服务端组织来源；更新契约文字；前端不传 | 是（管理员参数） |
-| D-05 | `classId` 越权只在课程范围源 OK 时返回 403；范围源 NO_DATA/UNAVAILABLE 时返回 NO_DATA/UNAVAILABLE | 前端无法用 403 区分“无权限”和“范围源不可用”；无数据泄露但错误语义不同 | `OverviewQueryService.java:162-172,339-363` | 产品/6A/6B | 决定 scope 不可用时是否也 fail-closed 403；至少前端分别展示 | 是（权限语义） |
-| D-06 | `sampleCount` 口径不统一：范围条数/绑定数/记录条数/null | 前端若当统一分母会误标“样本数” | `OverviewQueryService.java:397,418,454,483,516,543,560` | 6A/产品/6B | 逐指标定义 sampleCount 展示；必要时后续增加 denominator 字段 | 部分 |
-| D-07 | `window` 只传给课堂/作业端口；班级/学生/成绩/通知是当前快照 | 前端把 window 当所有卡片统计范围会误导 | `OverviewQueryService.java:180-193,239-247,290-303,519-561` | 6A/产品/6B | 标出每个指标是否受 window 影响；不要统一显示“统计范围” | 部分 |
-| D-08 | 顶层 `asOf` 是响应时刻；`NoticeSummary.asOf` 未使用；无逐项来源截止时间 | 前端“数据截至”可能早于/晚于实际来源；无法判断单项新鲜度 | `OverviewResponse.java:18-58`；`OverviewQueryService.java:546-561,580-583` | 6A/6B | 明确 asOf 语义；后续如需逐项 asOf 再扩展字段 | 部分 |
-| D-09 | 契约/交接示例固定 `.000Z`；实际 Java `Instant`/Jackson 序列化精度未在真实 HTTP 验证 | 前端若硬编码毫秒位数可能解析失败 | 契约 2.2；`OverviewWindowFactory.java:72-82`；JDK 17 `Instant.parse` 核对 | 6A/6B | 前端用 RFC 3339 解析器；请求统一 `Z`；L3 再确认实际字符串 | 否（解析健壮即可） |
-| D-10 | 后端 actionPath 已给出，但未取得 6B 路由表 | 下钻可能 404；无法确认卡片可点击 | `OverviewQueryService.java:201-211,255-262,308-315,335-336`；无 6B 版本 | 6B | 提供路由表并逐项确认；不存在就返回 null/改路径，不由 6A 猜 | 是（下钻确认） |
-| D-11 | `session.running`/`session.active` 把 `PAUSED` 也计入 | 卡片写“进行中”会把暂停课堂算进去 | `OverviewQueryService.java:450-453` | 产品/6A/6B | 明确标签“进行中/暂停”或调整口径 | 部分 |
+| D-02 | 默认窗口是 UTC 自然日；前端可能按本地时区显示“今天” | 跨时区用户看到的“今日”范围与卡片/待办日期可能不一致 | `OverviewWindowFactory.defaultWindow`；handoff 参数节；契约 2.2/3.2 待评审 | 产品/6A/6B | 决定业务时区或当前学期；前端显示服务端 window；不自行改口径 | 是（展示口径） |
+| D-03 | 6A 合同/handoff 已统一学生端点为 `from/to`，本轮已修；6B 是否仍发送 `date` 尚未确认 | 6B 若仍按旧合同发 `date`，参数会被忽略 | 契约 3.2；`OverviewController.studentTodayTodos`；handoff 参数节 | 6B | 6B 按 `from/to` 调用；如坚持 `date` 另立需求 | 部分（6A 文档已修，6B 待确认） |
+| D-04 | 6A 合同/handoff 已改为 `from/to` + 服务端 `getDeptId()`，本轮已修；6B 是否仍发送 `organizationId`、deptId 与组织范围映射尚未确认 | 6B 若仍传 organizationId 会被忽略；组织范围可能不符合业务预期 | 契约 3.3/3.4；`OverviewController.adminOverview/adminTodos`；`SecurityOverviewIdentityProvider.currentOrganizationId` | 6B/第 1、2 组 | 6B 不传 organizationId；第 1/2 组确认 deptId 映射 | 部分（6A 文档已修，6B/第2组待确认） |
+| D-05 | `classId` 越权只在课程范围源 OK 时返回 403；范围源 NO_DATA/UNAVAILABLE 时返回 NO_DATA/UNAVAILABLE | 前端无法用 403 区分“无权限”和“范围源不可用”；无数据泄露但错误语义不同 | `OverviewQueryService.teacherOverview/userScopeView` | 产品/6A/6B | 决定 scope 不可用时是否也 fail-closed 403；至少前端分别展示 | 是（权限语义） |
+| D-06 | `sampleCount` 口径不统一：范围条数/绑定数/记录条数/null | 前端若当统一分母会误标“样本数” | `OverviewQueryService` 各 item 构造方法 | 6A/产品/6B | 逐指标定义 sampleCount 展示；必要时后续增加 denominator 字段 | 部分 |
+| D-07 | `window` 只传给课堂/作业端口；班级/学生/成绩/通知是当前快照 | 前端把 window 当所有卡片统计范围会误导 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/gradeItem/noticeItem` | 6A/产品/6B | 标出每个指标是否受 window 影响；不要统一显示“统计范围” | 部分 |
+| D-08 | 顶层 `asOf` 是响应时刻；`NoticeSummary.asOf` 未使用；无逐项来源截止时间 | 前端“数据截至”可能早于/晚于实际来源；无法判断单项新鲜度 | `OverviewResponse`；`OverviewQueryService.noticeItem/response` | 6A/6B | 明确 asOf 语义；后续如需逐项 asOf 再扩展字段 | 部分 |
+| D-09 | 契约/交接示例固定 `.000Z`；实际 Java `Instant`/Jackson 序列化精度未在真实 HTTP 验证 | 前端若硬编码毫秒位数可能解析失败 | 契约 2.2；`OverviewWindowFactory.parse`；JDK 17 `Instant.parse` 核对 | 6A/6B | 前端用 RFC 3339 解析器；请求统一 `Z`；L3 再确认实际字符串 | 否（解析健壮即可） |
+| D-10 | 后端 actionPath 已给出，但未取得 6B 路由表 | 下钻可能 404；无法确认卡片可点击 | `OverviewQueryService.teacherOverview/studentTodayTodos/adminOverview/adminTodos`；无 6B 版本 | 6B | 提供路由表并逐项确认；不存在就返回 null/改路径，不由 6A 猜 | 是（下钻确认） |
+| D-11 | `session.running`/`session.active` 把 `PAUSED` 也计入 | 卡片写“进行中”会把暂停课堂算进去 | `OverviewQueryService.sessionItem` | 产品/6A/6B | 明确标签“进行中/暂停”或调整口径 | 部分 |
 | D-12 | 教师/管理员 `assignment.pending` 是待提交学生数合计；学生 `assignment.due` 是记录条数；classId 过滤已修，统计单位未定 | 前端按“任务数”展示会误读；不同端不可直接比较 | `OverviewQueryService` 的 `assignmentItem` / `bindingAssignmentItem` | 6A/第 5 组/6B | 卡片标题按实际口径；确认适配器数据粒度 | 是（指标口径） |
-| D-13 | 学生数是各范围 `studentCount` 求和，未证明跨班去重 | 同一学生多班可能重复计数 | `OverviewQueryService.java:401-420`；`CourseScope` 定义 | 第 2 组/产品/6A | 确认适配器是否按人去重；前端标题写“班内人次/人数”需明确 | 是（指标口径） |
-| D-14 | 成绩待办 `pendingGradeCount + pendingPublishCount` 直接相加，重叠未定义 | 同一成绩可能被计两次 | `OverviewQueryService.java:519-544`；`GradeTodo` | 第 5 组/产品/6A | 要求适配器保证互斥或调整公式 | 是（指标口径） |
-| D-15 | 管理员待办来源未确认，当前恒为 NO_DATA | 前端可能误显示 0/全部完成 | `OverviewQueryService.java:331-337`；服务测试 | 产品/6A/6B | 保持 NO_DATA；前端显示“待产品确认”；不拼造 | 是（产品口径） |
+| D-13 | 学生数是各范围 `studentCount` 求和，未证明跨班去重 | 同一学生多班可能重复计数 | `OverviewQueryService.studentCountItem`；`CourseScope` 定义 | 第 2 组/产品/6A | 确认适配器是否按人去重；前端标题写“班内人次/人数”需明确 | 是（指标口径） |
+| D-14 | 成绩待办 `pendingGradeCount + pendingPublishCount` 直接相加，重叠未定义 | 同一成绩可能被计两次 | `OverviewQueryService.gradeItem`；`GradeTodo` | 第 5 组/产品/6A | 要求适配器保证互斥或调整公式 | 是（指标口径） |
+| D-15 | 管理员待办来源未确认，当前恒为 NO_DATA | 前端可能误显示 0/全部完成 | `OverviewQueryService.adminTodos`；服务测试 | 产品/6A/6B | 保持 NO_DATA；前端显示“待产品确认”；不拼造 | 是（产品口径） |
 | D-18 | `class.count` 当前按授权范围条数计数，未按 teachingClassId 去重 | 同一教学班多个 binding 可能多算；不能把范围条数称为去重教学班数 | `OverviewQueryService` 的 `classCountItem`；`CourseScope` 定义 | 第 2 组/产品/6A | 单独确认范围粒度/是否按教学班去重，不与学生去重合并 | 是（指标口径） |
-| D-16 | 生产适配器未接入；当前真实调用多为 UNAVAILABLE | 无法验证真实数据、样本、性能、时间窗 | `OverviewConfiguration.java:100-137`；`OverviewQueryServiceTest` 全 Mockito | 第 2/4/5 组/6A | 接入后重新 L3 核对 | 是（真实联调） |
-| D-17 | 权限串/菜单/角色未配置；真实登录/拦截/审计未验证 | 无法确认 403/401 真实行为 | Controller 注解；`OverviewControllerTest.java:229-240` 仅反射 | 第 1 组/6A | 配置后用真实账号验证 | 是（真实联调） |
+| D-16 | 生产适配器未接入；当前真实调用多为 UNAVAILABLE | 无法验证真实数据、样本、性能、时间窗 | `OverviewConfiguration.overviewQueryService`；`OverviewQueryServiceTest` 全 Mockito | 第 2/4/5 组/6A | 接入后重新 L3 核对 | 是（真实联调） |
+| D-17 | 权限串/菜单/角色未配置；真实登录/拦截/审计未验证 | 无法确认 403/401 真实行为 | Controller 注解；`OverviewControllerTest.usesPlannedPermissionAnnotations` 仅反射 | 第 1 组/6A | 配置后用真实账号验证 | 是（真实联调） |
 
 ### 7.2 分类汇总
 
 **6A 本 PR 已修正/可直接处理**
 
 - F-01–F-05：已在 2026-11-04 第一、二轮修订中修复，详见 7.3。
-- D-03、D-04：handoff 已改为实际 `from/to`、服务端组织来源；契约草案文字需在 #23 另行确认，本轮不改 #23。
+- D-03、D-04：6A 合同和 handoff 已改为实际 `from/to`、服务端组织来源；6B 是否按此调用仍待确认；deptId 映射待第 1/2 组。
 - D-05：handoff 已把 classId 403 条件写清；清单保留待决策。
 - D-09：handoff 已提示不要依赖 `.000Z`；真实序列化仍需 L3。
 - D-12：classId 过滤已修，但“学生数/任务数”统计单位仍未定。
@@ -297,7 +297,7 @@
 **需要 6B 修改或确认**
 
 - D-01：提供 6-03/6-04 版本、页面、API、路由。
-- D-03/D-04：只发支持的参数；不要发 `date`/`organizationId`/学生/管理员 `classId`。
+- D-03/D-04：6B 确认只发 `from/to`；管理员不传 `organizationId`；学生/管理员不发 `classId`/`date`。
 - D-05：区分 403 与 NO_DATA/UNAVAILABLE。
 - D-06/D-07：按指标口径展示 sampleCount/window。
 - D-08：正确处理 asOf；不要把顶层 asOf 当逐项来源时间。
@@ -340,7 +340,7 @@
 
 - D-05：课程范围源 NO_DATA/UNAVAILABLE 时 classId 是否 fail-closed 403 未定。
 - D-12：assignment.pending 统计单位/卡片名称未定；本轮只修 classId 过滤。
-- D-03/D-04：合同草案参数与实现差异未关闭。
+- D-03/D-04：6A 合同/handoff 参数文字已修；6B 调用方式、deptId/组织映射仍待确认。
 - D-06/D-07/D-08/D-10/D-11/D-13/D-14/D-15/D-18：sampleCount/window/asOf/actionPath/PAUSED/学生与班级去重/成绩重叠/管理员待办口径未定。
 - 共享固定线程池 + 无界队列：保留为生产接入前风险；本轮未做容量、拒绝策略、隔离改造。
 - 生产适配器、真实 HTTP/登录/授权/审计、MySQL 仍未验证。
@@ -359,7 +359,7 @@ https://github.com/wangch880808-byte/-/blob/feature/6-01-overview-api/智慧教�
 
 PR：#24 https://github.com/wangch880808-byte/-/pull/24
 后端版本：PR #24 2026-11-04 第一、二轮修复；上一代码快照 22898ae27a90779709b0c29b846181aa7054e0b0；head 见 PR
-后端 base：#23 feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464
+后端 base：#23 feature/6-01-overview-contract@98830733ea3ceb57d7d6da299c90f3e92e22fecc（3ce2451 为历史 head）
 main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 
 请回复：
@@ -382,17 +382,17 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 
 ### 9.1 已执行检查
 
-- 2026-11-04 `git fetch`/GitHub API：main `f21f51d...`、#23 `3ce2451...`、#24 修复前 `a8ba69c...`；修复提交见 PR #24。
+- 2026-11-04 `git fetch`/GitHub API：main `f21f51d...`；#23 当前 `9883073...`（`3ce2451...` 为历史 head）；#24 当前 head 见 PR（`a8ba69c...` 为历史修复前快照）。
 - 后端源码/测试静态核对：Controller、DTO、WindowFactory、QueryService、ExceptionHandler、IdentityProvider、RuoYi 安全处理链、AjaxResult。
 - 证据路径：业务代码在 `backend/ruoyi-education/src/main/java/com/ruoyi/education/overview/`；测试在 `backend/ruoyi-education/src/test/java/com/ruoyi/education/overview/`；安全处理在 `backend/ruoyi-framework/src/main/java/com/ruoyi/framework/`；统一响应在 `backend/ruoyi-common/src/main/java/com/ruoyi/common/core/domain/AjaxResult.java`。
 - 前端检索：远端分支/PR、本地 `frontend/`、PR #26/`feature/login-role-style`/`feat/admin` 树和文件；未发现 6-03/6-04 总览实现；#32 是 6-02。
 - 2026-11-04 已运行：
-  - `mvn -B -o -pl ruoyi-education -am test`：337 tests，0 failures/errors，5 skipped（真实 MySQL 用例）。
+  - `mvn -B -o -pl ruoyi-education -am test`：337 tests，0 failures/errors，5 skipped（真实 MySQL 用例）；测试记录对应代码版本 `7df24a3`，此后纯文档修订未重跑。
   - `mvn -B -o -pl ruoyi-admin -am -DskipTests package`：BUILD SUCCESS。
   - `git diff --check`：通过。
 - Markdown 表格列数检查：通过（含转义 `\|` 的表格）。
 - 代码—文档一致性：实际 metricCode 16 个与清单一致；10 个 actionPath 在源码中均有对应。2026-11-04 修改后部分行号有偏移，以方法名/章节为准。
-- 契约草案不一致处仍列为 D-03/D-04/D-05/D-06/D-07/D-08；不修改 #23。
+- D-03/D-04 的 6A 合同/handoff 文字差异本轮已修；6B 调用方式、deptId/组织映射仍待确认。
 
 ### 9.2 未验证
 
@@ -406,6 +406,6 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 
 ## 10. 停止点
 
-- 2026-11-04 第一、二轮修订只改 #24 的 overview 聚合代码、对应测试和两个文档；不改前端、SQL、权限配置或生产适配器。
-- 不修改 #23/#29；#24 保持 Draft，不标 Ready、不合并。
+- 2026-11-04 第一、二轮修订改 #24 的 overview 聚合代码、对应测试和两个文档；最终文档收口同步修改 #23 合同并普通合入 #24；不改前端、SQL、权限配置或生产适配器。
+- 不修改 #29；#23/#24 均保持 Draft，不标 Ready、不合并。
 - 等待独立复审和 6B 回应后再继续逐项确认。
