@@ -1,0 +1,178 @@
+.content.classroom-active {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  overflow: auto;
+}
+
+.classroom-panel {
+  width: 100%;
+  padding: 24px;
+  color: #333;
+}
+
+.classroom-panel h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #1f2d3d;
+}
+
+.classroom-panel .sub {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 20px;
+}
+
+.classroom-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.classroom-badge--draft { background: #f5f5f5; color: #999; }
+.classroom-badge--running { background: #e6f7ff; color: #1890ff; }
+.classroom-badge--paused { background: #fff7e6; color: #fa8c16; }
+.classroom-badge--ended { background: #f6ffed; color: #52c41a; }
+
+.classroom-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.classroom-grid--2 {
+  grid-template-columns: 1fr 280px;
+}
+
+@media (max-width: 900px) {
+  .classroom-grid--2 { grid-template-columns: 1fr; }
+}
+
+.classroom-card {
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fafafa;
+}
+
+.classroom-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #555;
+}
+
+.classroom-slide-preview {
+  min-height: 200px;
+  background: #fff;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #bbb;
+  font-size: 14px;
+}
+
+.classroom-slide-preview .page-no {
+  font-size: 36px;
+  font-weight: 700;
+  color: #1890ff;
+}
+
+.classroom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.classroom-btn {
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.classroom-btn:hover { color: #1890ff; border-color: #1890ff; }
+.classroom-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.classroom-btn--primary { background: #1890ff; border-color: #1890ff; color: #fff; }
+.classroom-btn--primary:hover { background: #40a9ff; border-color: #40a9ff; color: #fff; }
+.classroom-btn--danger { color: #ff4d4f; border-color: #ff4d4f; }
+.classroom-btn--danger:hover { background: #fff1f0; }
+
+.classroom-stat {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.classroom-stat:last-child { border-bottom: none; }
+
+.classroom-notice {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #e6f7ff;
+  color: #096dd9;
+  border: 1px solid #91d5ff;
+}
+
+.classroom-notice--warn {
+  background: #fffbe6;
+  color: #ad6800;
+  border-color: #ffe58f;
+}
+
+.classroom-quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.classroom-quiz-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.classroom-quiz-option:hover { border-color: #1890ff; background: #f0f5ff; }
+.classroom-quiz-option.selected { border-color: #1890ff; background: #e6f4ff; font-weight: 600; }
+
+.classroom-join-hero {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.classroom-join-hero .join-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.classroom-join-hero p {
+  color: #888;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.classroom-mobile .classroom-panel { padding: 16px; max-width: 480px; margin: 0 auto; }

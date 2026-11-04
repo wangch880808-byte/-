@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduActivityResponseRevisionMapper">
+
+    <resultMap id="EduActivityResponseRevisionResult" type="com.ruoyi.education.domain.activity.EduActivityResponseRevision">
+        <id property="id" column="id"/>
+        <result property="responseId" column="response_id"/>
+        <result property="revisionNo" column="revision_no"/>
+        <result property="answerJson" column="answer_json"/>
+        <result property="isCorrect" column="is_correct"/>
+        <result property="recordedByUserId" column="recorded_by_user_id"/>
+        <result property="recordedAt" column="recorded_at"/>
+    </resultMap>
+
+    <select id="selectLatestByResponseId" resultMap="EduActivityResponseRevisionResult">
+        select id, response_id, revision_no,
+               cast(answer_json as char) as answer_json,
+               is_correct, recorded_by_user_id, recorded_at
+        from edu_activity_response_revision
+        where response_id = #{responseId}
+        order by revision_no desc
+        limit 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into edu_activity_response_revision (
+            response_id, revision_no, answer_json, is_correct,
+            recorded_by_user_id, recorded_at
+        ) values (
+            #{responseId}, #{revisionNo}, #{answerJson}, #{isCorrect},
+            #{recordedByUserId}, #{recordedAt}
+        )
+    </insert>
+</mapper>

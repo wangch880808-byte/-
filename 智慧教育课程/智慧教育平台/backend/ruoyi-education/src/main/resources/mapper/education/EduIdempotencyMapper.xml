@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduIdempotencyMapper">
+
+    <resultMap id="EduIdempotencyRecordResult" type="com.ruoyi.education.domain.idempotency.EduIdempotencyRecord">
+        <id property="id" column="id"/>
+        <result property="actorUserId" column="actor_user_id"/>
+        <result property="operationKind" column="operation_kind"/>
+        <result property="scopeId" column="scope_id"/>
+        <result property="keyHash" column="key_hash"/>
+        <result property="requestHash" column="request_hash"/>
+        <result property="resultId" column="result_id"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="expiresAt" column="expires_at"/>
+    </resultMap>
+
+    <select id="selectByKey" resultMap="EduIdempotencyRecordResult">
+        select id, actor_user_id, operation_kind, scope_id, key_hash, request_hash,
+               result_id, status, created_at, expires_at
+        from edu_idempotency_record
+        where actor_user_id = #{actorUserId}
+          and operation_kind = #{operationKind}
+          and scope_id = #{scopeId}
+          and key_hash = #{keyHash}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into edu_idempotency_record (
+            actor_user_id, operation_kind, scope_id, key_hash, request_hash,
+            result_id, status, created_at, expires_at
+        ) values (
+            #{actorUserId}, #{operationKind}, #{scopeId}, #{keyHash}, #{requestHash},
+            #{resultId}, #{status}, utc_timestamp(3), #{expiresAt}
+        )
+    </insert>
+
+    <update id="markSucceeded">
+        update edu_idempotency_record
+        set status = 'SUCCEEDED',
+            result_id = #{resultId}
+        where id = #{id}
+    </update>
+</mapper>

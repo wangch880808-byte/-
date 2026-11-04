@@ -2,7 +2,30 @@
 
 本目录统一管理数据库设计与脚本。[V3.0 M0 数据库设计](../docs/database-design.md)对应 44 张教育业务表；已在独立 MySQL 8.0.46 实例验证建表和关键约束。共享环境部署状态、若依版本、身份映射和正式迁移工具仍待确认。
 
-## 空数据库执行顺序
+## 本机演示库一键初始化（推荐）
+
+可丢弃测试库 `zhijiao_m0` 可直接执行合成脚本 [zhijiao-m0-all-in-one.sql](zhijiao-m0-all-in-one.sql)，顺序为：
+
+1. 若依系统表 `upstream/ruoyi/ry_20260417.sql`
+2. Quartz 表 `upstream/ruoyi/quartz.sql`
+3. 教育核心表 `mysql-v3-m0-core-schema.sql`
+4. 教育教学表 `mysql-v3-m0-teaching-schema.sql`
+5. 教学演示数据 `demo-v3-m0-seed.sql`
+6. 三角色登录账号 `demo-v3-m0-ruoyi-login-seed.sql`
+
+**不含** [verify-v3-m0-invariants.sql](verify-v3-m0-invariants.sql)（独立约束校验，事务内回滚，不用于建库）。
+
+```powershell
+# 方式 A：合成 SQL
+& 'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -p --default-character-set=utf8mb4 < sql\zhijiao-m0-all-in-one.sql
+
+# 方式 B：安装脚本（默认走合成 SQL；逐步导入加 -UseSplitScripts）
+.\sql\setup-zhijiao-m0.ps1 -MySqlPassword '你的密码' -WriteEnv -ForceRecreate
+```
+
+脚本含 `DROP TABLE` 与演示密码哈希，禁止在生产或共享正式库执行。
+
+## 空数据库执行顺序（分文件）
 
 先由部署负责人按项目规范创建并备份目标数据库，确认 MySQL 8.0.16+、InnoDB、`utf8mb4_0900_ai_ci`、UTC 会话时区及执行账号权限。然后在**空数据库**依次执行：
 

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduClassSessionMapper">
+
+    <resultMap id="EduClassSessionResult" type="com.ruoyi.education.domain.classroom.EduClassSession">
+        <id property="id" column="id"/>
+        <result property="bindingId" column="binding_id"/>
+        <result property="lessonId" column="lesson_id"/>
+        <result property="planId" column="plan_id"/>
+        <result property="status" column="status"/>
+        <result property="startedByUserId" column="started_by_user_id"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="endedByUserId" column="ended_by_user_id"/>
+        <result property="endedAt" column="ended_at"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="EduClassSessionResult">
+        select id, binding_id, lesson_id, plan_id, status,
+               started_by_user_id, started_at, ended_by_user_id, ended_at, created_at
+        from edu_class_session
+        where id = #{sessionId}
+    </select>
+
+    <select id="selectActiveByBindingId" resultMap="EduClassSessionResult">
+        select id, binding_id, lesson_id, plan_id, status,
+               started_by_user_id, started_at, ended_by_user_id, ended_at, created_at
+        from edu_class_session
+        where binding_id = #{bindingId}
+          and status in ('RUNNING', 'PAUSED')
+        limit 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into edu_class_session (
+            binding_id, lesson_id, plan_id, status,
+            started_by_user_id, started_at, created_at
+        ) values (
+            #{bindingId}, #{lessonId}, #{planId}, #{status},
+            #{startedByUserId}, #{startedAt}, utc_timestamp(3)
+        )
+    </insert>
+
+    <update id="updateStatus">
+        update edu_class_session
+        <set>
+            status = #{status},
+            <if test="status == 'ENDED'">
+                ended_by_user_id = #{endedByUserId},
+                ended_at = utc_timestamp(3),
+            </if>
+        </set>
+        where id = #{sessionId}
+    </update>
+</mapper>

@@ -21,7 +21,7 @@
 ## 技术架构规划
 
 - 后端已导入若依 RuoYi-Vue `springboot3` 分支固定提交，版本 3.9.2，Spring Boot 3.5.16，Java 17 编译目标；`ruoyi-education` 已接入构建，当前仅有 6-02 公告领域的基础查询与状态规则。
-- `frontend/login.html` 和三端原型导航运行页由后端同源提供；原型导航尚未绑定授权路由，页面业务内容及正式前端工程仍待开发。
+- `frontend/` 是 Vue 3 工程（Vite + Element Plus + Pinia + Vue Router），构建到 `frontend/app/`，由后端以 `/app/` 同源提供；菜单与路由集中在 `frontend/src/navigation/menus.js`，未接通的入口渲染 `Pending.vue` 并标注原因。
 - 数据库工作统一置于 `sql/`；[V3.0 M0 数据库设计](docs/database-design.md)与两段教育业务建表脚本覆盖首版教学闭环。本机 `zhijiao_m0` 已整合教育业务演示表和若依登录表，`zhijiao_login_dev` 仅保留为此前的独立测试库。
 - 课件转换、实时同步、文件存储与 AI 适配均为后续技术评审内容，暂不指定服务或协议实现。
 - 当前后端可用 Maven 构建，运行需要 MySQL 8、Redis 和本地私有 `.env`；Vue 版本尚未选定。
@@ -46,13 +46,12 @@
 │           ├── learning/     ├── analysis/    └── ai/
 ├── frontend/
 │   ├── README.md
-│   ├── login.html、login.js、logo.png
-│   ├── admin.html、teacher.html、student.html
-│   ├── role-home.js
-│   └── src/
-│       ├── views/education/{teacher,student,admin}/
-│       ├── api/education/
-│       └── components/education/
+│   ├── index.html、vite.config.js、package.json
+│   ├── src/
+│   │   ├── navigation/menus.js      # 三端菜单与路由配置
+│   │   ├── views/education/         # teacher、student、admin、classroom
+│   │   ├── api/education/
+│   │   └── components/education/
 ├── sql/（教育业务脚本与 upstream/ruoyi/）
 ├── docs/
 │   ├── architecture.md

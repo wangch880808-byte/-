@@ -23,7 +23,7 @@ HTTP 业务入口建议集中在 `/education` 命名空间，权限标识可按 
 | course | 课程/教学班归属、成员资格、教师授权与知识点标识 | 全部教学领域与各端页面 |
 | resource | 授权资源版本、转换状态、题目与评分标准快照 | prepare/classroom/activity/assignment/ai |
 | prepare | 备课方案、预习任务和活动模板快照 | 教师/学生端、课堂入口编排 |
-| classroom | 会话状态、公开页状态、重连快照 | 教师控制台、投影、学生课堂、活动入口 |
+| classroom | 会话状态、公开页状态、重连快照 | 教师控制台、投影、学生课堂、活动入口（详见 [课堂接口草案](api-contracts-classroom.md)） |
 | activity | 激活、关闭、签到、随堂答题及实例结果 | 三端授权页面、learning、analysis |
 | assignment | 统一作业发布、提交版本、复核与正式评价 | activity、教师/学生端、learning、analysis |
 | learning | 本人轨迹、错题、补学及来源引用 | 学生端、授权教师端、analysis |

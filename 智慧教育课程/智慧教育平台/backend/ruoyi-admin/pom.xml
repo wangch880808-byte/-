@@ -67,6 +67,12 @@
             <artifactId>ruoyi-generator</artifactId>
         </dependency>
 
+        <!-- 教学业务-->
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-education</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -78,13 +84,13 @@
                 <directory>${project.basedir}/../../frontend</directory>
                 <targetPath>static</targetPath>
                 <includes>
-                    <include>login.html</include>
                     <include>login.js</include>
-                    <include>admin.html</include>
-                    <include>teacher.html</include>
-                    <include>student.html</include>
                     <include>role-home.js</include>
+                    <include>classroom.css</include>
                     <include>logo.png</include>
+                    <include>js/**</include>
+                    <!-- Vue 构建产物（frontend/app，由 vite build 生成），由 /app/ 提供 -->
+                    <include>app/**</include>
                 </includes>
             </resource>
         </resources>

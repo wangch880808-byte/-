@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduActivityInstanceMapper">
+
+    <resultMap id="EduActivityInstanceResult" type="com.ruoyi.education.domain.activity.EduActivityInstance">
+        <id property="id" column="id"/>
+        <result property="bindingId" column="binding_id"/>
+        <result property="teachingClassId" column="teaching_class_id"/>
+        <result property="courseSpaceId" column="course_space_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="templateId" column="template_id"/>
+        <result property="activityKind" column="activity_kind"/>
+        <result property="title" column="title"/>
+        <result property="questionId" column="question_id"/>
+        <result property="questionVersionId" column="question_version_id"/>
+        <result property="opensAt" column="opens_at"/>
+        <result property="closesAt" column="closes_at"/>
+        <result property="answerOpensAt" column="answer_opens_at"/>
+        <result property="status" column="status"/>
+        <result property="createdByUserId" column="created_by_user_id"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="EduActivityInstanceResult">
+        select id, binding_id, teaching_class_id, course_space_id, session_id, template_id,
+               activity_kind, title, question_id, question_version_id,
+               opens_at, closes_at, answer_opens_at, status, created_by_user_id, created_at
+        from edu_activity_instance
+        where id = #{activityId}
+    </select>
+
+    <select id="selectOpenByBindingId" resultMap="EduActivityInstanceResult">
+        select id, binding_id, teaching_class_id, course_space_id, session_id, template_id,
+               activity_kind, title, question_id, question_version_id,
+               opens_at, closes_at, answer_opens_at, status, created_by_user_id, created_at
+        from edu_activity_instance
+        where binding_id = #{bindingId}
+          and status = 'OPEN'
+        order by id
+    </select>
+
+    <select id="selectOpenBySessionId" resultMap="EduActivityInstanceResult">
+        select id, binding_id, teaching_class_id, course_space_id, session_id, template_id,
+               activity_kind, title, question_id, question_version_id,
+               opens_at, closes_at, answer_opens_at, status, created_by_user_id, created_at
+        from edu_activity_instance
+        where session_id = #{sessionId}
+          and status = 'OPEN'
+        order by id
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into edu_activity_instance (
+            binding_id, teaching_class_id, course_space_id, session_id, template_id,
+            activity_kind, title, question_id, question_version_id,
+            opens_at, closes_at, status, created_by_user_id, created_at
+        ) values (
+            #{bindingId}, #{teachingClassId}, #{courseSpaceId}, #{sessionId}, #{templateId},
+            #{activityKind}, #{title}, #{questionId}, #{questionVersionId},
+            #{opensAt}, #{closesAt}, #{status}, #{createdByUserId}, utc_timestamp(3)
+        )
+    </insert>
+
+    <update id="updateStatus">
+        update edu_activity_instance
+        set status = #{status}
+        where id = #{activityId}
+    </update>
+
+    <update id="updateAnswerOpensAt">
+        update edu_activity_instance
+        set answer_opens_at = utc_timestamp(3)
+        where id = #{activityId}
+          and answer_opens_at is null
+    </update>
+</mapper>

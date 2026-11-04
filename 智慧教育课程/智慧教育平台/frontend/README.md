@@ -1,20 +1,40 @@
-# 前端架构规划
+# 前端工程
 
-本目录是前端工程工作区。当前 `login.html`、`login.js` 以及 `admin.html`、`teacher.html`、`student.html` 由后端同源提供，使用若依真实认证接口；运行方式见 [后端说明](../backend/README.md)。三端页面以 [`prototypes/console-navigation-v1`](../prototypes/console-navigation-v1/) 的原型为基础，保留原有导航和页签交互，并增加登录态、角色校验及退出登录。原型目录的文件保持不变。页面中的菜单是静态设计稿导航，尚未关联若依授权菜单或教学业务接口；内容区仍待实现。尚未接入若依 Vue 前端、创建依赖清单或选择 Vue 版本。
+业务页面都在 Vue 3 工程里。源码只保留挂载入口 `index.html`，构建后由 `/app/` 提供。
+
+| 形态 | 位置 | 说明 |
+|---|---|---|
+| 挂载入口 | `index.html` | Vite 入口，挂载 `#app` |
+| Vue 3 工程 | `src/`、`vite.config.js` | 三端菜单、页签、课程上下文和业务页，构建到 `app/`，由 `/app/` 访问 |
+
+## Vue 工程
+
+技术栈与若依前端一致：Vue 3.5 + Vite 7 + Element Plus + Pinia + Vue Router（hash 模式）。
+
+```powershell
+cd frontend
+npm install                       # 首次
+npm run dev                       # 开发，http://127.0.0.1:5173/app/
+npm run build                     # 产出 app/，后端打包时复制到 static/app
+```
+
+- `base` 与产物目录都取 `app/`，配合 `ruoyi-admin/pom.xml` 的 `app/**` 资源条目，构建后直接由 `http://127.0.0.1:8080/app/` 提供，无需改动打包流程。
+- 开发态通过 `/dev-api` 代理到 `http://127.0.0.1:8080`（见 `vite.config.js`，`VITE_BACKEND_URL` 可覆盖）。
+- 路由由 `src/navigation/menus.js` 统一生成：已接通的入口指向真实页面（课堂、课程、公告、系统管理等），未接通的统一指向 `Pending.vue` 并显示原因，不再生成空页面。新增业务页只需在该文件登记。
 
 ## 三端页面和公共能力
 
 ```text
 frontend/
 ├── README.md
-├── login.html、login.js、logo.png
-├── admin.html、teacher.html、student.html
-├── role-home.js
+├── index.html、vite.config.js、package.json
 └── src/
+    ├── navigation/menus.js      # 三端菜单与路由（唯一入口）
     ├── views/education/
     │   ├── teacher/
     │   ├── student/
-    │   └── admin/
+    │   ├── admin/
+    │   └── classroom/           # 公开投影页
     ├── api/education/
     └── components/education/
 ```
