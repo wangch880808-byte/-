@@ -4,7 +4,7 @@
 >
 > 核对日期：2026-11-02；2026-11-04 第一轮修复复核；2026-11-04 第二轮预算边界收口
 >
-> 2026-11-04 第一轮修复：教师 `assignment.pending` 的 `classId` binding 过滤、`classId<=0` 400、单次请求总预算、嵌套端口结果违约收敛；第二轮补充来源提交/排队前预算检查与取消语义。仍不代表 6B 已确认或真实联调完成。
+> 2026-11-04 第一、二轮修复：教师 `assignment.pending` 的 `classId` binding 过滤、`classId<=0` 400、单次请求总预算、嵌套端口结果违约收敛；第二轮补充来源提交/排队前预算检查与取消语义。仍不代表 6B 已确认或真实联调完成。
 >
 > 范围：第六组后端 6A 的 6-01 四端点，与 6B 前端 6-03/6-04 的接口/字段/状态/路由对齐。
 >
@@ -29,7 +29,7 @@
 
 | 项目 | 实际版本/引用 | 证据 | 代码核对状态 | 6A 确认 | 6B 确认 | 真实联调 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`；上一代码快照 `22898ae27a90779709b0c29b846181aa7054e0b0`，2026-11-04 第一轮修复后 head 见 PR | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；2026-11-04 已运行测试（L2） | 待确认（不代签） | 未取得 | 未完成 |
+| 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`；上一代码快照 `22898ae27a90779709b0c29b846181aa7054e0b0`，2026-11-04 第一、二轮修订后 head 见 PR；合同已于 2026-11-04 同步 #24 当前行为 | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；2026-11-04 已运行测试（L2） | 待确认（不代签） | 未取得 | 未完成 |
 | 后端契约分支 | `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`，PR #23 | 远端引用；契约文档 | 已读契约，未改 #23 | 待确认 | 不适用 | 未完成 |
 | 6B 前端 6-03/6-04 | **未取得可核验版本** | 远端无 6-03/6-04 分支/PR；本地静态壳无总览调用；第 2 组 Vue/`feat/admin` 不是 6B 实现 | 无法核对 | 待确认 | 待 6B 提供 | 未完成 |
 | 交接文档 | `docs/6-01-frontend-api-handoff.md` v1.3（2026-11-04 第二轮收口），位于 #24 分支 | 文档正文与本次修订 | 已核对并修订参数/时间/错误/过滤/预算/取消说明 | 待确认 | 待 6B | 不适用 |
@@ -37,7 +37,7 @@
 
 ### 1.2 版本获取与前端检索证据
 
-- 2026-11-02 `git fetch origin --prune` 成功；2026-11-04 重新核验 `main=f21f51d...`、#23 `3ce2451...`、#24 `a8ba69c...`（修复前）与任务基线一致；第一轮修复提交后 head 见 PR #24。
+- 2026-11-02 `git fetch origin --prune` 成功；2026-11-04 重新核验 `main=f21f51d...`、#23 `3ce2451...`、#24 `a8ba69c...`（修复前）与任务基线一致；第一、二轮修订及合同同步后的 head 见 PR #24。
 - GitHub API 查询：远端分支 28 个、PR（`state=all`）29 个；没有 `6-03`/`6-04` 命名的分支或 PR。
 - 本地 `frontend/` 是静态联调壳：`frontend/README.md` 明确“内容区仍待实现”“尚未接入若依 Vue 前端”；`role-home.js` 只做登录/角色/菜单壳，不调用总览端点。
 - 搜索过的非 6B 外壳：PR #26（第 2 组 `feat/course-2-03-2-04-teaching-pages`）文件清单无总览端点；`feature/login-role-style`、`feat/admin`、`liu`、`qln`、`six`、`hzt1254-patch-1`、`feature-demo` 的树中也未发现 overview/todo 命名文件。**这些都不作为 6B 已完成实现。**
@@ -57,9 +57,9 @@
 
 | 端点 | 消费页面（待 6B 确认） | 方法/路径 | 参数 | 权限串 | 响应包装 | 后端证据 | 前端证据 | 差异/待确认 | 处理建议 | 确认状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 教师教学总览 | 教师教学总览（6-03 候选） | `GET /education/teacher/overview` | `from`、`to`、`classId` | `education:overview:teacher` | HTTP 200；`AjaxResult`：`code/msg/data`，`data=OverviewResponse` | `OverviewController.java:59-68`；`OverviewQueryService.java:153-213` | 未取得 | D-01、D-02、D-05、D-09、D-10、D-11、D-12、D-13 | 6B 提供版本后逐项核对；不要在无证据时标一致 | 后端 L1 已核；6B 待确认 |
-| 学生今日待办 | 学生今日待办（6-04 候选） | `GET /education/student/today-todos` | `from`、`to` | `education:overview:student` | 同上 | `OverviewController.java:77-85`；`OverviewQueryService.java:224-263` | 未取得 | D-01、D-02、D-03、D-09、D-10、D-11、D-12、D-13 | 实际不接收 `date`/`classId`；6B 按 `from/to` 对齐或提出契约变更 | 后端 L1 已核；6B 待确认 |
-| 管理员管理总览 | 管理员管理总览（6-03 候选） | `GET /education/admin/overview` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.java:94-102`；`OverviewQueryService.java:275-316` | 未取得 | D-01、D-02、D-04、D-09、D-10、D-11、D-12、D-13、D-14 | 实际不接收 `organizationId`；组织来自服务端 `SecurityUtils.getDeptId()` | 后端 L1 已核；6B 待确认 |
+| 教师教学总览 | 教师教学总览（6-03 候选） | `GET /education/teacher/overview` | `from`、`to`、`classId` | `education:overview:teacher` | HTTP 200；`AjaxResult`：`code/msg/data`，`data=OverviewResponse` | `OverviewController.java:59-68`；`OverviewQueryService.java:153-213` | 未取得 | D-01、D-02、D-05、D-09、D-10、D-11、D-12、D-13、D-18 | 6B 提供版本后逐项核对；不要在无证据时标一致 | 后端 L1 已核；6B 待确认 |
+| 学生今日待办 | 学生今日待办（6-04 候选） | `GET /education/student/today-todos` | `from`、`to` | `education:overview:student` | 同上 | `OverviewController.java:77-85`；`OverviewQueryService.java:224-263` | 未取得 | D-01、D-02、D-03、D-09、D-10、D-11、D-12、D-13、D-18 | 实际不接收 `date`/`classId`；6B 按 `from/to` 对齐或提出契约变更 | 后端 L1 已核；6B 待确认 |
+| 管理员管理总览 | 管理员管理总览（6-03 候选） | `GET /education/admin/overview` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.java:94-102`；`OverviewQueryService.java:275-316` | 未取得 | D-01、D-02、D-04、D-09、D-10、D-11、D-12、D-13、D-14、D-18 | 实际不接收 `organizationId`；组织来自服务端 `SecurityUtils.getDeptId()` | 后端 L1 已核；6B 待确认 |
 | 管理员待办事项 | 管理员待办事项（6-04 候选） | `GET /education/admin/todos` | `from`、`to` | `education:overview:admin` | 同上 | `OverviewController.java:113-121`；`OverviewQueryService.java:331-337` | 未取得 | D-01、D-02、D-04、D-10、D-15 | 当前只返回 `admin.todo.pending` 的 `NO_DATA`；禁止前端显示 0/全部完成 | 后端 L1 已核；6B 待确认 |
 
 通用差异 D-06（sampleCount）、D-07（window）、D-08（asOf）、D-09（时间序列化）适用于全部端点；行内只列端点特有或最直接相关的差异。
@@ -121,7 +121,7 @@
 
 | metricCode | 业务含义/实际公式 | source | unit | window | sampleCount | 空值/三态 | actionPath |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `teacher.class.count` | 授权课程范围条数 `scopes.size()`；适配器是否去重未证明 | course | COUNT | 否（快照） | 课程范围条数 | 范围空 List → NO_DATA；非空 → OK ≥1；无 OK 0 | `/teacher/classes` |
+| `teacher.class.count` | 授权课程范围条数 `scopes.size()`；未按 teachingClassId 去重，适配器是否每班唯一未证明（D-18） | course | COUNT | 否（快照） | 课程范围条数 | 范围空 List → NO_DATA；非空 → OK ≥1；无 OK 0 | `/teacher/classes` |
 | `teacher.student.count` | 各范围 `studentCount` 求和；任一为 null → NO_DATA；是否跨班去重未证明（D-13） | course | COUNT | 否（快照） | 课程范围条数 | 范围空或任一学生数 null → NO_DATA；有范围且全非 null → OK（可为 0） | `/teacher/classes` |
 | `teacher.session.running` | 绑定范围内 `RUNNING` 或 `PAUSED` 的课堂数；`PAUSED` 也计入（D-11） | classroom | COUNT | 是（传给端口） | 去重绑定 ID 数 | 无绑定/窗口内无课堂 → NO_DATA；Map 缺绑定 key → UNAVAILABLE；有课堂但无 RUNNING/PAUSED → OK 0 | `/teacher/classes` |
 | `teacher.assignment.pending` | 按 `classId` 选中 binding 过滤后，各 `AssignmentTodo` 的 `max(0,targetCount-submittedCount)` 求和；是待提交学生数，不是任务条数（D-12）；授权范围外 binding → UNAVAILABLE | assignment | COUNT | 是（传给端口） | 过滤后待办记录数 | 无记录/选中班无记录 → NO_DATA；Map 缺教师 key 或越权 binding → UNAVAILABLE；有记录且合计 0 → OK 0 | `/teacher/assignments` |
@@ -132,7 +132,7 @@
 
 | metricCode | 业务含义/实际公式 | source | unit | window | sampleCount | 空值/三态 | actionPath |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `student.class.count` | 有效在班范围条数 `scopes.size()`；是否去重取决于适配器 | course | COUNT | 否（快照） | 课程范围条数 | 空 List → NO_DATA；非空 → OK ≥1；无 OK 0 | `/student/classes` |
+| `student.class.count` | 有效在班范围条数 `scopes.size()`；未按 teachingClassId 去重，是否去重取决于适配器（D-18） | course | COUNT | 否（快照） | 课程范围条数 | 空 List → NO_DATA；非空 → OK ≥1；无 OK 0 | `/student/classes` |
 | `student.session.active` | 绑定范围内 `RUNNING` 或 `PAUSED` 的课堂数；`PAUSED` 也计入（D-11） | classroom | COUNT | 是（传给端口） | 去重绑定 ID 数 | 无绑定/窗口内无课堂 → NO_DATA；Map 缺绑定 key → UNAVAILABLE；无活动但有课堂 → OK 0 | `/student/todos` |
 | `student.assignment.due` | 过滤授权 binding 后的 `AssignmentTodo` 记录条数；不是 `pendingCount` 求和（D-12）；越权 binding → UNAVAILABLE | assignment | COUNT | 是（传给端口） | 过滤后待办记录数 | 空 List → NO_DATA；Map 缺学生 key 或越权 binding → UNAVAILABLE；非空 → OK ≥1；无 OK 0 | `/student/todos` |
 | `student.notice.unread` | `NoticeSummary.unreadCount`；0 是真实未读 0 | notice | COUNT | 否（当前快照） | null | 适配器缺失/摘要缺失 → UNAVAILABLE；0 → OK 0 | `/student/notices` |
@@ -141,7 +141,7 @@
 
 | metricCode | 业务含义/实际公式 | source | unit | window | sampleCount | 空值/三态 | actionPath |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `admin.class.count` | 组织授权范围条数 `scopes.size()`；是否去重取决于适配器 | course | COUNT | 否（快照） | 课程范围条数 | 空 List → NO_DATA；非空 → OK ≥1；无 OK 0 | `/admin/classes` |
+| `admin.class.count` | 组织授权范围条数 `scopes.size()`；未按 teachingClassId 去重，是否去重取决于适配器（D-18） | course | COUNT | 否（快照） | 课程范围条数 | 空 List → NO_DATA；非空 → OK ≥1；无 OK 0 | `/admin/classes` |
 | `admin.student.count` | 各范围 `studentCount` 求和；任一 null → NO_DATA；是否跨班去重未证明（D-13） | course | COUNT | 否（快照） | 课程范围条数 | 空范围或任一 null → NO_DATA；有范围且全非 null → OK（可为 0） | `/admin/classes` |
 | `admin.session.running` | 绑定范围内 `RUNNING`/`PAUSED` 课堂数；`PAUSED` 也计入（D-11） | classroom | COUNT | 是（传给端口） | 去重绑定 ID 数 | 无绑定/窗口内无课堂 → NO_DATA；Map 缺绑定 key → UNAVAILABLE；无活动 → OK 0 | `/admin/classes` |
 | `admin.assignment.pending` | 各绑定 `pendingCount` 求和；是待提交学生数，不是任务条数（D-12） | assignment | COUNT | 是（传给端口） | 去重绑定 ID 数 | 无记录 → NO_DATA；Map 缺绑定 key → UNAVAILABLE；有记录且合计 0 → OK 0 | `/admin/assignments` |
@@ -162,6 +162,7 @@
 - `window` 只实际传给课堂和作业端口；班级/学生/成绩/通知是当前快照，管理员待办无来源（D-07）。
 - `asOf` 是响应时刻；`NoticeSummary.asOf` 未被聚合层使用，不能当作每项来源的截止时间（D-08）。
 - 教师/管理员的 `assignment.pending` 是“待提交学生数合计”，不是“待处理任务条数”；学生 `assignment.due` 是记录条数。前端卡片标题必须按实际口径写，不能只按字段名猜（D-12）。
+- 班级数按授权范围条数计数，未按 teachingClassId 去重；同一教学班多个 binding 可能多算（D-18）。
 - 学生数按班级求和，是否跨班去重未证明；若同一学生在多个班，可能重复计数（D-13）。
 - 课堂/作业/成绩按绑定汇总；同一课堂/任务/成绩跨多个绑定是否重复未证明，需适配器保证粒度。
 - 成绩待办把 `pendingGradeCount` 与 `pendingPublishCount` 直接相加；若同一成绩同时处于两个待办状态，可能重复（D-14）。
@@ -278,6 +279,7 @@
 | D-13 | 学生数是各范围 `studentCount` 求和，未证明跨班去重 | 同一学生多班可能重复计数 | `OverviewQueryService.java:401-420`；`CourseScope` 定义 | 第 2 组/产品/6A | 确认适配器是否按人去重；前端标题写“班内人次/人数”需明确 | 是（指标口径） |
 | D-14 | 成绩待办 `pendingGradeCount + pendingPublishCount` 直接相加，重叠未定义 | 同一成绩可能被计两次 | `OverviewQueryService.java:519-544`；`GradeTodo` | 第 5 组/产品/6A | 要求适配器保证互斥或调整公式 | 是（指标口径） |
 | D-15 | 管理员待办来源未确认，当前恒为 NO_DATA | 前端可能误显示 0/全部完成 | `OverviewQueryService.java:331-337`；服务测试 | 产品/6A/6B | 保持 NO_DATA；前端显示“待产品确认”；不拼造 | 是（产品口径） |
+| D-18 | `class.count` 当前按授权范围条数计数，未按 teachingClassId 去重 | 同一教学班多个 binding 可能多算；不能把范围条数称为去重教学班数 | `OverviewQueryService` 的 `classCountItem`；`CourseScope` 定义 | 第 2 组/产品/6A | 单独确认范围粒度/是否按教学班去重，不与学生去重合并 | 是（指标口径） |
 | D-16 | 生产适配器未接入；当前真实调用多为 UNAVAILABLE | 无法验证真实数据、样本、性能、时间窗 | `OverviewConfiguration.java:100-137`；`OverviewQueryServiceTest` 全 Mockito | 第 2/4/5 组/6A | 接入后重新 L3 核对 | 是（真实联调） |
 | D-17 | 权限串/菜单/角色未配置；真实登录/拦截/审计未验证 | 无法确认 403/401 真实行为 | Controller 注解；`OverviewControllerTest.java:229-240` 仅反射 | 第 1 组/6A | 配置后用真实账号验证 | 是（真实联调） |
 
@@ -285,12 +287,12 @@
 
 **6A 本 PR 已修正/可直接处理**
 
-- F-01–F-05：已在 2026-11-04 第一轮修订中修复，详见 7.3。
+- F-01–F-05：已在 2026-11-04 第一、二轮修订中修复，详见 7.3。
 - D-03、D-04：handoff 已改为实际 `from/to`、服务端组织来源；契约草案文字需在 #23 另行确认，本轮不改 #23。
 - D-05：handoff 已把 classId 403 条件写清；清单保留待决策。
 - D-09：handoff 已提示不要依赖 `.000Z`；真实序列化仍需 L3。
 - D-12：classId 过滤已修，但“学生数/任务数”统计单位仍未定。
-- D-06、D-07、D-08、D-11、D-13、D-14：已在本清单逐项记录；是否改契约/产品口径不在本轮。
+- D-06、D-07、D-08、D-11、D-13、D-14、D-18：已在本清单逐项记录；是否改契约/产品口径不在本轮。
 
 **需要 6B 修改或确认**
 
@@ -313,7 +315,7 @@
 - D-08 asOf 的对外语义。
 - D-11 PAUSED 是否计入“进行中”。
 - D-12 教师/管理员 assignment pending 的口径与卡片标题。
-- D-13 学生数是否按人去重。
+- D-13 学生数是否按人去重；D-18 班级数是否按教学班去重。
 - D-14 成绩两个待办计数是否互斥。
 - D-15 管理员待办来源、处理人、权限、状态机。
 
@@ -323,7 +325,7 @@
 - D-17：第 1 组权限/菜单/角色/审计未配置；真实 401/403 未验证。
 - 真实 HTTP、登录、角色拦截、审计落库、MySQL 8.0.46 未验证。
 
-### 7.3 2026-11-04 第一轮修复记录
+### 7.3 2026-11-04 第一、二轮修复记录
 
 | 编号 | 已修问题 | 修复方式 | 测试证据 |
 | --- | --- | --- | --- |
@@ -338,7 +340,7 @@
 - D-05：课程范围源 NO_DATA/UNAVAILABLE 时 classId 是否 fail-closed 403 未定。
 - D-12：assignment.pending 统计单位/卡片名称未定；本轮只修 classId 过滤。
 - D-03/D-04：合同草案参数与实现差异未关闭。
-- D-06/D-07/D-08/D-10/D-11/D-13/D-14/D-15：sampleCount/window/asOf/actionPath/PAUSED/去重/成绩重叠/管理员待办口径未定。
+- D-06/D-07/D-08/D-10/D-11/D-13/D-14/D-15/D-18：sampleCount/window/asOf/actionPath/PAUSED/学生与班级去重/成绩重叠/管理员待办口径未定。
 - 共享固定线程池 + 无界队列：保留为生产接入前风险；本轮未做容量、拒绝策略、隔离改造。
 - 生产适配器、真实 HTTP/登录/授权/审计、MySQL 仍未验证。
 
@@ -355,7 +357,7 @@
 https://github.com/wangch880808-byte/-/blob/feature/6-01-overview-api/智慧教育课程/智慧教育平台/docs/6-01-frontend-review-checklist.md
 
 PR：#24 https://github.com/wangch880808-byte/-/pull/24
-后端版本：PR #24 2026-11-04 第一轮修复；上一代码快照 22898ae27a90779709b0c29b846181aa7054e0b0；head 见 PR
+后端版本：PR #24 2026-11-04 第一、二轮修复；上一代码快照 22898ae27a90779709b0c29b846181aa7054e0b0；head 见 PR
 后端 base：#23 feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464
 main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 
@@ -366,7 +368,7 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 4. D-05：课程范围源 NO_DATA/UNAVAILABLE 时，前端如何区分“无权限”和“暂不可用”。
 5. D-06/D-07/D-08：sampleCount、window、asOf 的卡片展示方式；是否把 window 当所有指标统一统计范围。
 6. D-10：逐项确认 actionPath 能否定位到实际路由；列出缺失路由。
-7. D-11/D-12/D-13/D-14：课堂 PAUSED、assignment pending 学生数口径、学生数去重、成绩两计数重叠的展示文案。
+7. D-11/D-12/D-13/D-14/D-18：课堂 PAUSED、assignment pending 学生数口径、学生数去重、班级数去重、成绩两计数重叠的展示文案。
 8. D-15：管理员待办当前 admin.todo.pending / NO_DATA / source=pending_product_confirmation / value=null / actionPath=null，前端是否避免显示 0 或“全部处理完成”。
 9. 三态展示：OK 0、OK 有值、NO_DATA、UNAVAILABLE、单卡失败、整体失败、角色/班级切换旧数据清理、刷新失败缓存标识，分别给截图/代码/测试证据。
 10. 错误场景：参数 400、业务 403、未登录 401、源不可用、网络失败、部分源失败；请说明是否同时判断 HTTP 状态和 body.code。
@@ -403,6 +405,6 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 
 ## 10. 停止点
 
-- 2026-11-04 第一轮修订只改 #24 的 overview 聚合代码、对应测试和两个文档；不改前端、SQL、权限配置或生产适配器。
+- 2026-11-04 第一、二轮修订只改 #24 的 overview 聚合代码、对应测试和两个文档；不改前端、SQL、权限配置或生产适配器。
 - 不修改 #23/#29；#24 保持 Draft，不标 Ready、不合并。
 - 等待独立复审和 6B 回应后再继续逐项确认。
