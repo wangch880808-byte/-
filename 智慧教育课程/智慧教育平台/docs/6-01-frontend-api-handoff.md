@@ -1,12 +1,14 @@
 # 6-01 三端总览前端接口交接文档（M0）
 
-> 版本：1.1｜日期：2026-11-02（基于 1.0/2026-10-30 核对更正）｜读者：第六组前端 6B
+> 版本：1.2｜日期：2026-11-04（基于 1.1/2026-11-02 第一轮修订）｜读者：第六组前端 6B
 >
 > 依据：`docs/6-01-overview-contract.md`（草案）。本文用于前端 6-03/6-04 对齐字段、状态和页面展示；路径、指标编码、默认时间窗仍可能随评审调整。
 >
 > 当前状态：后端已完成四端点 Service/Controller、DTO 和单元测试；**生产数据适配器未接入，当前没有真实业务数据**。所有 `OK` 示例仅用于说明字段，不代表联调结果。缺适配器时返回 `UNAVAILABLE`，禁止前端显示为 0 或空页面。
 >
 > 2026-11-02 后端静态核对更正：实际后端以 `feature/6-01-overview-api@22898ae27a90779709b0c29b846181aa7054e0b0` 为准；6B 6-03/6-04 尚未取得可核验版本。参数表已按实际 Controller 修正；逐项证据、差异和待确认项见 `docs/6-01-frontend-review-checklist.md`。本文不构成 6B 已确认或真实联调结论。
+>
+> 2026-11-04 第一轮修订：教师 `assignment.pending` 已按 `classId` 对应 binding 过滤；`classId<=0` 返回业务 400；一次请求共用单一总预算；端口嵌套结果违约按对应 item `UNAVAILABLE` 收敛。具体修复提交见 PR #24，不在正文写自引用 SHA。生产适配器仍未接入，真实 HTTP/登录/授权/审计联调仍未完成。
 
 ## 1. 端点一览
 
@@ -22,7 +24,7 @@
 | 端点 | 参数 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | 教师总览 | `from`、`to` | 否 | 必须成对；RFC 3339 时间；左闭右开 |
-| 教师总览 | `classId` | 否 | 仅教师端点接收；`Long` 类型；只能传本人授权教学班 |
+| 教师总览 | `classId` | 否 | 仅教师端点接收；`Long` 类型；必须为正整数；只能传本人授权教学班 |
 | 学生今日待办 | `from`、`to` | 否 | 必须成对；实际不接收 `date`/`classId` |
 | 管理员总览 | `from`、`to` | 否 | 必须成对；实际不接收 `organizationId` |
 | 管理员待办 | `from`、`to` | 否 | 必须成对；实际不接收 `organizationId` |
@@ -30,7 +32,11 @@
 - `from`/`to` 都不传或都为空：服务端使用当前 **UTC 自然日** `[00:00, 次日 00:00)`；只传一个、格式错误或 `from >= to` 返回业务码 400（HTTP 200）。
 - `Instant.parse` 可接受 `Z` 或 RFC 3339 偏移并归一化为 UTC；前端建议统一发送 `Z`，不要依赖非 UTC 偏移。
 - 默认 UTC 自然日可能与前端本地时区显示的“今天”不一致；这是待产品决策项（见核对清单 D-02），前端不得自行改口径。
-- 教师 `classId`：课程范围源为 `OK` 且 `classId` 不在授权范围时返回业务码 403（HTTP 200）；若课程范围源为 `NO_DATA`/`UNAVAILABLE`，服务端无法判定授权，返回对应 `NO_DATA`/`UNAVAILABLE` item（HTTP 200），不返回 403。前端不得把后者当成“有权限”。
+- 教师 `classId`：`0` 或负数在调用课程端口前返回业务码 400（HTTP 200），不因课程范围源状态改变。课程范围源为 `OK` 且正数 `classId` 不在授权范围时返回业务码 403（HTTP 200）；若课程范围源为 `NO_DATA`/`UNAVAILABLE`，服务端无法判定授权，返回对应 `NO_DATA`/`UNAVAILABLE` item（HTTP 200），不返回 403。前端不得把后者当成“有权限”。
+- `classId` 过滤作用于教师班级相关指标：`teacher.class.count`、`teacher.student.count`、`teacher.session.running`、`teacher.assignment.pending`、`teacher.grade.pending`。教师合法拥有但未选中的班级待办会被排除；适配器返回授权范围外 `bindingId` 的待办属于契约违约，该指标返回 `UNAVAILABLE`，不计入结果。`teacher.notice.unread` 是本人通知维度，不按 `classId` 过滤。
+- 一次请求使用单一总预算（当前配置 2500ms），从请求开始计时，课程范围阶段和后续并行阶段共享；预算耗尽后未派发或未完成的来源返回 `UNAVAILABLE`，已完成来源的结果保留。future 取消只发出中断信号，不保证底层阻塞 I/O 已停止。
+- 共享固定线程池和无界队列仍是未关闭风险；生产适配器接入前需完成容量、拒绝策略、隔离和压测评审，本轮未引入熔断框架或大规模线程池改造。
+- 端口结果在聚合边界校验：列表含 null、Map 缺 key/值为 null、`SessionStatus`/`GradeTodo`/按绑定的 `AssignmentTodo` 的 `bindingId` 与 key 不一致、`NoticeSummary.recipientUserId` 与请求用户不一致，均使受影响指标为 `UNAVAILABLE`，不返回假零，也不让 NPE 变成整个请求 500；独立通知来源仍按自身结果处理。
 - 学生/管理员端点的方法签名不接收 `classId`、`date`、`organizationId`；Spring MVC 默认不会因未知查询参数返回 400，但前端不得发送这些参数。
 - 身份由服务端认证上下文取得，前端不传 `userId`/`studentId`。
 - 管理员组织范围由服务端 `SecurityUtils.getDeptId()` 取得，前端不传 `organizationId`；为 null 时业务码 403。
@@ -106,7 +112,7 @@
 
 以下示例只说明字段和状态，**当前无生产适配器，真实调用会返回 UNAVAILABLE 或 NO_DATA，不会返回这些数值**。
 
-> 指标名不能直接当口径：教师/管理员 `assignment.pending` 当前代码是待提交学生数合计，`student.assignment.due` 是待办记录条数；`sampleCount` 在不同指标上分别表示班级数/绑定数/记录数/null；`window` 只传给课堂和作业端口。逐项公式见 `docs/6-01-frontend-review-checklist.md` 第 3 节。
+> 指标名不能直接当口径：教师/管理员 `assignment.pending` 当前代码是待提交学生数合计，`student.assignment.due` 是待办记录条数；教师传入 `classId` 时 `assignment.pending` 只统计该教学班对应 binding 的记录；`sampleCount` 在不同指标上分别表示班级数/绑定数/记录数/null；`window` 只传给课堂和作业端口。逐项公式见 `docs/6-01-frontend-review-checklist.md` 第 3 节。
 
 ### 4.1 教师教学总览
 
@@ -372,7 +378,7 @@
 | 未登录/令牌失效 | 200；网关可能 401 | 401 | 清除登录态，跳登录页 |
 | 角色/权限串不匹配 | 200 | 403 | 显示“无权限”，不显示总览数据 |
 | 教师班级越权、学生身份缺失、管理员组织范围缺失 | 200 | 403 | 显示“无权查看该范围”，清空旧数据 |
-| 查询参数错误（from/to 单个缺失、格式错误、classId 类型错误） | 200 | 400 | 显示参数错误；不要重试同样参数 |
+| 查询参数错误（from/to 单个缺失、格式错误、classId 类型错误或非正整数） | 200 | 400 | 显示参数错误；不要重试同样参数 |
 | 服务端异常 | 200 | 500 | 显示通用失败提示；保留页面结构 |
 | 缺适配器/单源超时 | 200 | 200 + item `UNAVAILABLE` | 该卡片显示“暂不可用”；其他卡片正常 |
 | 网关/网络错误 | 0/502/504 | 无 | 显示网络错误；可重试 |
@@ -380,6 +386,7 @@
 说明：
 
 - 本阶段缺适配器**不返回 503**，而是 HTTP 200 + item `UNAVAILABLE`；如果网关返回 503，按“暂不可用”处理。
+- 适配器返回嵌套结果违约时，对应指标为 `UNAVAILABLE`，不是 500，也不是 0；其他独立指标仍按自身结果返回。
 - 总览接口不返回 404；教师越权班级在课程范围源可用时返回 403，避免用 404 泄露班级是否存在；课程范围源不可用时按 `NO_DATA/UNAVAILABLE` 返回，见 D-05。
 - 任何错误都不要把旧缓存值继续标成最新数据。
 - 2026-11-02 代码核对：`@PreAuthorize` 拒绝由若依 `GlobalExceptionHandler` 返回 HTTP 200 + `body.code=403`；认证失败由 `AuthenticationEntryPointImpl` 经 `ServletUtils.renderString` 返回 HTTP 200 + `body.code=401`。真实网关/HTTP 行为仍未验证。

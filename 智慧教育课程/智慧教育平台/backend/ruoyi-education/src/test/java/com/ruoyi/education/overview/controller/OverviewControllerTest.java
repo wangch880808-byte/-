@@ -227,6 +227,18 @@ class OverviewControllerTest
     }
 
     @Test
+    void nonPositiveClassIdMapsTo400() throws Exception
+    {
+        mockMvc.perform(get("/education/teacher/overview").param("classId", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+
+        mockMvc.perform(get("/education/teacher/overview").param("classId", "-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
     void usesPlannedPermissionAnnotations() throws Exception
     {
         assertPermission("teacherOverview", new Class<?>[] { String.class, String.class,

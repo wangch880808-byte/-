@@ -18,6 +18,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -49,8 +50,9 @@ import com.ruoyi.education.overview.support.OverviewSourceResult;
  * 单个来源失败只保留对应 item 为 UNAVAILABLE，不拖垮整个响应。</p>
  *
  * <p>并发与超时：端口调用通过 {@link OverviewSourceGuard} 执行，单源有独立超时；
- * 本服务再用总预算等待并行结果。超过总预算的 future 被取消，对应 item 标记
- * UNAVAILABLE。端口实现缺失时 guard 直接返回 UNAVAILABLE，不使用假数据。</p>
+ * 课程范围阶段和后续并行阶段共享同一个单调时钟总预算，不会各自获得一份
+ * overallTimeout。超过总预算的 future 被取消，对应 item 标记 UNAVAILABLE，
+ * 已完成来源的结果保留。端口实现缺失时 guard 直接返回 UNAVAILABLE，不使用假数据。</p>
  *
  * <p>线程模型：聚合线程池与 guard 的源线程池分开配置，避免聚合线程等待源任务时
  * 占满同一线程池；配置见 {@code OverviewConfiguration}。</p>
@@ -90,6 +92,12 @@ public class OverviewQueryService
     private final Clock clock;
 
     /**
+     * 请求预算的单调计时来源。生产使用 {@link System#nanoTime()}；测试可注入可控时钟，
+     * 不依赖可调整的业务 {@link Clock}，避免业务时间变化影响超时判断。
+     */
+    private final LongSupplier nanoClock;
+
+    /**
      * 创建聚合服务。
      *
      * @param courseScopePort    课程范围端口，可为 null（表示适配器未接入）
@@ -113,6 +121,27 @@ public class OverviewQueryService
             Duration overallTimeout,
             Clock clock)
     {
+        this(courseScopePort, sessionStatusPort, assignmentTodoPort, gradeTodoPort,
+                noticeSummaryPort, sourceGuard, aggregationExecutor, overallTimeout, clock,
+                System::nanoTime);
+    }
+
+    /**
+     * 测试和受控装配使用：注入单调计时来源。
+     *
+     * @param nanoClock 单调纳秒计时来源，不能为 null
+     */
+    OverviewQueryService(CourseScopePort courseScopePort,
+            SessionStatusPort sessionStatusPort,
+            AssignmentTodoPort assignmentTodoPort,
+            GradeTodoPort gradeTodoPort,
+            NoticeSummaryPort noticeSummaryPort,
+            OverviewSourceGuard sourceGuard,
+            Executor aggregationExecutor,
+            Duration overallTimeout,
+            Clock clock,
+            LongSupplier nanoClock)
+    {
         if (sourceGuard == null)
         {
             throw new OverviewValidationException("sourceGuard 不能为空");
@@ -129,6 +158,10 @@ public class OverviewQueryService
         {
             throw new OverviewValidationException("clock 不能为空");
         }
+        if (nanoClock == null)
+        {
+            throw new OverviewValidationException("nanoClock 不能为空");
+        }
         this.courseScopePort = courseScopePort;
         this.sessionStatusPort = sessionStatusPort;
         this.assignmentTodoPort = assignmentTodoPort;
@@ -138,6 +171,7 @@ public class OverviewQueryService
         this.aggregationExecutor = aggregationExecutor;
         this.overallTimeout = overallTimeout;
         this.clock = clock;
+        this.nanoClock = nanoClock;
     }
 
     /**
@@ -148,17 +182,21 @@ public class OverviewQueryService
      * @param window        时间窗，不能为空
      * @return 教师总览响应，至少包含一个 item
      * @throws OverviewAccessDeniedException 教师身份缺失或班级越权
-     * @throws OverviewValidationException   时间窗为空
+     * @throws OverviewValidationException   时间窗为空或 classId 非正整数
      */
     public OverviewResponse teacherOverview(Long teacherUserId, Long classId,
             OverviewWindow window)
     {
         requireUser(teacherUserId, "教师身份缺失");
         requireWindow(window);
+        validateClassId(classId);
 
+        RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
         OverviewSourceResult<Map<Long, List<CourseScope>>> scopeResult = awaitSingle(
-                SOURCE_COURSE, () -> courseScopePort.findTeacherScopes(List.of(teacherUserId)));
+                SOURCE_COURSE, () -> courseScopePort.findTeacherScopes(List.of(teacherUserId)),
+                budget);
         ScopeView scopeView = userScopeView(scopeResult, teacherUserId);
+        Set<Long> authorizedBindingIds = bindingIds(scopeView.scopes());
         if (classId != null && scopeView.status() == OverviewStatus.OK)
         {
             List<CourseScope> filtered = scopeView.scopes().stream()
@@ -170,43 +208,48 @@ public class OverviewQueryService
             }
             scopeView = new ScopeView(OverviewStatus.OK, filtered);
         }
+        Set<Long> includedBindingIds = bindingIds(scopeView.scopes());
 
-        Set<Long> bindingIds = bindingIds(scopeView.scopes());
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
         boolean hasBindings = scopeView.status() == OverviewStatus.OK
-                && !bindingIds.isEmpty();
+                && !includedBindingIds.isEmpty();
+        boolean canStartSources = !budget.isExpired();
         CompletableFuture<OverviewSourceResult<Map<Long, List<SessionStatus>>>> sessionsFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_CLASSROOM,
-                                () -> sessionStatusPort.findSessions(bindingIds, window))
-                        : completed(SOURCE_CLASSROOM, noDataIfOk(scopeView.status()));
+                                () -> sessionStatusPort.findSessions(includedBindingIds, window))
+                        : notStartedSource(SOURCE_CLASSROOM, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, List<AssignmentTodo>>>> assignmentsFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_ASSIGNMENT,
                                 () -> assignmentTodoPort.findTeacherTodos(
                                         List.of(teacherUserId), window))
-                        : completed(SOURCE_ASSIGNMENT, noDataIfOk(scopeView.status()));
+                        : notStartedSource(SOURCE_ASSIGNMENT, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, GradeTodo>>> gradesFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_GRADE,
-                                () -> gradeTodoPort.findPendingGrades(bindingIds))
-                        : completed(SOURCE_GRADE, noDataIfOk(scopeView.status()));
+                                () -> gradeTodoPort.findPendingGrades(includedBindingIds))
+                        : notStartedSource(SOURCE_GRADE, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, NoticeSummary>>> noticesFuture =
-                async(SOURCE_NOTICE,
-                        () -> noticeSummaryPort.findUnreadSummaries(List.of(teacherUserId)));
+                canStartSources
+                        ? async(SOURCE_NOTICE,
+                                () -> noticeSummaryPort.findUnreadSummaries(
+                                        List.of(teacherUserId)))
+                        : completedUnavailable(SOURCE_NOTICE, "aggregation budget exhausted");
 
-        awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture, noticesFuture));
+        awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture, noticesFuture), budget);
 
         List<OverviewItem> items = new ArrayList<>();
         items.add(classCountItem("teacher.class.count", scopeView, "/teacher/classes"));
         items.add(studentCountItem("teacher.student.count", scopeView, "/teacher/classes"));
         items.add(sessionItem("teacher.session.running", SOURCE_CLASSROOM,
-                resultNow(sessionsFuture, SOURCE_CLASSROOM), bindingIds, "/teacher/classes"));
+                resultNow(sessionsFuture, SOURCE_CLASSROOM), includedBindingIds,
+                "/teacher/classes"));
         items.add(assignmentItem("teacher.assignment.pending", SOURCE_ASSIGNMENT,
-                resultNow(assignmentsFuture, SOURCE_ASSIGNMENT), teacherUserId, true,
-                "/teacher/assignments"));
+                resultNow(assignmentsFuture, SOURCE_ASSIGNMENT), teacherUserId,
+                authorizedBindingIds, includedBindingIds, true, "/teacher/assignments"));
         items.add(gradeItem("teacher.grade.pending", resultNow(gradesFuture, SOURCE_GRADE),
-                bindingIds, "/teacher/grades"));
+                includedBindingIds, "/teacher/grades"));
         items.add(noticeItem("teacher.notice.unread",
                 resultNow(noticesFuture, SOURCE_NOTICE), teacherUserId, "/teacher/notices"));
         return response(window, items);
@@ -226,38 +269,46 @@ public class OverviewQueryService
         requireUser(studentUserId, "学生身份缺失");
         requireWindow(window);
 
+        RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
         OverviewSourceResult<Map<Long, List<CourseScope>>> scopeResult = awaitSingle(
-                SOURCE_COURSE, () -> courseScopePort.findStudentScopes(List.of(studentUserId)));
+                SOURCE_COURSE, () -> courseScopePort.findStudentScopes(List.of(studentUserId)),
+                budget);
         ScopeView scopeView = userScopeView(scopeResult, studentUserId);
+        Set<Long> authorizedBindingIds = bindingIds(scopeView.scopes());
 
-        Set<Long> bindingIds = bindingIds(scopeView.scopes());
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
         boolean hasBindings = scopeView.status() == OverviewStatus.OK
-                && !bindingIds.isEmpty();
+                && !authorizedBindingIds.isEmpty();
+        boolean canStartSources = !budget.isExpired();
         CompletableFuture<OverviewSourceResult<Map<Long, List<SessionStatus>>>> sessionsFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_CLASSROOM,
-                                () -> sessionStatusPort.findSessions(bindingIds, window))
-                        : completed(SOURCE_CLASSROOM, noDataIfOk(scopeView.status()));
+                                () -> sessionStatusPort.findSessions(
+                                        authorizedBindingIds, window))
+                        : notStartedSource(SOURCE_CLASSROOM, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, List<AssignmentTodo>>>> assignmentsFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_ASSIGNMENT,
                                 () -> assignmentTodoPort.findStudentTodos(
                                         List.of(studentUserId), window))
-                        : completed(SOURCE_ASSIGNMENT, noDataIfOk(scopeView.status()));
+                        : notStartedSource(SOURCE_ASSIGNMENT, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, NoticeSummary>>> noticesFuture =
-                async(SOURCE_NOTICE,
-                        () -> noticeSummaryPort.findUnreadSummaries(List.of(studentUserId)));
+                canStartSources
+                        ? async(SOURCE_NOTICE,
+                                () -> noticeSummaryPort.findUnreadSummaries(
+                                        List.of(studentUserId)))
+                        : completedUnavailable(SOURCE_NOTICE, "aggregation budget exhausted");
 
-        awaitAll(List.of(sessionsFuture, assignmentsFuture, noticesFuture));
+        awaitAll(List.of(sessionsFuture, assignmentsFuture, noticesFuture), budget);
 
         List<OverviewItem> items = new ArrayList<>();
         items.add(classCountItem("student.class.count", scopeView, "/student/classes"));
         items.add(sessionItem("student.session.active", SOURCE_CLASSROOM,
-                resultNow(sessionsFuture, SOURCE_CLASSROOM), bindingIds, "/student/todos"));
-        items.add(assignmentItem("student.assignment.due", SOURCE_ASSIGNMENT,
-                resultNow(assignmentsFuture, SOURCE_ASSIGNMENT), studentUserId, false,
+                resultNow(sessionsFuture, SOURCE_CLASSROOM), authorizedBindingIds,
                 "/student/todos"));
+        items.add(assignmentItem("student.assignment.due", SOURCE_ASSIGNMENT,
+                resultNow(assignmentsFuture, SOURCE_ASSIGNMENT), studentUserId,
+                authorizedBindingIds, authorizedBindingIds, false, "/student/todos"));
         items.add(noticeItem("student.notice.unread",
                 resultNow(noticesFuture, SOURCE_NOTICE), studentUserId, "/student/notices"));
         return response(window, items);
@@ -277,32 +328,34 @@ public class OverviewQueryService
         requireOrganization(organizationId);
         requireWindow(window);
 
+        RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
         OverviewSourceResult<List<CourseScope>> scopeResult = awaitSingle(
                 SOURCE_COURSE,
-                () -> courseScopePort.findOrganizationScopes(organizationId));
+                () -> courseScopePort.findOrganizationScopes(organizationId), budget);
         ScopeView scopeView = organizationScopeView(scopeResult);
 
         Set<Long> bindingIds = bindingIds(scopeView.scopes());
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
         boolean hasBindings = scopeView.status() == OverviewStatus.OK
                 && !bindingIds.isEmpty();
+        boolean canStartSources = !budget.isExpired();
         CompletableFuture<OverviewSourceResult<Map<Long, List<SessionStatus>>>> sessionsFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_CLASSROOM,
                                 () -> sessionStatusPort.findSessions(bindingIds, window))
-                        : completed(SOURCE_CLASSROOM, noDataIfOk(scopeView.status()));
+                        : notStartedSource(SOURCE_CLASSROOM, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, List<AssignmentTodo>>>> assignmentsFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_ASSIGNMENT,
                                 () -> assignmentTodoPort.findBindingTodos(bindingIds, window))
-                        : completed(SOURCE_ASSIGNMENT, noDataIfOk(scopeView.status()));
+                        : notStartedSource(SOURCE_ASSIGNMENT, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, GradeTodo>>> gradesFuture =
-                hasBindings
+                hasBindings && canStartSources
                         ? async(SOURCE_GRADE,
                                 () -> gradeTodoPort.findPendingGrades(bindingIds))
-                        : completed(SOURCE_GRADE, noDataIfOk(scopeView.status()));
+                        : notStartedSource(SOURCE_GRADE, scopeView.status(), hasBindings);
 
-        awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture));
+        awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture), budget);
 
         List<OverviewItem> items = new ArrayList<>();
         items.add(classCountItem("admin.class.count", scopeView, "/admin/classes"));
@@ -350,9 +403,9 @@ public class OverviewQueryService
             return new ScopeView(OverviewStatus.UNAVAILABLE, List.of());
         }
         List<CourseScope> scopes = map.get(userId);
-        if (scopes == null)
+        if (scopes == null || scopes.stream().anyMatch(Objects::isNull))
         {
-            // key 存在但值为 null 是契约违约，不能当成“没有班级”。
+            // key 存在但值为 null 或含 null 元素是契约违约，不能当成“没有班级”。
             return new ScopeView(OverviewStatus.UNAVAILABLE, List.of());
         }
         if (scopes.isEmpty())
@@ -369,7 +422,7 @@ public class OverviewQueryService
             return new ScopeView(result.status(), List.of());
         }
         List<CourseScope> scopes = result.value();
-        if (scopes == null)
+        if (scopes == null || scopes.stream().anyMatch(Objects::isNull))
         {
             return new ScopeView(OverviewStatus.UNAVAILABLE, List.of());
         }
@@ -383,6 +436,7 @@ public class OverviewQueryService
     private Set<Long> bindingIds(List<CourseScope> scopes)
     {
         return scopes.stream()
+                .filter(Objects::nonNull)
                 .map(CourseScope::bindingId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -440,7 +494,15 @@ public class OverviewQueryService
             {
                 return OverviewItem.unavailable(metricCode, "COUNT", source, actionPath);
             }
-            sessions.addAll(value);
+            for (SessionStatus session : value)
+            {
+                if (session == null || !bindingId.equals(session.bindingId()))
+                {
+                    // 列表含 null 或对象绑定与 map key 不一致，按契约违约处理。
+                    return OverviewItem.unavailable(metricCode, "COUNT", source, actionPath);
+                }
+                sessions.add(session);
+            }
         }
         if (sessions.isEmpty())
         {
@@ -456,7 +518,8 @@ public class OverviewQueryService
 
     private OverviewItem assignmentItem(String metricCode, String source,
             OverviewSourceResult<Map<Long, List<AssignmentTodo>>> result,
-            Long userId, boolean sumPending, String actionPath)
+            Long userId, Collection<Long> authorizedBindingIds,
+            Collection<Long> includedBindingIds, boolean sumPending, String actionPath)
     {
         if (result.status() != OverviewStatus.OK)
         {
@@ -477,10 +540,29 @@ public class OverviewQueryService
             // 契约：空 List 表示没有待办数据，不能写成 0。
             return OverviewItem.noData(metricCode, "COUNT", source, actionPath);
         }
+
+        List<AssignmentTodo> included = new ArrayList<>();
+        for (AssignmentTodo todo : todos)
+        {
+            if (todo == null || !authorizedBindingIds.contains(todo.bindingId()))
+            {
+                // 授权范围外的数据不能静默计入，也不能让 null 元素触发 NPE。
+                return OverviewItem.unavailable(metricCode, "COUNT", source, actionPath);
+            }
+            if (includedBindingIds.contains(todo.bindingId()))
+            {
+                included.add(todo);
+            }
+        }
+        if (included.isEmpty())
+        {
+            // 教师合法拥有但未选中的班级：过滤后没有待办，按无数据处理。
+            return OverviewItem.noData(metricCode, "COUNT", source, actionPath);
+        }
         long value = sumPending
-                ? todos.stream().mapToLong(AssignmentTodo::pendingCount).sum()
-                : todos.size();
-        return okItem(metricCode, value, source, (long) todos.size(), actionPath);
+                ? included.stream().mapToLong(AssignmentTodo::pendingCount).sum()
+                : included.size();
+        return okItem(metricCode, value, source, (long) included.size(), actionPath);
     }
 
     private OverviewItem bindingAssignmentItem(String metricCode, String source,
@@ -505,8 +587,16 @@ public class OverviewQueryService
             {
                 return OverviewItem.unavailable(metricCode, "COUNT", source, actionPath);
             }
-            pending += todos.stream().mapToLong(AssignmentTodo::pendingCount).sum();
-            recordCount += todos.size();
+            for (AssignmentTodo todo : todos)
+            {
+                if (todo == null || !bindingId.equals(todo.bindingId()))
+                {
+                    // 列表含 null 或对象绑定与 map key 不一致，按契约违约处理。
+                    return OverviewItem.unavailable(metricCode, "COUNT", source, actionPath);
+                }
+                pending += todo.pendingCount();
+                recordCount++;
+            }
         }
         if (recordCount == 0L)
         {
@@ -533,8 +623,9 @@ public class OverviewQueryService
         for (Long bindingId : bindingIds)
         {
             GradeTodo todo = map.get(bindingId);
-            if (todo == null)
+            if (todo == null || !bindingId.equals(todo.bindingId()))
             {
+                // null 值或 bindingId 与 key 不一致均属于契约违约。
                 return OverviewItem.unavailable(metricCode, "COUNT", SOURCE_GRADE,
                         actionPath);
             }
@@ -553,8 +644,9 @@ public class OverviewQueryService
         }
         Map<Long, NoticeSummary> map = result.value();
         NoticeSummary summary = map == null ? null : map.get(userId);
-        if (summary == null)
+        if (summary == null || !userId.equals(summary.recipientUserId()))
         {
+            // 缺 key、null 值或接收人不一致均属于契约违约，不能展示他人未读数。
             return OverviewItem.unavailable(metricCode, "COUNT", SOURCE_NOTICE, actionPath);
         }
         return okItem(metricCode, summary.unreadCount(), SOURCE_NOTICE, null, actionPath);
@@ -582,12 +674,18 @@ public class OverviewQueryService
         return OverviewResponse.of(clock.instant(), window, items);
     }
 
-    private <T> OverviewSourceResult<T> awaitSingle(String source, Supplier<T> supplier)
+    private <T> OverviewSourceResult<T> awaitSingle(String source, Supplier<T> supplier,
+            RequestBudget budget)
     {
+        if (budget.isExpired())
+        {
+            log.warn("总览单源聚合预算已耗尽: source={}", source);
+            return OverviewSourceResult.unavailable(source, "aggregation budget exhausted");
+        }
         CompletableFuture<OverviewSourceResult<T>> future = async(source, supplier);
         try
         {
-            return future.get(overallTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            return future.get(budget.remainingNanos(), TimeUnit.NANOSECONDS);
         }
         catch (TimeoutException e)
         {
@@ -611,12 +709,20 @@ public class OverviewQueryService
         }
     }
 
-    private void awaitAll(List<CompletableFuture<?>> futures)
+    private void awaitAll(List<CompletableFuture<?>> futures, RequestBudget budget)
     {
+        long remainingNanos = budget.remainingNanos();
+        if (remainingNanos <= 0L)
+        {
+            // 预算已耗尽时不再等待；已完成的结果保留，未完成的由 resultNow 映射 UNAVAILABLE。
+            futures.forEach(future -> future.cancel(true));
+            log.warn("总览并行聚合预算已耗尽");
+            return;
+        }
         try
         {
             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                    .get(overallTimeout.toMillis(), TimeUnit.MILLISECONDS);
+                    .get(remainingNanos, TimeUnit.NANOSECONDS);
         }
         catch (TimeoutException e)
         {
@@ -680,6 +786,35 @@ public class OverviewQueryService
                 : OverviewSourceResult.noData(source));
     }
 
+    /**
+     * 未派发来源的结果：没有绑定关系时保留 NO_DATA/源不可用语义；有绑定但预算已耗尽时
+     * 必须显式返回 UNAVAILABLE，不能因为“没调用”写成 0 或 NO_DATA。
+     */
+    private <T> CompletableFuture<OverviewSourceResult<T>> notStartedSource(String source,
+            OverviewStatus scopeStatus, boolean hasBindings)
+    {
+        if (!hasBindings)
+        {
+            return completed(source, noDataIfOk(scopeStatus));
+        }
+        return completedUnavailable(source, "aggregation budget exhausted");
+    }
+
+    private <T> CompletableFuture<OverviewSourceResult<T>> completedUnavailable(String source,
+            String reason)
+    {
+        return CompletableFuture.completedFuture(
+                OverviewSourceResult.unavailable(source, reason));
+    }
+
+    private void validateClassId(Long classId)
+    {
+        if (classId != null && classId <= 0L)
+        {
+            throw new OverviewValidationException("classId 必须为正整数");
+        }
+    }
+
     private void requireUser(Long userId, String message)
     {
         if (userId == null)
@@ -701,6 +836,56 @@ public class OverviewQueryService
         if (window == null)
         {
             throw new OverviewValidationException("window 不能为空");
+        }
+    }
+
+    /**
+     * 单次请求总预算。
+     *
+     * <p>使用单调纳秒计时，而不是业务 {@link Clock}；课程范围阶段和并行来源阶段共享
+     * 同一个 deadline。排队和等待时间都计入预算，预算耗尽后调用方不再派发新任务。
+     * future 取消只能发出中断信号，不能保证底层阻塞 I/O 已停止。</p>
+     */
+    private static final class RequestBudget
+    {
+        private final LongSupplier nanoClock;
+
+        private final long deadlineNanos;
+
+        private RequestBudget(Duration timeout, LongSupplier nanoClock)
+        {
+            this.nanoClock = nanoClock;
+            long now = nanoClock.getAsLong();
+            long timeoutNanos;
+            try
+            {
+                timeoutNanos = timeout.toNanos();
+            }
+            catch (ArithmeticException e)
+            {
+                timeoutNanos = Long.MAX_VALUE;
+            }
+            long computedDeadline;
+            try
+            {
+                computedDeadline = Math.addExact(now, timeoutNanos);
+            }
+            catch (ArithmeticException e)
+            {
+                computedDeadline = Long.MAX_VALUE;
+            }
+            this.deadlineNanos = computedDeadline;
+        }
+
+        private long remainingNanos()
+        {
+            long remaining = deadlineNanos - nanoClock.getAsLong();
+            return remaining > 0L ? remaining : 0L;
+        }
+
+        private boolean isExpired()
+        {
+            return remainingNanos() <= 0L;
         }
     }
 

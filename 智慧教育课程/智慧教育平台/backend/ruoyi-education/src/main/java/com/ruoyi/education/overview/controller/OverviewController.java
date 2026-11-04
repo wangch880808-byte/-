@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.education.overview.dto.OverviewWindow;
+import com.ruoyi.education.overview.exception.OverviewValidationException;
 import com.ruoyi.education.overview.security.OverviewIdentityProvider;
 import com.ruoyi.education.overview.service.OverviewQueryService;
 import com.ruoyi.education.overview.support.OverviewWindowFactory;
@@ -53,7 +54,7 @@ public class OverviewController
      *
      * @param from    可选开始时间，RFC 3339 UTC
      * @param to      可选结束时间，RFC 3339 UTC
-     * @param classId 可选教学班过滤；只能传本人授权班级
+     * @param classId 可选教学班过滤；只能传本人授权班级，非正整数返回 400
      * @return 统一响应体，data 为总览响应
      */
     @PreAuthorize("@ss.hasPermi('education:overview:teacher')")
@@ -63,6 +64,10 @@ public class OverviewController
             @RequestParam(required = false) Long classId)
     {
         OverviewWindow window = windowFactory.fromQuery(from, to);
+        if (classId != null && classId <= 0L)
+        {
+            throw new OverviewValidationException("classId 必须为正整数");
+        }
         Long userId = identityProvider.currentUserId();
         return AjaxResult.success(queryService.teacherOverview(userId, classId, window));
     }

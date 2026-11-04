@@ -13,12 +13,16 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -119,9 +123,9 @@ class OverviewQueryServiceTest
         when(coursePort.findStudentScopes(any()))
                 .thenReturn(Map.of(9L, List.of(scope(12L, 101L, 30L))));
         when(sessionPort.findSessions(any(), any()))
-                .thenReturn(Map.of(101L, List.of(session("PAUSED"))));
+                .thenReturn(Map.of(101L, List.of(session(101L, "PAUSED"))));
         when(assignmentPort.findStudentTodos(any(), any()))
-                .thenReturn(Map.of(9L, List.of(assignment(1L, 0L))));
+                .thenReturn(Map.of(9L, List.of(assignment(101L, 1L, 0L))));
         when(noticePort.findUnreadSummaries(any()))
                 .thenReturn(Map.of(9L, new NoticeSummary(9L, 2L, AS_OF)));
 
@@ -145,9 +149,9 @@ class OverviewQueryServiceTest
         when(coursePort.findOrganizationScopes(1L))
                 .thenReturn(List.of(scope(13L, 102L, 40L)));
         when(sessionPort.findSessions(any(), any()))
-                .thenReturn(Map.of(102L, List.of(session("RUNNING"))));
+                .thenReturn(Map.of(102L, List.of(session(102L, "RUNNING"))));
         when(assignmentPort.findBindingTodos(any(), any()))
-                .thenReturn(Map.of(102L, List.of(assignment(10L, 4L))));
+                .thenReturn(Map.of(102L, List.of(assignment(102L, 10L, 4L))));
         when(gradePort.findPendingGrades(any()))
                 .thenReturn(Map.of(102L, new GradeTodo(102L, 400L, 5L, 1L)));
 
@@ -390,6 +394,442 @@ class OverviewQueryServiceTest
                 () -> service.adminTodos(1L, null));
     }
 
+    @Test
+    void teacherClassIdFiltersAssignmentTodosBySelectedBinding()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any())).thenReturn(Map.of(7L, List.of(
+                scope(11L, 100L, 3L), scope(12L, 101L, 2L))));
+        when(sessionPort.findSessions(any(), any())).thenReturn(Map.of(
+                100L, List.of(session(100L, "RUNNING")),
+                101L, List.of(session(101L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any())).thenReturn(Map.of(7L, List.of(
+                assignment(100L, 10L, 7L), assignment(101L, 20L, 19L))));
+        when(gradePort.findPendingGrades(any())).thenReturn(Map.of(
+                100L, new GradeTodo(100L, 300L, 1L, 0L),
+                101L, new GradeTodo(101L, 301L, 2L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse classA = service.teacherOverview(7L, 11L, WINDOW);
+        assertItem(classA, "teacher.class.count", OverviewStatus.OK, 1L);
+        assertItem(classA, "teacher.student.count", OverviewStatus.OK, 3L);
+        assertItem(classA, "teacher.assignment.pending", OverviewStatus.OK, 3L);
+        assertItem(classA, "teacher.grade.pending", OverviewStatus.OK, 1L);
+
+        OverviewResponse classB = service.teacherOverview(7L, 12L, WINDOW);
+        assertItem(classB, "teacher.class.count", OverviewStatus.OK, 1L);
+        assertItem(classB, "teacher.student.count", OverviewStatus.OK, 2L);
+        assertItem(classB, "teacher.assignment.pending", OverviewStatus.OK, 1L);
+        assertItem(classB, "teacher.grade.pending", OverviewStatus.OK, 2L);
+
+        OverviewResponse allAuthorized = service.teacherOverview(7L, null, WINDOW);
+        assertItem(allAuthorized, "teacher.class.count", OverviewStatus.OK, 2L);
+        assertItem(allAuthorized, "teacher.student.count", OverviewStatus.OK, 5L);
+        assertItem(allAuthorized, "teacher.assignment.pending", OverviewStatus.OK, 4L);
+        assertItem(allAuthorized, "teacher.grade.pending", OverviewStatus.OK, 3L);
+    }
+
+    @Test
+    void teacherClassIdWithNoIncludedTodosReturnsNoData()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any())).thenReturn(Map.of(7L, List.of(
+                scope(11L, 100L, 3L), scope(12L, 101L, 2L))));
+        when(sessionPort.findSessions(any(), any())).thenReturn(Map.of(
+                100L, List.of(session(100L, "RUNNING")),
+                101L, List.of(session(101L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any())).thenReturn(Map.of(7L,
+                List.of(assignment(101L, 5L, 1L))));
+        when(gradePort.findPendingGrades(any())).thenReturn(Map.of(
+                100L, new GradeTodo(100L, 300L, 1L, 0L),
+                101L, new GradeTodo(101L, 301L, 1L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, 11L, WINDOW);
+
+        assertItem(response, "teacher.class.count", OverviewStatus.OK, 1L);
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.NO_DATA, null);
+    }
+
+    @Test
+    void teacherAssignmentOutsideAuthorizedBindingsIsUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(100L, List.of(session(100L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(999L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+    }
+
+    @Test
+    void studentAssignmentOutsideAuthorizedBindingsIsUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findStudentScopes(any()))
+                .thenReturn(Map.of(9L, List.of(scope(12L, 101L, 30L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(101L, List.of(session(101L, "PAUSED"))));
+        when(assignmentPort.findStudentTodos(any(), any()))
+                .thenReturn(Map.of(9L, List.of(assignment(999L, 1L, 0L))));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(9L, new NoticeSummary(9L, 1L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.studentTodayTodos(9L, WINDOW);
+
+        assertItem(response, "student.assignment.due", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "student.notice.unread", OverviewStatus.OK, 1L);
+    }
+
+    @Test
+    void nonPositiveClassIdIsRejectedBeforeCoursePort()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        assertThrows(OverviewValidationException.class,
+                () -> service.teacherOverview(7L, 0L, WINDOW));
+        assertThrows(OverviewValidationException.class,
+                () -> service.teacherOverview(7L, -1L, WINDOW));
+        verifyNoInteractions(coursePort, sessionPort, assignmentPort, gradePort, noticePort);
+    }
+
+    @Test
+    void nullCourseScopeElementMakesDependentItemsUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, Arrays.asList(scope(11L, 100L, 3L), null)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.class.count", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.student.count", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+        verifyNoInteractions(sessionPort, assignmentPort, gradePort);
+    }
+
+    @Test
+    void nullSessionElementOrBindingMismatchMakesSessionUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any())).thenReturn(Map.of(100L,
+                Arrays.asList(session(100L, "RUNNING"), null)));
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(100L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.OK, 2L);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(100L, List.of(session(101L, "RUNNING"))));
+        OverviewResponse mismatch = service.teacherOverview(7L, null, WINDOW);
+        assertItem(mismatch, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+    }
+
+    @Test
+    void nullAssignmentElementOrBindingMismatchMakesAssignmentUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(100L, List.of(session(100L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any())).thenReturn(Map.of(7L,
+                Arrays.asList(assignment(100L, 3L, 1L), null)));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.session.running", OverviewStatus.OK, 1L);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+    }
+
+    @Test
+    void gradeBindingMismatchMakesGradeUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(100L, List.of(session(100L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(100L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(101L, 300L, 1L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.grade.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.session.running", OverviewStatus.OK, 1L);
+    }
+
+    @Test
+    void adminAssignmentBindingMismatchMakesAssignmentUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findOrganizationScopes(1L))
+                .thenReturn(List.of(scope(13L, 102L, 40L)));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(102L, List.of(session(102L, "RUNNING"))));
+        when(assignmentPort.findBindingTodos(any(), any()))
+                .thenReturn(Map.of(102L, List.of(assignment(101L, 5L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(102L, new GradeTodo(102L, 400L, 0L, 0L)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.adminOverview(1L, WINDOW);
+
+        assertItem(response, "admin.assignment.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "admin.session.running", OverviewStatus.OK, 1L);
+    }
+
+    @Test
+    void missingSessionMapKeyMakesSessionUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any())).thenReturn(Map.of());
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(100L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.OK, 2L);
+    }
+
+    @Test
+    void nullSessionMapValueMakesSessionUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Collections.singletonMap(100L, null));
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(100L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+    }
+
+    @Test
+    void noticeRecipientMismatchMakesNoticeUnavailable()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(100L, List.of(session(100L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(100L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(8L, 0L, AS_OF)));
+        OverviewQueryService service = service(coursePort, sessionPort, assignmentPort,
+                gradePort, noticePort);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.notice.unread", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.OK, 2L);
+    }
+
+    @Test
+    void budgetExpiredAfterCourseSkipsNewSources()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        AtomicLong nanoClock = new AtomicLong(0L);
+        when(coursePort.findTeacherScopes(any())).thenAnswer(invocation ->
+        {
+            nanoClock.addAndGet(200_000_000L);
+            return Map.of(7L, List.of(scope(11L, 100L, 3L)));
+        });
+        OverviewQueryService service = new OverviewQueryService(coursePort, sessionPort,
+                assignmentPort, gradePort, noticePort, guard, aggregationExecutor,
+                Duration.ofMillis(100), clock, nanoClock::get);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.class.count", OverviewStatus.OK, 1L);
+        assertItem(response, "teacher.student.count", OverviewStatus.OK, 3L);
+        assertItem(response, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.grade.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.UNAVAILABLE, null);
+        verifyNoInteractions(sessionPort, assignmentPort, gradePort, noticePort);
+    }
+
+    @Test
+    void overallBudgetTimeoutPreservesCompletedSources()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        CountDownLatch blocker = new CountDownLatch(1);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any()))
+                .thenReturn(Map.of(100L, List.of(session(100L, "RUNNING"))));
+        when(assignmentPort.findTeacherTodos(any(), any())).thenAnswer(invocation ->
+        {
+            try
+            {
+                blocker.await(5, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+            }
+            return Map.of(7L, List.of(assignment(100L, 3L, 1L)));
+        });
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewQueryService service = new OverviewQueryService(coursePort, sessionPort,
+                assignmentPort, gradePort, noticePort, guard, aggregationExecutor,
+                Duration.ofMillis(100), clock);
+
+        try
+        {
+            OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+            assertItem(response, "teacher.session.running", OverviewStatus.OK, 1L);
+            assertItem(response, "teacher.grade.pending", OverviewStatus.OK, 0L);
+            assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+            assertItem(response, "teacher.assignment.pending", OverviewStatus.UNAVAILABLE,
+                    null);
+        }
+        finally
+        {
+            blocker.countDown();
+        }
+    }
+
     private OverviewQueryService service(CourseScopePort coursePort,
             SessionStatusPort sessionPort, AssignmentTodoPort assignmentPort,
             GradeTodoPort gradePort, NoticeSummaryPort noticePort)
@@ -405,12 +845,22 @@ class OverviewQueryServiceTest
 
     private SessionStatus session(String status)
     {
-        return new SessionStatus(100L, 500L, 900L, status, AS_OF, "第 1 课");
+        return session(100L, status);
+    }
+
+    private SessionStatus session(Long bindingId, String status)
+    {
+        return new SessionStatus(bindingId, 500L, 900L, status, AS_OF, "第 1 课");
     }
 
     private AssignmentTodo assignment(long target, long submitted)
     {
-        return new AssignmentTodo(100L, 300L, "作业", "HOMEWORK", AS_OF,
+        return assignment(100L, target, submitted);
+    }
+
+    private AssignmentTodo assignment(Long bindingId, long target, long submitted)
+    {
+        return new AssignmentTodo(bindingId, 300L, "作业", "HOMEWORK", AS_OF,
                 AS_OF.plusSeconds(3600), target, submitted);
     }
 
