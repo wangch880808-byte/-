@@ -213,29 +213,27 @@ public class OverviewQueryService
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
         boolean hasBindings = scopeView.status() == OverviewStatus.OK
                 && !includedBindingIds.isEmpty();
-        boolean canStartSources = !budget.isExpired();
         CompletableFuture<OverviewSourceResult<Map<Long, List<SessionStatus>>>> sessionsFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_CLASSROOM,
-                                () -> sessionStatusPort.findSessions(includedBindingIds, window))
+                                () -> sessionStatusPort.findSessions(includedBindingIds, window),
+                                budget)
                         : notStartedSource(SOURCE_CLASSROOM, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, List<AssignmentTodo>>>> assignmentsFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_ASSIGNMENT,
                                 () -> assignmentTodoPort.findTeacherTodos(
-                                        List.of(teacherUserId), window))
+                                        List.of(teacherUserId), window), budget)
                         : notStartedSource(SOURCE_ASSIGNMENT, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, GradeTodo>>> gradesFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_GRADE,
-                                () -> gradeTodoPort.findPendingGrades(includedBindingIds))
+                                () -> gradeTodoPort.findPendingGrades(includedBindingIds), budget)
                         : notStartedSource(SOURCE_GRADE, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, NoticeSummary>>> noticesFuture =
-                canStartSources
-                        ? async(SOURCE_NOTICE,
-                                () -> noticeSummaryPort.findUnreadSummaries(
-                                        List.of(teacherUserId)))
-                        : completedUnavailable(SOURCE_NOTICE, "aggregation budget exhausted");
+                async(SOURCE_NOTICE,
+                        () -> noticeSummaryPort.findUnreadSummaries(
+                                List.of(teacherUserId)), budget);
 
         awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture, noticesFuture), budget);
 
@@ -279,25 +277,22 @@ public class OverviewQueryService
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
         boolean hasBindings = scopeView.status() == OverviewStatus.OK
                 && !authorizedBindingIds.isEmpty();
-        boolean canStartSources = !budget.isExpired();
         CompletableFuture<OverviewSourceResult<Map<Long, List<SessionStatus>>>> sessionsFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_CLASSROOM,
                                 () -> sessionStatusPort.findSessions(
-                                        authorizedBindingIds, window))
+                                        authorizedBindingIds, window), budget)
                         : notStartedSource(SOURCE_CLASSROOM, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, List<AssignmentTodo>>>> assignmentsFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_ASSIGNMENT,
                                 () -> assignmentTodoPort.findStudentTodos(
-                                        List.of(studentUserId), window))
+                                        List.of(studentUserId), window), budget)
                         : notStartedSource(SOURCE_ASSIGNMENT, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, NoticeSummary>>> noticesFuture =
-                canStartSources
-                        ? async(SOURCE_NOTICE,
-                                () -> noticeSummaryPort.findUnreadSummaries(
-                                        List.of(studentUserId)))
-                        : completedUnavailable(SOURCE_NOTICE, "aggregation budget exhausted");
+                async(SOURCE_NOTICE,
+                        () -> noticeSummaryPort.findUnreadSummaries(
+                                List.of(studentUserId)), budget);
 
         awaitAll(List.of(sessionsFuture, assignmentsFuture, noticesFuture), budget);
 
@@ -338,21 +333,21 @@ public class OverviewQueryService
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
         boolean hasBindings = scopeView.status() == OverviewStatus.OK
                 && !bindingIds.isEmpty();
-        boolean canStartSources = !budget.isExpired();
         CompletableFuture<OverviewSourceResult<Map<Long, List<SessionStatus>>>> sessionsFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_CLASSROOM,
-                                () -> sessionStatusPort.findSessions(bindingIds, window))
+                                () -> sessionStatusPort.findSessions(bindingIds, window), budget)
                         : notStartedSource(SOURCE_CLASSROOM, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, List<AssignmentTodo>>>> assignmentsFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_ASSIGNMENT,
-                                () -> assignmentTodoPort.findBindingTodos(bindingIds, window))
+                                () -> assignmentTodoPort.findBindingTodos(bindingIds, window),
+                                budget)
                         : notStartedSource(SOURCE_ASSIGNMENT, scopeView.status(), hasBindings);
         CompletableFuture<OverviewSourceResult<Map<Long, GradeTodo>>> gradesFuture =
-                hasBindings && canStartSources
+                hasBindings
                         ? async(SOURCE_GRADE,
-                                () -> gradeTodoPort.findPendingGrades(bindingIds))
+                                () -> gradeTodoPort.findPendingGrades(bindingIds), budget)
                         : notStartedSource(SOURCE_GRADE, scopeView.status(), hasBindings);
 
         awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture), budget);
@@ -682,13 +677,14 @@ public class OverviewQueryService
             log.warn("总览单源聚合预算已耗尽: source={}", source);
             return OverviewSourceResult.unavailable(source, "aggregation budget exhausted");
         }
-        CompletableFuture<OverviewSourceResult<T>> future = async(source, supplier);
+        CompletableFuture<OverviewSourceResult<T>> future = async(source, supplier, budget);
         try
         {
             return future.get(budget.remainingNanos(), TimeUnit.NANOSECONDS);
         }
         catch (TimeoutException e)
         {
+            // 外层 cancel 只改变完成状态；SourceGuard 内部 FutureTask 的超时才请求中断。
             future.cancel(true);
             log.warn("总览单源聚合超时: source={}, timeoutMs={}", source,
                     overallTimeout.toMillis());
@@ -714,7 +710,8 @@ public class OverviewQueryService
         long remainingNanos = budget.remainingNanos();
         if (remainingNanos <= 0L)
         {
-            // 预算已耗尽时不再等待；已完成的结果保留，未完成的由 resultNow 映射 UNAVAILABLE。
+            // 预算已耗尽时不再等待；外层 cancel(true) 只改变完成状态，不会主动中断
+            // 已在线程池中执行的任务。已完成的结果保留，未完成项由 resultNow 映射 UNAVAILABLE。
             futures.forEach(future -> future.cancel(true));
             log.warn("总览并行聚合预算已耗尽");
             return;
@@ -757,12 +754,19 @@ public class OverviewQueryService
     }
 
     private <T> CompletableFuture<OverviewSourceResult<T>> async(String source,
-            Supplier<T> supplier)
+            Supplier<T> supplier, RequestBudget budget)
     {
+        // 每个来源提交前检查一次；SourceGuard 在源线程真正调用端口前再检查一次。
+        if (budget.isExpired())
+        {
+            log.warn("总览来源提交前预算已耗尽: source={}", source);
+            return completedUnavailable(source, "aggregation budget exhausted");
+        }
         try
         {
             return CompletableFuture.supplyAsync(
-                    () -> sourceGuard.query(source, supplier, value -> false),
+                    () -> sourceGuard.query(source, supplier, value -> false,
+                            budget::remainingNanos),
                     aggregationExecutor);
         }
         catch (RejectedExecutionException e)
@@ -844,7 +848,8 @@ public class OverviewQueryService
      *
      * <p>使用单调纳秒计时，而不是业务 {@link Clock}；课程范围阶段和并行来源阶段共享
      * 同一个 deadline。排队和等待时间都计入预算，预算耗尽后调用方不再派发新任务。
-     * future 取消只能发出中断信号，不能保证底层阻塞 I/O 已停止。</p>
+     * 外层 CompletableFuture.cancel(true) 只改变完成状态，不主动中断执行线程；
+     * SourceGuard 内部 FutureTask 的取消才请求中断，且不能保证底层阻塞 I/O 已停止。</p>
      */
     private static final class RequestBudget
     {

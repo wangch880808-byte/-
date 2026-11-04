@@ -1,14 +1,16 @@
 # 6-01 三端总览前端接口交接文档（M0）
 
-> 版本：1.2｜日期：2026-11-04（基于 1.1/2026-11-02 第一轮修订）｜读者：第六组前端 6B
+> 版本：1.3｜日期：2026-11-04（基于 1.2/2026-11-04 第一轮修订；第二轮收口）｜读者：第六组前端 6B
 >
 > 依据：`docs/6-01-overview-contract.md`（草案）。本文用于前端 6-03/6-04 对齐字段、状态和页面展示；路径、指标编码、默认时间窗仍可能随评审调整。
 >
 > 当前状态：后端已完成四端点 Service/Controller、DTO 和单元测试；**生产数据适配器未接入，当前没有真实业务数据**。所有 `OK` 示例仅用于说明字段，不代表联调结果。缺适配器时返回 `UNAVAILABLE`，禁止前端显示为 0 或空页面。
 >
-> 2026-11-02 后端静态核对更正：实际后端以 `feature/6-01-overview-api@22898ae27a90779709b0c29b846181aa7054e0b0` 为准；6B 6-03/6-04 尚未取得可核验版本。参数表已按实际 Controller 修正；逐项证据、差异和待确认项见 `docs/6-01-frontend-review-checklist.md`。本文不构成 6B 已确认或真实联调结论。
+> 2026-11-02 后端静态核对更正：`feature/6-01-overview-api@22898ae27a90779709b0c29b846181aa7054e0b0` 仅为历史代码快照；当前实现以 PR #24 head 为准，具体提交 SHA 见 PR 页面。6B 6-03/6-04 尚未取得可核验版本。参数表已按实际 Controller 修正；逐项证据、差异和待确认项见 `docs/6-01-frontend-review-checklist.md`。本文不构成 6B 已确认或真实联调结论。
 >
 > 2026-11-04 第一轮修订：教师 `assignment.pending` 已按 `classId` 对应 binding 过滤；`classId<=0` 返回业务 400；一次请求共用单一总预算；端口嵌套结果违约按对应 item `UNAVAILABLE` 收敛。具体修复提交见 PR #24，不在正文写自引用 SHA。生产适配器仍未接入，真实 HTTP/登录/授权/审计联调仍未完成。
+>
+> 2026-11-04 第二轮收口：每个来源提交前检查剩余预算，源线程真正调用端口前再次检查；单源等待受请求剩余预算限制。明确外层 CompletableFuture 取消与 SourceGuard 内部 FutureTask 取消的差别，不宣称请求返回后源任务或底层 I/O 已停止。
 
 ## 1. 端点一览
 
@@ -34,7 +36,8 @@
 - 默认 UTC 自然日可能与前端本地时区显示的“今天”不一致；这是待产品决策项（见核对清单 D-02），前端不得自行改口径。
 - 教师 `classId`：`0` 或负数在调用课程端口前返回业务码 400（HTTP 200），不因课程范围源状态改变。课程范围源为 `OK` 且正数 `classId` 不在授权范围时返回业务码 403（HTTP 200）；若课程范围源为 `NO_DATA`/`UNAVAILABLE`，服务端无法判定授权，返回对应 `NO_DATA`/`UNAVAILABLE` item（HTTP 200），不返回 403。前端不得把后者当成“有权限”。
 - `classId` 过滤作用于教师班级相关指标：`teacher.class.count`、`teacher.student.count`、`teacher.session.running`、`teacher.assignment.pending`、`teacher.grade.pending`。教师合法拥有但未选中的班级待办会被排除；适配器返回授权范围外 `bindingId` 的待办属于契约违约，该指标返回 `UNAVAILABLE`，不计入结果。`teacher.notice.unread` 是本人通知维度，不按 `classId` 过滤。
-- 一次聚合调用使用单一总预算（当前配置 2500ms），从聚合服务入口开始计时，课程范围阶段和后续并行阶段共享；预算耗尽后未派发或未完成的来源返回 `UNAVAILABLE`，已完成来源的结果保留。future 取消只发出中断信号，不保证底层阻塞 I/O 已停止。
+- 一次聚合调用使用单一总预算（当前配置 2500ms），从聚合服务入口开始计时，课程范围阶段和后续并行阶段共享；每个来源提交前检查剩余预算，任务在源线程池排队后、真正调用端口前再次检查。预算耗尽后未派发或未完成的来源返回 `UNAVAILABLE`，已完成来源的结果保留。
+- 取消语义：外层 `CompletableFuture.cancel(true)` 只改变完成状态，不主动中断执行线程；`OverviewSourceGuard` 内部 `FutureTask` 的取消才请求中断，且不保证底层阻塞 I/O 已停止。请求返回不代表所有源任务已经停止，不能把“future 已取消”当作 I/O 已停止的证据。
 - 共享固定线程池和无界队列仍是未关闭风险；生产适配器接入前需完成容量、拒绝策略、隔离和压测评审，本轮未引入熔断框架或大规模线程池改造。
 - 端口结果在聚合边界校验：列表含 null、Map 缺 key/值为 null、`SessionStatus`/`GradeTodo`/按绑定的 `AssignmentTodo` 的 `bindingId` 与 key 不一致、`NoticeSummary.recipientUserId` 与请求用户不一致，均使受影响指标为 `UNAVAILABLE`，不返回假零，也不让 NPE 变成整个请求 500；独立通知来源仍按自身结果处理。
 - 学生/管理员端点的方法签名不接收 `classId`、`date`、`organizationId`；Spring MVC 默认不会因未知查询参数返回 400，但前端不得发送这些参数。

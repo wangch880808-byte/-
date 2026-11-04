@@ -2,13 +2,13 @@
 
 > 状态：**核对中，不是联调完成，也不是前后端评审通过。**
 >
-> 核对日期：2026-11-02；2026-11-04 第一轮修复复核
+> 核对日期：2026-11-02；2026-11-04 第一轮修复复核；2026-11-04 第二轮预算边界收口
 >
-> 2026-11-04 第一轮修复：教师 `assignment.pending` 的 `classId` binding 过滤、`classId<=0` 400、单次请求总预算、嵌套端口结果违约收敛；仍不代表 6B 已确认或真实联调完成。
+> 2026-11-04 第一轮修复：教师 `assignment.pending` 的 `classId` binding 过滤、`classId<=0` 400、单次请求总预算、嵌套端口结果违约收敛；第二轮补充来源提交/排队前预算检查与取消语义。仍不代表 6B 已确认或真实联调完成。
 >
 > 范围：第六组后端 6A 的 6-01 四端点，与 6B 前端 6-03/6-04 的接口/字段/状态/路由对齐。
 >
-> 依据：`docs/6-01-overview-contract.md`、`docs/6-01-frontend-api-handoff.md`、`feature/6-01-overview-api@22898ae27a90779709b0c29b846181aa7054e0b0` 的实际源码与测试。
+> 依据：`docs/6-01-overview-contract.md`、`docs/6-01-frontend-api-handoff.md`、`feature/6-01-overview-api` 当前 PR head；`22898ae27a90779709b0c29b846181aa7054e0b0` 只是历史代码快照。
 >
 > 本文只记录核对事实和待确认项。未取得 6B 可核验版本，因此**不写“前后端已确认”，不写“已完成联调”**。
 
@@ -32,7 +32,7 @@
 | 后端 6-01 API | `feature/6-01-overview-api`，PR #24，base `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`；上一代码快照 `22898ae27a90779709b0c29b846181aa7054e0b0`，2026-11-04 第一轮修复后 head 见 PR | `git rev-parse` / GitHub API；2026-11-04 复核 | 已做静态核对（L1）；2026-11-04 已运行测试（L2） | 待确认（不代签） | 未取得 | 未完成 |
 | 后端契约分支 | `feature/6-01-overview-contract@3ce2451cffc0b669844b11a00e27d2990f011464`，PR #23 | 远端引用；契约文档 | 已读契约，未改 #23 | 待确认 | 不适用 | 未完成 |
 | 6B 前端 6-03/6-04 | **未取得可核验版本** | 远端无 6-03/6-04 分支/PR；本地静态壳无总览调用；第 2 组 Vue/`feat/admin` 不是 6B 实现 | 无法核对 | 待确认 | 待 6B 提供 | 未完成 |
-| 交接文档 | `docs/6-01-frontend-api-handoff.md` v1.2（2026-11-04 第一轮修订），位于 #24 分支 | 文档正文与本次修订 | 已核对并修订参数/时间/错误/过滤/预算说明 | 待确认 | 待 6B | 不适用 |
+| 交接文档 | `docs/6-01-frontend-api-handoff.md` v1.3（2026-11-04 第二轮收口），位于 #24 分支 | 文档正文与本次修订 | 已核对并修订参数/时间/错误/过滤/预算/取消说明 | 待确认 | 待 6B | 不适用 |
 | main 基线 | `f21f51d55c363738c03ee6f626c7c67b904d6b36` | `git ls-remote origin refs/heads/main` | 已核对 | 不适用 | 不适用 | 未完成 |
 
 ### 1.2 版本获取与前端检索证据
@@ -94,8 +94,8 @@
 
 | 检查项 | 实际行为 | 证据 | 结论 |
 | --- | --- | --- | --- |
-| 总预算 | 一次聚合调用创建一个单调时钟 deadline；课程范围阶段与后续并行阶段共享 `overallTimeout`，不会各得一份 | `OverviewQueryService` 的 `RequestBudget`、`awaitSingle`、`awaitAll`；`OverviewConfiguration.java:37-39` | 已修；预算耗尽后未派发/未完成来源 UNAVAILABLE，已完成来源保留 |
-| 取消语义 | `future.cancel(true)` 只发中断，不保证底层阻塞 I/O 停止 | `OverviewQueryService` 的 `awaitAll` / `RequestBudget` 注释 | 文档已写明，不能宣称 I/O 已停止 |
+| 总预算 | 一次聚合调用创建一个单调时钟 deadline；课程范围阶段与后续并行阶段共享 `overallTimeout`，不会各得一份；每个来源提交前检查，源线程真正调用端口前再检查 | `OverviewQueryService` 的 `RequestBudget`、`async`、`awaitSingle`、`awaitAll`；`OverviewSourceGuard` 的预算重载；`OverviewConfiguration.java:37-39` | 已修；预算耗尽后未派发/未完成来源 UNAVAILABLE，已完成来源保留 |
+| 取消语义 | 外层 `CompletableFuture.cancel(true)` 只改变完成状态，不主动中断执行线程；SourceGuard 内部 `FutureTask` 的取消才请求中断，且不保证底层阻塞 I/O 停止 | `OverviewQueryService` 的 `awaitSingle` / `awaitAll` / `RequestBudget` 注释；`OverviewSourceGuard` 类注释 | 文档已写明；请求返回不代表源任务已停止，不能把 future 已取消当作 I/O 已停止 |
 | 嵌套列表 null | 课程范围、session、assignment 列表含 null → 受影响指标 UNAVAILABLE | `OverviewQueryService` 的 `userScopeView` / `organizationScopeView` / `sessionItem` / `assignmentItem` / `bindingAssignmentItem`；新增测试 | 已修；不让 NPE 变成整个请求 500 |
 | Map key/对象 ID | `SessionStatus`、`GradeTodo`、按绑定的 `AssignmentTodo` 的 `bindingId` 与 key 不一致，或 `NoticeSummary.recipientUserId` 与请求用户不一致 → UNAVAILABLE | 同上；新增 mismatch 测试 | 已修；不计入错误数据 |
 | 用户维度待办范围 | 教师/学生 `AssignmentTodo.bindingId` 不在授权 binding 集合 → UNAVAILABLE；教师合法但未选中的班级正常排除 | `OverviewQueryService` 的 `assignmentItem`；新增测试 | 已修；统计单位仍待 D-12 |
@@ -329,7 +329,7 @@
 | --- | --- | --- | --- |
 | F-01 | 教师 `classId` 未过滤 `assignment.pending` | `teacherOverview` 保留授权 binding 集合，按选中 class 的 binding 过滤 `AssignmentTodo`；授权外 binding → UNAVAILABLE；选中班无记录 → NO_DATA | `teacherClassIdFiltersAssignmentTodosBySelectedBinding`、`teacherClassIdWithNoIncludedTodosReturnsNoData`、`teacherAssignmentOutsideAuthorizedBindingsIsUnavailable` |
 | F-02 | `classId=0`/负数返回 403 或 NO_DATA | Controller 和 Service 在课程端口前校验 `classId > 0`，否则 400 | `nonPositiveClassIdIsRejectedBeforeCoursePort`、`nonPositiveClassIdMapsTo400` |
-| F-03 | 课程阶段和并行阶段各用一份 overallTimeout | 引入单调时钟 `RequestBudget`，两阶段共享 deadline；预算耗尽不再派发新任务，已完成结果保留 | `budgetExpiredAfterCourseSkipsNewSources`、`overallBudgetTimeoutPreservesCompletedSources` |
+| F-03 | 课程阶段和并行阶段各用一份 overallTimeout；来源排队后仍可能重新获得完整单源超时 | 引入单调时钟 `RequestBudget`，两阶段共享 deadline；每个来源提交前检查、SourceGuard 在真正调用端口前再次检查；单源等待取“单源超时/剩余预算”较小值；已完成结果保留 | `budgetExpiredAfterCourseSkipsNewSources`、`budgetExpiredDuringSourceSubmissionSkipsLaterSources`、`courseConsumptionLeavesOnlyRemainingBudgetForParallelSources`、`overallBudgetTimeoutPreservesCompletedSources`、`budgetExpiredAfterQueueSkipsSupplierBeforePortCall`、`timeoutDoesNotProveBlockingSupplierStopped` |
 | F-04 | 嵌套端口违约导致 NPE/500 或错误计数 | 校验列表 null、map value null、bindingId/recipientUserId 与 key 一致；违约指标 UNAVAILABLE，独立通知仍按自身结果 | `nullCourseScopeElement...`、`nullSessionElement...`、`nullAssignmentElement...`、`gradeBindingMismatch...`、`adminAssignmentBindingMismatch...`、`noticeRecipientMismatch...`、`nullSessionMapValue...` |
 | F-05 | 学生用户维度待办未校验 binding 授权范围 | 学生 `AssignmentTodo.bindingId` 不在授权 binding 集合 → UNAVAILABLE | `studentAssignmentOutsideAuthorizedBindingsIsUnavailable` |
 
@@ -384,7 +384,7 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 - 证据路径：业务代码在 `backend/ruoyi-education/src/main/java/com/ruoyi/education/overview/`；测试在 `backend/ruoyi-education/src/test/java/com/ruoyi/education/overview/`；安全处理在 `backend/ruoyi-framework/src/main/java/com/ruoyi/framework/`；统一响应在 `backend/ruoyi-common/src/main/java/com/ruoyi/common/core/domain/AjaxResult.java`。
 - 前端检索：远端分支/PR、本地 `frontend/`、PR #26/`feature/login-role-style`/`feat/admin` 树和文件；未发现 6-03/6-04 总览实现；#32 是 6-02。
 - 2026-11-04 已运行：
-  - `mvn -B -o -pl ruoyi-education -am test`：333 tests，0 failures/errors，5 skipped（真实 MySQL 用例）。
+  - `mvn -B -o -pl ruoyi-education -am test`：337 tests，0 failures/errors，5 skipped（真实 MySQL 用例）。
   - `mvn -B -o -pl ruoyi-admin -am -DskipTests package`：BUILD SUCCESS。
   - `git diff --check`：通过。
 - Markdown 表格列数检查：通过（含转义 `\|` 的表格）。

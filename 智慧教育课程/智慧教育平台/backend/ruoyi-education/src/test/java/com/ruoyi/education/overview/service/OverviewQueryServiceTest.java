@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -779,6 +780,97 @@ class OverviewQueryServiceTest
         assertItem(response, "teacher.grade.pending", OverviewStatus.UNAVAILABLE, null);
         assertItem(response, "teacher.notice.unread", OverviewStatus.UNAVAILABLE, null);
         verifyNoInteractions(sessionPort, assignmentPort, gradePort, noticePort);
+    }
+
+    @Test
+    void budgetExpiredDuringSourceSubmissionSkipsLaterSources()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        AtomicLong nanoClock = new AtomicLong(0L);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L))));
+        when(sessionPort.findSessions(any(), any())).thenAnswer(invocation ->
+        {
+            // 本来源在预算耗尽前完成；完成后预算已到 1000ms 上限。
+            nanoClock.addAndGet(1_000_000_000L);
+            return Map.of(100L, List.of(session(100L, "RUNNING")));
+        });
+        Executor direct = Runnable::run;
+        OverviewSourceGuard directGuard = new OverviewSourceGuard(direct,
+                Duration.ofMillis(500));
+        OverviewQueryService service = new OverviewQueryService(coursePort, sessionPort,
+                assignmentPort, gradePort, noticePort, directGuard, direct,
+                Duration.ofMillis(1000), clock, nanoClock::get);
+
+        OverviewResponse response = service.teacherOverview(7L, null, WINDOW);
+
+        assertItem(response, "teacher.session.running", OverviewStatus.OK, 1L);
+        assertItem(response, "teacher.assignment.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.grade.pending", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.UNAVAILABLE, null);
+        verifyNoInteractions(assignmentPort, gradePort, noticePort);
+    }
+
+    @Test
+    void courseConsumptionLeavesOnlyRemainingBudgetForParallelSources()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        SessionStatusPort sessionPort = mock(SessionStatusPort.class);
+        AssignmentTodoPort assignmentPort = mock(AssignmentTodoPort.class);
+        GradeTodoPort gradePort = mock(GradeTodoPort.class);
+        NoticeSummaryPort noticePort = mock(NoticeSummaryPort.class);
+        AtomicLong nanoClock = new AtomicLong(0L);
+        CountDownLatch blocker = new CountDownLatch(1);
+        when(coursePort.findTeacherScopes(any())).thenAnswer(invocation ->
+        {
+            // 消耗 900ms 假预算，后续并行来源只剩 100ms。
+            nanoClock.addAndGet(900_000_000L);
+            return Map.of(7L, List.of(scope(11L, 100L, 3L)));
+        });
+        when(sessionPort.findSessions(any(), any())).thenAnswer(invocation ->
+        {
+            try
+            {
+                blocker.await(5, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+            }
+            return Map.of(100L, List.of(session(100L, "RUNNING")));
+        });
+        when(assignmentPort.findTeacherTodos(any(), any()))
+                .thenReturn(Map.of(7L, List.of(assignment(100L, 3L, 1L))));
+        when(gradePort.findPendingGrades(any()))
+                .thenReturn(Map.of(100L, new GradeTodo(100L, 300L, 0L, 0L)));
+        when(noticePort.findUnreadSummaries(any()))
+                .thenReturn(Map.of(7L, new NoticeSummary(7L, 0L, AS_OF)));
+        OverviewSourceGuard longSourceGuard = new OverviewSourceGuard(sourceExecutor,
+                Duration.ofSeconds(2));
+        OverviewQueryService service = new OverviewQueryService(coursePort, sessionPort,
+                assignmentPort, gradePort, noticePort, longSourceGuard, aggregationExecutor,
+                Duration.ofMillis(1000), clock, nanoClock::get);
+
+        long startedAt = System.nanoTime();
+        OverviewResponse response;
+        try
+        {
+            response = service.teacherOverview(7L, null, WINDOW);
+        }
+        finally
+        {
+            blocker.countDown();
+        }
+        long elapsedNanos = System.nanoTime() - startedAt;
+
+        assertItem(response, "teacher.session.running", OverviewStatus.UNAVAILABLE, null);
+        assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 0L);
+        // 旧实现会在并行阶段再获得 1000ms；新实现只能使用约 100ms 剩余预算。
+        assertTrue(elapsedNanos < 700_000_000L);
     }
 
     @Test
