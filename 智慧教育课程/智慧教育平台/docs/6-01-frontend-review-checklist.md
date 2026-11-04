@@ -370,7 +370,7 @@ main 基线：f21f51d55c363738c03ee6f626c7c67b904d6b36
 8. D-15：管理员待办当前 admin.todo.pending / NO_DATA / source=pending_product_confirmation / value=null / actionPath=null，前端是否避免显示 0 或“全部处理完成”。
 9. 三态展示：OK 0、OK 有值、NO_DATA、UNAVAILABLE、单卡失败、整体失败、角色/班级切换旧数据清理、刷新失败缓存标识，分别给截图/代码/测试证据。
 10. 错误场景：参数 400、业务 403、未登录 401、源不可用、网络失败、部分源失败；请说明是否同时判断 HTTP 状态和 body.code。
-11. 2026-11-04 第一轮修复已明确：教师 classId 过滤 assignment.pending；classId=0/负数返回 400；一次请求共用总预算；嵌套端口结果违约对应 item UNAVAILABLE。请按 handoff v1.2 核对，不要把 D-12 统计单位当作已冻结。
+11. 2026-11-04 第一/二轮修复已明确：教师 classId 过滤 assignment.pending；classId=0/负数返回 400；一次请求共用总预算，来源提交前和端口调用前检查；嵌套端口结果违约对应 item UNAVAILABLE；取消不等于 I/O 停止。请按 handoff v1.3 核对，不要把 D-12 统计单位当作已冻结。
 
 请明确区分“代码看起来一致”“6B 已确认”“真实联调通过”，不要只回复“已对齐”。在收到版本和逐项回复前，6A 不会宣称前后端评审完成或联调完成。
 ```
