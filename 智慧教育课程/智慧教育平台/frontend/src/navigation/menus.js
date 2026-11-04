@@ -1,20 +1,13 @@
 const pending = () => import('@/views/common/Pending.vue')
 const remote = () => import('@/views/common/RemoteList.vue')
 const server = () => import('@/views/system/ServerStatus.vue')
+const users = () => import('@/views/system/user/index.vue')
+const roles = () => import('@/views/system/role/index.vue')
 const course = () => import('@/views/education/course/CourseDetail.vue')
 const prepare = () => import('@/views/education/teacher/Prepare.vue')
 const teacherNews = () => import('@/views/education/teacher/Announcements.vue')
 const studentNews = () => import('@/views/education/student/Announcements.vue')
 
-const userColumns = [
-  { prop: 'userId', label: '用户编号' },
-  { prop: 'userName', label: '账号' },
-  { prop: 'nickName', label: '姓名' },
-  { prop: 'dept.deptName', label: '部门' },
-  { prop: 'phonenumber', label: '手机' },
-  { prop: 'status', label: '状态' },
-  { prop: 'createTime', label: '创建时间' }
-]
 const deptColumns = [
   { prop: 'deptName', label: '部门' },
   { prop: 'leader', label: '负责人' },
@@ -88,11 +81,8 @@ export const roleMenus = {
       ])
     ] },
     { name: '系统管理', children: [
-      table('用户管理', '/system/user', '/system/user/list', userColumns),
-      table('角色管理', '/system/role', '/system/role/list', [
-        { prop: 'roleId', label: '编号' }, { prop: 'roleName', label: '角色' },
-        { prop: 'roleKey', label: '权限字符' }, { prop: 'status', label: '状态' }, { prop: 'createTime', label: '创建时间' }
-      ]),
+      item('用户管理', '/system/user', users),
+      item('角色管理', '/system/role', roles),
       item('菜单管理', '/system/menu', remote, { list: { url: '/system/menu/list', shape: 'tree', columns: [
         { prop: 'menuName', label: '菜单' }, { prop: 'path', label: '路径' }, { prop: 'perms', label: '权限' }, { prop: 'status', label: '状态' }
       ] } }),

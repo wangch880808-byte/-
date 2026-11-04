@@ -6,3 +6,6 @@
 !.env.example
 **/application-local.yml
 **/application-local.yaml
+# 本机直写了库密码/令牌密钥，默认不提交
+ruoyi-admin/src/main/resources/application.yml
+ruoyi-admin/src/main/resources/application-druid.yml

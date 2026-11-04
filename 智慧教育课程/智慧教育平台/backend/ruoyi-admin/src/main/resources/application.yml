@@ -1,25 +1,20 @@
 # 知教 · 智慧教育课程平台（基于若依 3.9.2 / Spring Boot 3）
-# 敏感项通过环境变量或 backend/.env（由 run-local.ps1 注入）提供，勿写入仓库。
+# 本机直写配置，勿提交含密码/密钥的改动。
 
 ruoyi:
   name: 知教
   version: 3.9.2
   copyrightYear: 2026
-  # 上传目录：Windows 示例 D:/zhijiao/uploadPath；Linux 示例 /home/zhijiao/uploadPath
-  profile: ${RUOYI_PROFILE:D:/zhijiao/uploadPath}
+  profile: D:/zhijiao/uploadPath
   addressEnabled: false
-  # math 数字计算 | char 字符验证
   captchaType: math
 
-# 教学业务本地扩展（课件预览等）
 zhijiao:
   resource:
-    # 课件页预览根目录；相对路径来自 edu_resource_page.preview_storage_key
-    # 未配置时预览接口返回 503，不误报 404
-    preview-root: ${ZHIJIAO_PREVIEW_ROOT:}
+    preview-root:
 
 server:
-  port: ${SERVER_PORT:8080}
+  port: 8080
   servlet:
     context-path: /
   tomcat:
@@ -31,8 +26,8 @@ server:
 
 logging:
   level:
-    com.ruoyi: ${LOG_LEVEL_RUOYI:info}
-    com.ruoyi.education: ${LOG_LEVEL_EDUCATION:debug}
+    com.ruoyi: info
+    com.ruoyi.education: debug
     org.springframework: warn
 
 user:
@@ -59,10 +54,10 @@ spring:
       enabled: true
   data:
     redis:
-      host: ${RUOYI_REDIS_HOST:localhost}
-      port: ${RUOYI_REDIS_PORT:6379}
-      database: ${RUOYI_REDIS_DATABASE:15}
-      password: ${RUOYI_REDIS_PASSWORD:}
+      host: localhost
+      port: 6379
+      database: 15
+      password:
       timeout: 10s
       lettuce:
         pool:
@@ -73,9 +68,9 @@ spring:
 
 token:
   header: Authorization
-  # 必填：随机长密钥，见 backend/.env.example
-  secret: ${RUOYI_TOKEN_SECRET}
-  expireTime: ${TOKEN_EXPIRE_MINUTES:30}
+  secret: 6f81cde545e94d84a2d89c279a47d4efe9a22d703bca4e1486b61155fab13f65
+  # 本机联调默认 8 小时；活跃请求在到期前 20 分钟内会自动续期
+  expireTime: 480
 
 mybatis:
   typeAliasesPackage: com.ruoyi.**.domain
@@ -91,7 +86,7 @@ springdoc:
   api-docs:
     path: /v3/api-docs
   swagger-ui:
-    enabled: ${SWAGGER_ENABLED:true}
+    enabled: true
     path: /swagger-ui.html
     tags-sorter: alpha
   group-configs:

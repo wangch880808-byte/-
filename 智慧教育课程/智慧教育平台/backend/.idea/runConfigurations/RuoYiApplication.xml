@@ -1,0 +1,22 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="RuoYiApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <option name="ACTIVE_PROFILES" value="" />
+    <option name="ALTERNATIVE_JRE_PATH" value="D:\java21" />
+    <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
+    <module name="ruoyi-admin" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.ruoyi.RuoYiApplication" />
+    <envs>
+      <env name="RUOYI_DB_URL" value="jdbc:mysql://localhost:3306/zhijiao_m0?useUnicode=true&amp;characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;allowPublicKeyRetrieval=true" />
+      <env name="RUOYI_DB_USERNAME" value="root" />
+      <env name="RUOYI_DB_PASSWORD" value="Qln521++" />
+      <env name="RUOYI_TOKEN_SECRET" value="6f81cde545e94d84a2d89c279a47d4efe9a22d703bca4e1486b61155fab13f65" />
+      <env name="RUOYI_REDIS_HOST" value="localhost" />
+      <env name="RUOYI_REDIS_PORT" value="6379" />
+      <env name="RUOYI_REDIS_DATABASE" value="15" />
+      <env name="RUOYI_REDIS_PASSWORD" value="" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

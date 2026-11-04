@@ -28,9 +28,16 @@ router.beforeEach(async to => {
   if (!getToken()) return to.meta.public ? true : { path: '/login', query: { redirect: to.fullPath } }
   if (!user.loaded) {
     try { await user.loadIdentity() } catch (error) {
-      if (error.kind === 'network' || error.kind === 'business') return { path: '/connection-error', query: { next: to.fullPath } }
-      user.reset()
-      return { path: '/login', query: { reason: 'expired', redirect: to.fullPath } }
+      if (error.kind === 'network' || error.kind === 'business') {
+        return { path: '/connection-error', query: { next: to.fullPath } }
+      }
+      if (error.kind === 'forbidden') return '/403'
+      // 只有确认未授权时才清会话；其它异常留在连接失败页，避免误踢登录
+      if (error.kind === 'unauthorized') {
+        user.reset()
+        return { path: '/login', query: { reason: 'expired', redirect: to.fullPath } }
+      }
+      return { path: '/connection-error', query: { next: to.fullPath } }
     }
   }
   if (to.path === '/' || to.path === '/login') return ROLE_HOME[user.role]
@@ -40,4 +47,4 @@ router.afterEach(to => {
   document.title = `${to.meta.title || '知教'} · 智慧教育平台`
   useWorkspaceStore(pinia).open(to)
 })
-export default router
+

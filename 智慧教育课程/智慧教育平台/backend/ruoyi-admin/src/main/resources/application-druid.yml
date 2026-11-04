@@ -1,6 +1,4 @@
-# Druid 数据源（profile=druid）。库连接必填项来自环境变量，见 backend/.env.example。
-# 推荐本机库：zhijiao_m0（若依 sys_*/QRTZ_* + 教育业务表 + 演示数据）
-# 一键初始化：sql/zhijiao-m0-all-in-one.sql 或 sql/setup-zhijiao-m0.ps1
+# 本机 Druid 数据源直写。库：zhijiao_m0
 
 spring:
   datasource:
@@ -8,15 +6,14 @@ spring:
     driverClassName: com.mysql.cj.jdbc.Driver
     druid:
       master:
-        # 例：jdbc:mysql://127.0.0.1:3306/zhijiao_m0?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-        url: jdbc:mysql://127.0.0.1:3306/zhijiao_m0?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+        url: jdbc:mysql://localhost:3306/zhijiao_m0?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
         username: root
         password: Qln521++
-#      slave:
-#        enabled: false
-#        url:
-#        username:
-#        password:
+      slave:
+        enabled: false
+        url:
+        username:
+        password:
       initialSize: 5
       minIdle: 10
       maxActive: 20
@@ -36,9 +33,8 @@ spring:
         enabled: false
         allow:
         url-pattern: /druid/*
-        # 若开启控制台，务必改掉默认口令并限制 allow
-        login-username: ${DRUID_STAT_USERNAME:ruoyi}
-        login-password: ${DRUID_STAT_PASSWORD:123456}
+        login-username: ruoyi
+        login-password: 123456
       filter:
         stat:
           enabled: true
