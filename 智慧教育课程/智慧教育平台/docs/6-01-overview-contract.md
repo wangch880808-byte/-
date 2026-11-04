@@ -255,7 +255,8 @@ Map<Long, GradeTodo> findPendingGrades(Collection<Long> bindingIds);
 ```
 
 - 按绑定批量查询待确认/待发布成绩汇总。
-- Map 必须覆盖所有请求的绑定 ID；数值为 0 时返回 0，由调用方决定 `OK` 还是 `NO_DATA`。
+- Map 必须覆盖所有请求的绑定 ID。
+- 有效成绩汇总的真实零为 `OK` + `value=0`；无数据、契约违约分别按既定 `NO_DATA`/`UNAVAILABLE` 规则处理，不能由调用方把真实零改写成 `NO_DATA`。
 
 ### 4.5 `NoticeSummaryPort`
 
@@ -305,7 +306,8 @@ Map<Long, NoticeSummary> findUnreadSummaries(Collection<Long> recipientUserIds);
 - 默认时间窗（当前学期/自然日/自定义）与业务时区待评审；当前实现是 UTC 自然日。
 - `class.count` 当前按授权范围条数计数，是否按教学班去重待确认；不能把范围条数直接称为去重教学班数。
 - `student.count` 当前累加各范围人数，不能宣称跨班去重；不读取学生明细或他组私有表补算。
-- `assignment.pending` 当前是待提交人数合计/记录计数，不是待批任务条数；卡片名称与统计单位待产品/第 5 组确认。
+- `teacher.assignment.pending` / `admin.assignment.pending`：当前为各任务待提交人数合计（`max(0,targetCount-submittedCount)` 或绑定维度 `pendingCount` 求和），不能称为跨任务去重人数，也不是待批任务条数；卡片名称和产品口径待产品/第 5 组确认。
+- `student.assignment.due`：当前为端口返回的待办记录条数，不是 `pendingCount` 求和；具体“今日截止、本人未提交”入选规则依赖第 5 组端口契约，卡片名称待确认。
 - `PAUSED` 当前计入活跃；成绩 `pendingGradeCount + pendingPublishCount` 当前直接相加，互斥性待确认。
 - `sampleCount` 按指标分别表示范围条数、绑定数、记录数或 null；`window` 只传给课堂/作业；`asOf` 当前为响应时刻。
 - 管理员待办来源、处理人、权限和状态机待产品确认；确认前固定 `NO_DATA`，不自造。
