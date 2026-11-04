@@ -1,6 +1,9 @@
 # 第 4 组 · 第一周交付说明
 
 > 课堂与同步跟课 · 首周目标：接口契约 + 前端占位页 + 联调准备
+>
+> ⚠️ 历史文档：本文提到的 `teacher.html`、`student.html`、`projection.html` 已在 Vue 工程上线后删除，
+> 现行实现与运行方式见 [group4-delivery.md](group4-delivery.md)。
 
 ## 本周已完成
 

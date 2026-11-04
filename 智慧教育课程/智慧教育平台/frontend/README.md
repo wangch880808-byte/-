@@ -20,20 +20,21 @@ npm run build                     # 产出 app/，后端打包时复制到 stati
 
 - `base` 与产物目录都取 `app/`，配合 `ruoyi-admin/pom.xml` 的 `app/**` 资源条目，构建后直接由 `http://127.0.0.1:8080/app/` 提供，无需改动打包流程。
 - 开发态通过 `/dev-api` 代理到 `http://127.0.0.1:8080`（见 `vite.config.js`，`VITE_BACKEND_URL` 可覆盖）。
-- 当前路由只有第 4 组的四个页面加一个公开投影页；其他组的业务路由由各自分支追加到 `src/router/routes.js`。
+- 路由由 `src/navigation/menus.js` 统一生成：已接通的入口指向真实页面（课堂、课程、公告、系统管理等），未接通的统一指向 `Pending.vue` 并显示原因，不再生成空页面。新增业务页只需在该文件登记。
 
 ## 三端页面和公共能力
 
 ```text
 frontend/
 ├── README.md
-├── index.html、login.js、logo.png
-├── role-home.js
+├── index.html、vite.config.js、package.json
 └── src/
+    ├── navigation/menus.js      # 三端菜单与路由（唯一入口）
     ├── views/education/
     │   ├── teacher/
     │   ├── student/
-    │   └── admin/
+    │   ├── admin/
+    │   └── classroom/           # 公开投影页
     ├── api/education/
     └── components/education/
 ```

@@ -8,30 +8,35 @@
 |------|------|------|
 | 4-01 课堂会话 | ✅ | 开课/暂停/恢复/结束、翻页、快照、事件、加入校验 |
 | 4-02 课堂活动 | ✅ 部分 | 签到、随堂题、公布结果；**课堂小作业待第 5 组** |
-| 4-03 教师控制台 + 投影 | ✅ | `teacher.html` 课堂菜单 + `projection.html` |
-| 4-04 学生跟课 | ✅ | `student.html` 一键加入 / 同步课堂 |
+| 4-03 教师控制台 + 投影 | ✅ | `teacher/Classroom.vue` + `classroom/Projection.vue` |
+| 4-04 学生跟课 | ✅ | `student/JoinClass.vue`、`student/SyncClassroom.vue` |
 
 ## 代码结构
 
 ```
-backend/ruoyi-education/          # Java 业务模块
-frontend/js/classroom-api.js      # API 封装
-frontend/js/classroom-pages.js    # 三端课堂页面
-frontend/classroom.css
-frontend/projection.html
-docs/api-contracts-classroom.md   # 接口契约
-docs/group4-handoff-requests.md   # 跨组交接
+backend/ruoyi-education/                  # Java 业务模块（课堂与活动）
+frontend/src/api/education/classroom.js   # 课堂 API 封装（17 个接口）
+frontend/src/composables/useClassroomSync.js  # 轮询 + 断线重连 + 事件补查
+frontend/src/components/education/SlidePreview.vue、ActivityCountdown.vue
+frontend/src/views/education/teacher/     # QuickStart.vue、Classroom.vue
+frontend/src/views/education/student/     # JoinClass.vue、SyncClassroom.vue
+frontend/src/views/education/classroom/   # Projection.vue（公开投影）
+docs/api-contracts-classroom.md           # 接口契约
+docs/group4-handoff-requests.md           # 跨组交接
 ```
 
 ## 本地运行
 
 ```powershell
-cd backend
+cd frontend
+npm install
+npm run build          # 产出 frontend/app/
+cd ../backend
 mvn -B -pl ruoyi-admin -am package
 .\run-local.ps1
 ```
 
-浏览器：`http://127.0.0.1:8080/login.html`
+浏览器：`http://127.0.0.1:8080/app/`
 
 | 角色 | 账号 | 密码 |
 |------|------|------|

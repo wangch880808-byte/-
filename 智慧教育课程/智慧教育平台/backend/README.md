@@ -14,7 +14,7 @@ mvn -B -pl ruoyi-admin -am package
 .\run-local.ps1
 ```
 
-打开 <http://127.0.0.1:8080/login.html>。页面调用若依真实的 `GET /captchaImage`、`POST /login`、`GET /getInfo`、`GET /getRouters`、`POST /logout`；登录时向 `/login` 发送所选 `role`（`admin`、`teacher` 或 `student`），服务端确认账号具有该角色后才发令牌。若依旧调用方不传 `role` 时仍沿用原有登录流程。登录后按角色进入 `/admin.html`、`/teacher.html` 或 `/student.html`，运行页每次加载重新验证令牌和角色。三个页面沿用 [`console-navigation-v1`](../prototypes/console-navigation-v1/) 的导航原型；其静态菜单还未绑定若依授权路由，内容区和教学业务接口仍待开发。`admin` 沿用若依超级管理员账号，教师与学生演示账号使用项目角色并与教学数据的 `user_id` 对应。本机已对三角色成功登录、错入口拒绝、身份查询和退出进行接口联调。联调凭据见 [三端演示账号](../docs/demo-login-accounts.txt)；实际部署须更换密码、创建受限管理员账号并按权限矩阵授权。
+打开 <http://127.0.0.1:8080/app/>（Vue 前端工程，登录页为 `#/login`）。页面调用若依真实的 `GET /captchaImage`、`POST /login`、`GET /getInfo`、`GET /getRouters`、`POST /logout`；登录时向 `/login` 发送所选 `role`（`admin`、`teacher` 或 `student`），服务端确认账号具有该角色后才发令牌。若依旧调用方不传 `role` 时仍沿用原有登录流程。登录后按角色进入各自工作台，路由守卫在每次导航前重新验证令牌与角色。三端菜单由 [`frontend/src/navigation/menus.js`](../frontend/src/navigation/menus.js) 驱动，尚未接通的入口统一渲染 `Pending.vue` 并显示原因，不再另造空页面。原先的 `login.html`、`admin.html`、`teacher.html`、`student.html` 已随 Vue 工程上线删除；导航原型仍保留在 [`console-navigation-v1`](../prototypes/console-navigation-v1/)，仅供核对入口名称。`admin` 沿用若依超级管理员账号，教师与学生演示账号使用项目角色并与教学数据的 `user_id` 对应。本机已对三角色成功登录、错入口拒绝、身份查询和退出进行接口联调。联调凭据见 [三端演示账号](../docs/demo-login-accounts.txt)；实际部署须更换密码、创建受限管理员账号并按权限矩阵授权。
 
 ## 基础模块与依赖
 
