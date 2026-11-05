@@ -106,6 +106,7 @@
   #authRetry:hover, .logout-button:hover { color: #1890ff; border-color: #1890ff; }
 </style>
 <link rel="stylesheet" href="/src/views/education/education-views.css">
+<link rel="stylesheet" href="/src/views/education/overview.css">
 </head>
 <body class="auth-pending" data-role="teacher">
   <div id="authStatus" role="status"><span id="authMessage">正在核验登录信息…</span><button type="button" id="authRetry" hidden>重试</button></div>
@@ -139,9 +140,12 @@
 <script src="/src/api/education/http.js"></script>
 <script src="/src/api/education/mock.js"></script>
 <script src="/src/api/education/announcement.js"></script>
+<script src="/src/api/education/overview.js"></script>
 <script src="/src/views/education/ui-kit.js"></script>
 <script src="/src/views/education/view-host.js"></script>
+<script src="/src/components/education/overview-page.js"></script>
 <script src="/src/views/education/teacher/announcements.js"></script>
+<script src="/src/views/education/teacher/overview.js"></script>
 <script>
 var ROLE = 'teacher';
 var currentGi = 0, currentIi = 0;
