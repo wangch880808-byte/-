@@ -1,0 +1,260 @@
+/**
+ * 6-02 统一请求客户端（第 6 组 6B）。
+ *
+ * 职责：附加若依令牌、按 code 判定成败、401 统一清会话跳登录、把错误归一成可判别的 ApiError。
+ * 不在本文件写死任何业务路径，也不缓存业务数据。
+ */
+(function (global) {
+  'use strict';
+
+  var TOKEN_KEY = 'zhijiao.login.token';
+  var ROLE_KEY = 'zhijiao.login.role';
+  var redirecting = false;
+
+  var KIND_BY_CODE = {
+    0: 'network',
+    400: 'validation',
+    401: 'auth',
+    403: 'permission',
+    404: 'missing',
+    409: 'conflict',
+    500: 'server',
+    502: 'network',
+    503: 'unavailable',
+    504: 'network'
+  };
+
+  function ApiError(detail) {
+    this.name = 'ApiError';
+    this.code = detail.code;
+    this.httpStatus = detail.httpStatus || 0;
+    this.kind = detail.kind || KIND_BY_CODE[detail.code] || 'unknown';
+    this.message = detail.message || '请求失败';
+    this.method = detail.method || 'GET';
+    this.url = detail.url || '';
+    this.requiresLogin = detail.requiresLogin === true;
+    if (typeof Error.captureStackTrace === 'function') {
+      Error.captureStackTrace(this, ApiError);
+    }
+  }
+
+  ApiError.prototype = Object.create(Error.prototype);
+  ApiError.prototype.constructor = ApiError;
+
+  ApiError.prototype.isNetwork = function () {
+    return this.kind === 'network';
+  };
+
+  ApiError.prototype.isAuth = function () {
+    return this.code === 401;
+  };
+
+  ApiError.prototype.isPermission = function () {
+    return this.code === 403;
+  };
+
+  ApiError.prototype.isNotFound = function () {
+    return this.code === 404;
+  };
+
+  ApiError.prototype.isConflict = function () {
+    return this.code === 409;
+  };
+
+  /** 404 无法区分"路径未注册"与"对象不存在/不可见"，一律按后者处理，不做 Controller 推断。 */
+  ApiError.prototype.isServerSide = function () {
+    return this.code === 500 || this.code === 503;
+  };
+
+  function buildQuery(query) {
+    if (!query) {
+      return '';
+    }
+    var parts = [];
+    Object.keys(query).forEach(function (key) {
+      var value = query[key];
+      if (value === undefined || value === null || value === '') {
+        return;
+      }
+      parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+    });
+    return parts.length > 0 ? '?' + parts.join('&') : '';
+  }
+
+  /** 与 buildQuery 保持同一规则：null / undefined / 空串视为"不传该参数"。 */
+  function normalizeQuery(query) {
+    var result = {};
+    if (!query) {
+      return result;
+    }
+    Object.keys(query).forEach(function (key) {
+      var value = query[key];
+      if (value === undefined || value === null || value === '') {
+        return;
+      }
+      result[key] = value;
+    });
+    return result;
+  }
+
+  function clearSession() {
+    try {
+      global.sessionStorage.removeItem(TOKEN_KEY);
+      global.sessionStorage.removeItem(ROLE_KEY);
+    } catch (e) {
+      /* 存储不可用时忽略：跳登录页已足够终止流程 */
+    }
+  }
+
+  function backToLogin() {
+    if (redirecting) {
+      return;
+    }
+    redirecting = true;
+    clearSession();
+    global.location.replace('/login.html?logout=expired');
+  }
+
+  function parseBody(text) {
+    if (!text) {
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * @param {{method?:string, url:string, query?:object, body?:object}} options
+   * @returns {Promise<object>} 成功时返回原始响应体（带 code / msg / data 或 total / rows）
+   */
+  function request(options) {
+    var opts = options || {};
+    var method = (opts.method || 'GET').toUpperCase();
+
+    // Mock 模式：显式开启后业务请求全部走内置数据，不再打后端。
+    // 未覆盖的路径直接报错而不是回落到真实请求，避免"一半真一半假"。
+    // 查询串按 buildQuery 的规则剔除空值，保证 Mock 看到的后端入参与真实请求一致。
+    if (global.EduMock && global.EduMock.enabled()) {
+      return global.EduMock.request({
+        method: method,
+        path: opts.url,
+        query: normalizeQuery(opts.query),
+        body: opts.body
+      });
+    }
+
+    var url = opts.url + buildQuery(opts.query);
+    var headers = { Accept: 'application/json' };
+    var token = null;
+
+    try {
+      token = global.sessionStorage.getItem(TOKEN_KEY);
+    } catch (e) {
+      token = null;
+    }
+    if (token) {
+      headers.Authorization = 'Bearer ' + token;
+    }
+
+    var init = {
+      method: method,
+      headers: headers,
+      cache: 'no-store',
+      credentials: 'same-origin'
+    };
+    if (opts.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(opts.body);
+    }
+
+    return global.fetch(url, init).then(function (response) {
+      return response.text().then(function (text) {
+        var body = parseBody(text);
+        var httpStatus = response.status;
+        var hasCode = body !== null && typeof body.code === 'number';
+        var code = hasCode ? body.code : (httpStatus || 0);
+
+        // 401 优先判定（放在所有业务分支之前）：无论响应是 JSON、空正文还是 HTML
+        // （网关/容器的默认 401 页都无法解析出 code），一律统一走清会话 + 跳登录，
+        // 避免落入通用错误分支后丢失登录态处理。并发请求同时 401 时由
+        // backToLogin 的 redirecting 标记去重，只跳转一次。
+        if (httpStatus === 401 || (hasCode && code === 401)) {
+          backToLogin();
+          throw new ApiError({
+            code: 401,
+            httpStatus: httpStatus,
+            message: '登录状态已失效，请重新登录',
+            method: method,
+            url: url,
+            requiresLogin: true
+          });
+        }
+
+        // 成功：业务码 200 且 HTTP 层也成功。
+        if (hasCode && code === 200 && response.ok) {
+          return body;
+        }
+
+        // HTTP 层失败但业务码为 200：以 HTTP 状态为准报错，防止上层误判成功。
+        if (hasCode && code === 200 && !response.ok) {
+          throw new ApiError({
+            code: httpStatus,
+            httpStatus: httpStatus,
+            message: '请求失败（HTTP ' + httpStatus + '）',
+            method: method,
+            url: url
+          });
+        }
+
+        // HTTP 层失败且解析不出业务码（空正文 / HTML / 非JSON）：按 HTTP 状态报错。
+        if (!response.ok && !hasCode) {
+          throw new ApiError({
+            code: httpStatus,
+            httpStatus: httpStatus,
+            message: '请求失败（HTTP ' + httpStatus + '）',
+            method: method,
+            url: url
+          });
+        }
+
+        // 其余为业务失败（HTTP 200 + code 非 200），保留服务端 msg。
+        throw new ApiError({
+          code: code,
+          httpStatus: httpStatus,
+          message: hasCode ? ((body && body.msg) || ('请求失败（' + code + '）')) : '响应缺少业务码 code，无法判定结果',
+          method: method,
+          url: url
+        });
+      });
+    }).catch(function (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError({
+        code: 0,
+        message: '网络异常，未能连接到服务端',
+        method: method,
+        url: url
+      });
+    });
+  }
+
+  global.EduHttp = {
+    request: request,
+    get: function (url, query) {
+      return request({ method: 'GET', url: url, query: query });
+    },
+    post: function (url, body) {
+      return request({ method: 'POST', url: url, body: body === undefined ? {} : body });
+    },
+    put: function (url, body) {
+      return request({ method: 'PUT', url: url, body: body === undefined ? {} : body });
+    },
+    ApiError: ApiError,
+    backToLogin: backToLogin,
+    tokenKey: TOKEN_KEY
+  };
+})(window);
