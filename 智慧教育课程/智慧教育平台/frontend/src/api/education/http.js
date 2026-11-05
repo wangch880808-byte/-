@@ -1,7 +1,7 @@
 /**
  * 6-02 统一请求客户端（第 6 组 6B）。
  *
- * 只做三件事：附加若依令牌、按 code 判定成败、把错误归一成可判别的 ApiError。
+ * 职责：附加若依令牌、按 code 判定成败、401 统一清会话跳登录、把错误归一成可判别的 ApiError。
  * 不在本文件写死任何业务路径，也不缓存业务数据。
  */
 (function (global) {
@@ -177,28 +177,11 @@
         var hasCode = body !== null && typeof body.code === 'number';
         var code = hasCode ? body.code : (httpStatus || 0);
 
-        if (!response.ok && !hasCode) {
-          throw new ApiError({
-            code: httpStatus,
-            httpStatus: httpStatus,
-            message: '请求失败（HTTP ' + httpStatus + '）',
-            method: method,
-            url: url
-          });
-        }
-        if (hasCode && code === 200 && response.ok) {
-          return body;
-        }
-        if (hasCode && code === 200 && !response.ok) {
-          throw new ApiError({
-            code: httpStatus,
-            httpStatus: httpStatus,
-            message: '请求失败（HTTP ' + httpStatus + '）',
-            method: method,
-            url: url
-          });
-        }
-        if (code === 401 || httpStatus === 401) {
+        // 401 优先判定（放在所有业务分支之前）：无论响应是 JSON、空正文还是 HTML
+        // （网关/容器的默认 401 页都无法解析出 code），一律统一走清会话 + 跳登录，
+        // 避免落入通用错误分支后丢失登录态处理。并发请求同时 401 时由
+        // backToLogin 的 redirecting 标记去重，只跳转一次。
+        if (httpStatus === 401 || (hasCode && code === 401)) {
           backToLogin();
           throw new ApiError({
             code: 401,
@@ -209,6 +192,35 @@
             requiresLogin: true
           });
         }
+
+        // 成功：业务码 200 且 HTTP 层也成功。
+        if (hasCode && code === 200 && response.ok) {
+          return body;
+        }
+
+        // HTTP 层失败但业务码为 200：以 HTTP 状态为准报错，防止上层误判成功。
+        if (hasCode && code === 200 && !response.ok) {
+          throw new ApiError({
+            code: httpStatus,
+            httpStatus: httpStatus,
+            message: '请求失败（HTTP ' + httpStatus + '）',
+            method: method,
+            url: url
+          });
+        }
+
+        // HTTP 层失败且解析不出业务码（空正文 / HTML / 非JSON）：按 HTTP 状态报错。
+        if (!response.ok && !hasCode) {
+          throw new ApiError({
+            code: httpStatus,
+            httpStatus: httpStatus,
+            message: '请求失败（HTTP ' + httpStatus + '）',
+            method: method,
+            url: url
+          });
+        }
+
+        // 其余为业务失败（HTTP 200 + code 非 200），保留服务端 msg。
         throw new ApiError({
           code: code,
           httpStatus: httpStatus,
