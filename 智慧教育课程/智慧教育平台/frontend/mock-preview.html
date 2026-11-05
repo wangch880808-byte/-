@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>6-02 页面自测（Mock）— 第 6 组 6B</title>
+<link rel="stylesheet" href="src/views/education/education-views.css">
+<style>
+  body.mock-preview { font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; }
+  .mock-preview-note { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid #faad14;
+    background: #fffbe6; color: #614700; font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body class="mock-preview">
+
+<div class="mock-preview-head">
+  <h1>6-02 页面自测</h1>
+  <p>Mock 数据 · 不连后端 · 不校验登录</p>
+  <span id="noticeBadge" class="edu-badge edu-badge-warn" hidden></span>
+  <div class="mock-preview-tabs">
+    <button type="button" data-role-tab="teacher" class="active">教师 · 公告</button>
+    <button type="button" data-role-tab="student">学生 · 通知 / 公告</button>
+  </div>
+</div>
+
+<p class="mock-preview-note">
+  本页只用于 6B 页面自测：数据来自 <code>src/api/education/mock.js</code>，字段、业务码、状态机与 main 分支
+  Controller 一致。真实页面不会自动进入 Mock，必须显式加 <code>?mock=1</code>，
+  且真实的 403/404/500 不会被 Mock 兜底成成功。
+</p>
+
+<div class="mock-preview-stage">
+  <div class="content" id="mockContent"></div>
+</div>
+
+<script src="src/api/education/http.js"></script>
+<script src="src/api/education/mock.js"></script>
+<script src="src/api/education/announcement.js"></script>
+<script src="src/api/education/notice.js"></script>
+<script src="src/views/education/ui-kit.js"></script>
+<script src="src/views/education/view-host.js"></script>
+<script src="src/views/education/teacher/announcements.js"></script>
+<script src="src/views/education/student/announcements.js"></script>
+<script src="src/views/education/student/notices.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // 先开 Mock 再挂载视图，确保首屏请求就命中内置数据。
+  window.EduMock.enable();
+
+  var currentRole = 'teacher';
+
+  function mount(role) {
+    currentRole = role;
+    document.querySelectorAll('[data-role-tab]').forEach(function (button) {
+      button.classList.toggle('active', button.getAttribute('data-role-tab') === role);
+    });
+    // 教师与学生的 6-02 入口都注册在 (0, 3)。
+    var mounted = window.EduViews.mount(role, 0, 3, role === 'teacher' ? '班级消息 / 公告' : '学习通知 / 课程公告');
+    if (!mounted) {
+      document.getElementById('mockContent').innerHTML =
+        '<p class="edu-state-title">该角色没有注册 6-02 视图</p>';
+    }
+    // 学生未读角标由通知视图刷新；教师端隐藏。
+    var badge = document.getElementById('noticeBadge');
+    if (role !== 'student') {
+      badge.hidden = true;
+    }
+  }
+
+  document.querySelectorAll('[data-role-tab]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      mount(button.getAttribute('data-role-tab'));
+    });
+  });
+
+  mount(new URLSearchParams(window.location.search).get('role') === 'student' ? 'student' : 'teacher');
+})();
+</script>
+</body>
+</html>

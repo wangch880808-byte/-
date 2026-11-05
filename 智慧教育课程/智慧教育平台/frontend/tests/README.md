@@ -1,0 +1,46 @@
+# 6-02 生命周期回归测试
+
+本目录只放测试页和可移植脚本，不提交 Playwright、浏览器、node_modules、截图或临时输出，不创建产品 `package.json`/锁文件。
+
+## 前置
+
+- Node.js
+- 已安装 Playwright 及其浏览器（或可用的本机 Chrome/Edge）
+- 静态服务器能访问 `frontend/` 根目录
+
+## 运行
+
+在 `frontend/` 根目录启动静态服务器：
+
+```bash
+cd frontend
+python -m http.server 8130 --bind 127.0.0.1
+```
+
+另开终端，在项目根目录运行：
+
+```bash
+PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" \
+PLAYWRIGHT_CHANNEL=msedge \
+SIX_TEST_BASE=http://127.0.0.1:8130 \
+node frontend/tests/announcement-lifecycle.js
+```
+
+- `PLAYWRIGHT_MODULE`：Playwright 模块路径/包名，由本机环境提供；不写入仓库。
+- `PLAYWRIGHT_CHANNEL`：默认 `msedge`，也可设为 `chrome` 等。
+- `SIX_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8130`。
+- 测试页：`announcement-lifecycle.html`，使用假 `EduHttp` 和假 `EduViews.whenAuthorized`；不连接后端、不校验真实登录、不发送真实请求。
+- 脚本只输出 JSON 到 stdout，不写截图或临时文件。
+
+## 覆盖
+
+- 登录 pending/失败时首个加载、筛选、刷新零业务请求；
+- 核验通过后只按最新筛选请求一次；
+- 同一视图挂载三次后一次刷新只产生一次列表请求；
+- cleanup 关闭详情/编辑/确认弹窗；
+- cleanup 后旧确认不发起发布/归档；
+- 状态、A/B binding、页签切换的旧响应不覆盖新结果；
+- 旧详情响应不写入新弹窗；
+- cleanup 后排队微任务不派发 API；
+- 全部已读确认文案为全量范围，PUT 不带 binding；
+- 13 个接口方法/路径回归。
