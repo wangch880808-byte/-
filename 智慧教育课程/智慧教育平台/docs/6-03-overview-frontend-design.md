@@ -196,6 +196,9 @@ node check-overview.js
 - `preview-admin.png`
 - `preview-admin-todos.png`
 - `preview-mixed-debug.png`
+- `preview-403.png`
+- `preview-400.png`
+- `preview-admin-todos-error.png`
 - `preview-mobile-390.png`
 
 未验证：
