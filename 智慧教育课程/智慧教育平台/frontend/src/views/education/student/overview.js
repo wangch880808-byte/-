@@ -50,11 +50,11 @@
         code: 'student.notice.unread',
         group: 'notice',
         title: '未读通知',
-        note: '本人维度，可查看学习通知页',
+        note: '本人全部未读；通知页按当前班级上下文显示',
         source: 'notice',
         unitLabel: '条',
         windowed: false,
-        navigation: { label: '学生通知页' }
+        navigation: { label: '查看通知', href: '?g=0&i=3' }
       }
     ]
   }));

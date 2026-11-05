@@ -302,6 +302,15 @@
   color: #8c8c8c;
 }
 
+.ov-link {
+  color: #1890ff;
+  text-decoration: none;
+}
+
+.ov-link:hover {
+  text-decoration: underline;
+}
+
 .ov-skeleton .ov-card {
   pointer-events: none;
 }
@@ -412,7 +421,8 @@ body.edu-overview-active .ov-grid {
     display: none;
   }
 
-  body.edu-overview-active .menu-group.active-group {
+  /* 现有角色外壳未维护 active-group 类；用当前 active 菜单项定位当前分组。 */
+  body.edu-overview-active .menu-group:has(.menu-item.active) {
     display: block;
   }
 

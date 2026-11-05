@@ -698,10 +698,13 @@
       var foot = '<div class="ov-card-foot"><span>来源：' + esc(sourceLabel) + '</span>'
         + '<span>· ' + (metric.windowed ? '按窗口' : '快照') + '</span>';
       // sampleCount 属于契约元数据，正式卡片不展示；需要时在预览调试区查看。
-      if (metric.navigation) {
-        // 阶段1只声明已核验映射，不开放真实跳转；阶段2验证菜单后再接。
+      if (metric.navigation && metric.navigation.href) {
+        // 只使用经过页面核验的既有菜单入口，不读取服务端 actionPath。
+        foot += '<span class="spacer"></span><a class="ov-link" href="'
+          + esc(metric.navigation.href) + '">' + esc(metric.navigation.label) + '</a>';
+      } else if (metric.navigation) {
         foot += '<span class="spacer"></span><span class="ov-nav-note">'
-          + esc(metric.navigation.label) + '（阶段2开放）</span>';
+          + esc(metric.navigation.label) + '</span>';
       }
       foot += '</div>';
 

@@ -1,7 +1,7 @@
 # 6-03 三端总览前端接入设计与阶段1实现记录
 
 > 版本：0.1｜日期：2026-11-05｜负责人：第 6 组 6A/6B
-> 状态：**阶段1已实现并自测；公共角色 HTML 尚未接入；未创建 PR、未转 Ready、未合并。**
+> 状态：**阶段1、阶段2已本地实现并自测；角色 HTML 已接入；未创建 PR、未转 Ready、未合并；远端发布待完成。**
 > 依据：`main@f21f51d`、PR #32 `six@0624225`、PR #24 `feature/6-01-overview-api@233ee45`。
 > 说明：本文和阶段1 Mock 只证明页面/契约消费行为，不证明真实 HTTP、登录、授权、审计、生产数据或 MySQL。
 
@@ -49,7 +49,7 @@
 | 按 metricCode 映射卡片 | `overview-page.js` 的 `byCode`/`normalizeItem` |
 | 单项违约只降级对应卡片 | `normalizeItem` 返回卡片级 `contract` 状态 |
 | 整体结构违约显示页面错误 | `handleSuccess` 校验 data/items/asOf/window |
-| 阶段1不开放未确认导航 | 学生通知仅显示“阶段2开放”；不读取 `actionPath` 跳转 |
+| 阶段2只开放已核验导航 | 学生通知卡跳既有学生通知菜单；其他入口不点击、不读取 `actionPath` |
 | 所有真实请求入口统一等待登录 | `beginAuth()` + `requestLoad()`；筛选、清除、恢复默认、刷新、BFCache 恢复都不能绕过 |
 | pending 期间只保留最新筛选 | `pendingReload`；登录通过后只请求一次，不重复派发 |
 | 核验失败/超时不能直接请求 | `authState=failed` 时 `requestLoad()` 只显示登录错误；重试走 `retry-auth` 重新核验 |
@@ -79,7 +79,7 @@
 | `student.class.count` | 在修班级范围 | `scopes.size()`，未按教学班去重 | 快照 | 否 |
 | `student.session.active` | 活跃课堂 | RUNNING + PAUSED，不表示一定可加入 | 是 | 否 |
 | `student.assignment.due` | 待办记录 | 端口返回记录条数；空 List 为 NO_DATA，无 OK 0 | 是 | 否 |
-| `student.notice.unread` | 未读通知 | 本人 `unreadCount` | 快照 | 仅声明，阶段2验证后开放 |
+| `student.notice.unread` | 未读通知 | 本人全部未读；目标通知页按当前班级上下文筛选 | 快照 | 已开放既有学生通知菜单 |
 
 ### 4.3 管理员 · 管理总览（5 指标）
 
@@ -243,9 +243,56 @@ node check-overview.js
 - MySQL 8.0.46；
 - 公共外壳下实际挂载（阶段2）。
 
-## 9. 阶段2公共外壳接入清单与风险
+## 9. 阶段2角色页接入（已完成）
 
-待修改：
+### 9.1 挂载与脚本顺序
+
+| 页面 | 菜单注册 | 脚本顺序 |
+| --- | --- | --- |
+| `teacher.html` | `teacher (0,0)` 教学总览；保留 `(0,3)` 公告 | `http → mock → announcement → overview API → ui-kit → view-host → overview-page → teacher/announcements → teacher/overview → 原 shell → role-home` |
+| `student.html` | `student (0,0)` 学习总览；保留 `(0,3)` 通知/公告 | `http → mock → announcement → notice → overview API → ui-kit → view-host → overview-page → student/announcements → student/notices → student/overview → 原 shell → role-home` |
+| `admin.html` | `admin (0,0)` 管理总览、`(0,1)` 待办事项 | `http → mock → overview API → ui-kit → view-host → overview-page → admin/overview → admin/todos → 原 shell → role-home` |
+
+管理员页只新增静态资源、`#viewRoot`、`select()` 中的 `EduViews.mount`；未改菜单、身份、权限、登录、页签和退出逻辑。教师/学生页只追加样式和脚本引用。
+
+### 9.2 学生通知导航与范围
+
+- 通知卡入口：`?g=0&i=3`，即既有学生通知菜单；不读取服务端 `actionPath`。
+- 卡片值来自 `student.notice.unread`，是本人全部未读。
+- 目标通知页当前使用 `EduViews.getBinding()` 的课程—教学班上下文；有 binding 时只显示该范围。
+- 因此卡片文案明确写“本人全部未读；通知页按当前班级上下文显示”，不把两个范围写成同一口径。
+- 其他未实现来源不点击；不替其他组实现页面。
+
+### 9.3 阶段2测试
+
+仓库内脚本：`frontend/tests/overview-stage2.js`（角色 HTML + Playwright 路由夹具）。
+
+覆盖：
+- 教师/学生/管理员总览和管理员待办实际挂载；教师刷新/时间筛选；
+- 登录核验完成前零总览请求、核验失败后重试；
+- 错角色、401、403；
+- 教师公告、学生通知/公告页签、学生角标回归；
+- 管理员非总览占位；
+- 视图切换后迟到响应不写回；
+- 学生通知入口与范围提示；目标通知页继承 binding 时请求带 `bindingId`，卡片仍标注本人全部未读；
+- 390px 总览单列、无溢出，离开总览后移除局部样式类且原外壳无水平溢出；
+- 退出登录。
+
+结果：**41 passed，0 failures**（路由夹具测试，不是真实后端/登录联调）。
+
+截图：
+- `G:\智慧教育全过程\_workspace\stage2-teacher.png`
+- `stage2-student.png`
+- `stage2-admin.png`
+- `stage2-admin-todos.png`
+- `stage2-student-notices.png`
+- `stage2-student-announcements.png`
+- `stage2-student-mobile.png`
+- `stage2-student-notices-390.png`
+
+## 10. 阶段2公共外壳复审清单与风险
+
+已修改，需复审：
 - `frontend/teacher.html`：引入 `overview.css` 和 `teacher/overview.js`；不改登录/菜单/页签。
 - `frontend/student.html`：引入 `overview.css` 和 `student/overview.js`；不改通知角标和 6-02 页面。
 - `frontend/admin.html`：增加 `education-views.css`、`overview.css`、`http.js`、`mock.js`、`ui-kit.js`、`view-host.js`、总览脚本、`#viewRoot`，并在 `select()` 调用 `EduViews.mount`；保留登录/菜单/页签/退出。
@@ -253,11 +300,11 @@ node check-overview.js
 风险：
 - `admin.html` 是公共外壳，需第 1 组/负责人 review；改动只在挂载和静态资源，不重写登录态。
 - `teacher.html`/`student.html` 已有 #32 脚本顺序；追加总览脚本必须保持 `http -> mock -> api -> ui-kit -> view-host -> overview-page -> role config` 顺序。
-- 学生手机局部样式依赖 `body.edu-overview-active`；只在总览挂载期间生效，不影响 #32 页面。
+- 学生手机局部样式依赖 `body.edu-overview-active`；只在总览挂载期间生效，不影响 #32 页面。离开总览后恢复原公共外壳；原学生通知页在外壳层面仍是桌面布局，390px 截图不能作为通知页移动适配结论。
 - 真实环境没有 #24 时，总览显示 404/接口不可用，不能显示 0 或示例数据。
 - #32 若在阶段2前更新，先普通 merge 最新 `six`，复核 `http.js/ui-kit.js/view-host.js` 与三个 HTML 的最终语义。
 
-## 10. 待确认口径
+## 11. 待确认口径
 
 - 默认 UTC 自然日 vs 业务时区/学期；
 - `class.count` 是否按教学班去重；
@@ -273,11 +320,11 @@ node check-overview.js
 
 前端按当前代码口径展示，不自行补算、不修改后端公式、不把建议写成已批准。
 
-## 11. 参考网站
+## 12. 参考网站
 
 `https://nus.zknu.edu.cn/` 本轮只访问到公开登录页（HTTP 200；左侧品牌区、右侧登录卡）；未登录、未提交表单、未执行写操作，没有参考登录后的工作台。设计沿用本项目现有浅色外壳和主色，不复制参考站品牌、数据或内部模块。
 
-## 12. 阶段1停止点
+## 13. 停止点
 
 - 已完成代码、文档和自测；
 - 待普通提交、推送任务分支；
