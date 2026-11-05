@@ -227,10 +227,19 @@
   /**
    * 二次确认。返回 Promise<boolean>；取消或关闭返回 false。
    */
+  /**
+   * 二次确认。返回 Promise<boolean>；取消、关闭或视图 cleanup 调用
+   * promise.close() 都返回 false，且只结算一次。
+   *
+   * @param {{title?:string,message?:string,confirmText?:string,danger?:boolean}} options
+   * @returns {Promise<boolean> & {close:Function}} 可主动关闭的确认 Promise
+   */
   function confirm(options) {
     var opts = options || {};
-    return new Promise(function (resolve) {
+    var closeFn = null;
+    var promise = new Promise(function (resolve) {
       var overlay = document.createElement('div');
+      var settled = false;
       overlay.className = 'edu-overlay';
       overlay.innerHTML = '<div class="edu-dialog" role="dialog" aria-modal="true">'
         + '<p class="edu-dialog-title">' + esc(opts.title || '请确认') + '</p>'
@@ -242,11 +251,16 @@
         + '</div></div>';
       document.body.appendChild(overlay);
       function close(result) {
+        if (settled) {
+          return;
+        }
+        settled = true;
         if (overlay.parentNode) {
           overlay.parentNode.removeChild(overlay);
         }
         resolve(result);
       }
+      closeFn = close;
       overlay.querySelector('[data-role="cancel"]').addEventListener('click', function () { close(false); });
       overlay.querySelector('[data-role="ok"]').addEventListener('click', function () { close(true); });
       overlay.addEventListener('click', function (event) {
@@ -255,6 +269,12 @@
         }
       });
     });
+    promise.close = function () {
+      if (closeFn) {
+        closeFn(false);
+      }
+    };
+    return promise;
   }
 
   function openDialog(html) {

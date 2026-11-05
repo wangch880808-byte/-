@@ -50,8 +50,15 @@
       pageSize: 10,
       total: 0,
       rows: [],
+      listSeq: 0,
+      unreadSeq: 0,
+      detailSeq: 0,
+      dialogs: [],
+      confirms: [],
       announcementChild: null,
-      pendingAnnouncementId: null
+      pendingAnnouncementId: null,
+      disposed: false,
+      authFailure: false
     };
 
     root.innerHTML = '<div class="edu-page">'
@@ -76,6 +83,32 @@
 
     var toolbar = root.querySelector('#eduNoticeToolbar');
     var region = root.querySelector('#eduNoticeRegion');
+    var gate = null;
+
+    function showAuthFailure() {
+      if (state.disposed) {
+        return;
+      }
+      state.authFailure = true;
+      root.querySelector('#eduUnreadCount').textContent = '—';
+      region.innerHTML = UI.stateEmpty(
+        '登录状态核验失败',
+        '未读取通知数据。请刷新页面或重新登录后再试。',
+        '<button type="button" class="edu-btn" data-action="retry-auth">重新核验登录</button>'
+      );
+    }
+
+    function showAuthPending() {
+      if (state.disposed) {
+        return;
+      }
+      region.innerHTML = UI.stateLoading('正在核验登录状态…');
+    }
+
+    gate = Views.createAuthGate({
+      onPending: showAuthPending,
+      onFailure: showAuthFailure
+    });
 
     root.querySelectorAll('[data-tab]').forEach(function (button) {
       button.addEventListener('click', function () {
@@ -86,44 +119,59 @@
     root.querySelector('#eduKindFilter').addEventListener('change', function (event) {
       state.kind = event.target.value;
       state.pageNum = 1;
-      loadNotices();
+      gate.request(loadNotices);
     });
 
     root.querySelector('#eduUnreadOnly').addEventListener('change', function (event) {
       state.unreadOnly = event.target.checked;
       state.pageNum = 1;
-      loadNotices();
+      gate.request(loadNotices);
     });
 
-    root.addEventListener('click', function (event) {
+    function onRootClick(event) {
       var trigger = event.target.closest('[data-action]');
       if (!trigger) {
         return;
       }
       var action = trigger.getAttribute('data-action');
       if (action === 'refresh') {
-        loadNotices();
-        loadUnread();
+        gate.request(function () {
+          loadNotices();
+          loadUnread();
+        });
       } else if (action === 'retry') {
-        loadNotices();
+        gate.request(loadNotices);
+      } else if (action === 'retry-auth') {
+        gate.retry(function () {
+          loadNotices();
+          loadUnread();
+        });
       } else if (action === 'mark-all') {
-        markAll();
+        gate.request(markAll);
       } else if (action === 'detail') {
-        openDetail(trigger.getAttribute('data-id'));
+        gate.request(function () {
+          openDetail(trigger.getAttribute('data-id'));
+        });
       } else if (action === 'page') {
         var page = parseInt(trigger.getAttribute('data-page'), 10);
         if (page >= 1) {
           state.pageNum = page;
-          loadNotices();
+          gate.request(loadNotices);
         }
       }
-    });
+    }
+
+    root.addEventListener('click', onRootClick);
 
     function switchTab(tab) {
       if (state.tab === tab) {
         return;
       }
       state.tab = tab;
+      // 页签切换会使旧通知列表/未读响应失效，不能写进新页签区域。
+      state.listSeq++;
+      state.unreadSeq++;
+      state.detailSeq++;
       root.querySelectorAll('[data-tab]').forEach(function (button) {
         button.classList.toggle('active', button.getAttribute('data-tab') === tab);
       });
@@ -131,8 +179,10 @@
       disposeChild();
       region.innerHTML = '';
       if (tab === 'notices') {
-        loadNotices();
-        loadUnread();
+        gate.request(function () {
+          loadNotices();
+          loadUnread();
+        });
       } else {
         mountAnnouncements();
       }
@@ -162,30 +212,61 @@
     }
 
     function loadUnread() {
+      if (state.disposed) {
+        return;
+      }
       var label = root.querySelector('#eduUnreadCount');
+      var ticket = ++state.unreadSeq;
       label.textContent = '…';
-      API.unreadCount(Views.getBinding()).then(function (result) {
+      Promise.resolve().then(function () {
+        if (state.disposed || ticket !== state.unreadSeq) {
+          return null;
+        }
+        return API.unreadCount(Views.getBinding());
+      }).then(function (result) {
+        if (result === null || state.disposed || ticket !== state.unreadSeq) {
+          return;
+        }
         var count = result && result.data ? result.data.unreadCount : null;
         label.textContent = typeof count === 'number' ? String(count) : '—';
         refreshBadge();
       }).catch(function () {
+        if (state.disposed || ticket !== state.unreadSeq) {
+          return;
+        }
         label.textContent = '不可用';
       });
     }
 
     function loadNotices() {
+      if (state.disposed) {
+        return;
+      }
+      var ticket = ++state.listSeq;
+      state.authFailure = false;
       region.innerHTML = UI.stateLoading('正在读取通知…');
-      API.list({
-        kind: state.kind,
-        bindingId: Views.getBinding(),
-        unreadOnly: state.unreadOnly,
-        pageNum: state.pageNum,
-        pageSize: state.pageSize
+      Promise.resolve().then(function () {
+        if (state.disposed || ticket !== state.listSeq) {
+          return null;
+        }
+        return API.list({
+          kind: state.kind,
+          bindingId: Views.getBinding(),
+          unreadOnly: state.unreadOnly,
+          pageNum: state.pageNum,
+          pageSize: state.pageSize
+        });
       }).then(function (result) {
+        if (result === null || state.disposed || ticket !== state.listSeq) {
+          return;
+        }
         state.total = typeof result.total === 'number' ? result.total : 0;
         state.rows = Array.isArray(result.rows) ? result.rows : [];
         renderNotices();
       }).catch(function (error) {
+        if (state.disposed || ticket !== state.listSeq) {
+          return;
+        }
         region.innerHTML = UI.stateError(error, {
           title: '通知读取失败',
           onRetry: true,
@@ -222,36 +303,67 @@
     }
 
     function markAll() {
-      UI.confirm({
+      if (state.disposed || !gate.isReady()) {
+        return;
+      }
+      var confirmPromise = UI.confirm({
         title: '全部标为已读',
-        message: '将把本人当前所有可见的未读通知标记为已读，不受当前筛选和分页限制。',
+        message: '将标记本人所有教学班当前可见的未读通知，包括其他教学班，不受当前筛选和分页限制。',
         confirmText: '确认'
-      }).then(function (ok) {
-        if (!ok) {
+      });
+      state.confirms.push(confirmPromise);
+      confirmPromise.then(function (ok) {
+        if (!ok || state.disposed) {
           return;
         }
-        API.markAllRead().then(function (result) {
+        Promise.resolve().then(function () {
+          if (state.disposed) {
+            return null;
+          }
+          return API.markAllRead();
+        }).then(function (result) {
+          if (result === null || state.disposed) {
+            return;
+          }
           var data = result.data || {};
           var marked = typeof data.markedCount === 'number' ? data.markedCount : 0;
           UI.toast(marked > 0 ? '已标记 ' + marked + ' 条为已读' : '没有需要标记的通知', marked > 0 ? 'ok' : 'info');
-          loadNotices();
-          loadUnread();
+          gate.request(function () {
+            loadNotices();
+            loadUnread();
+          });
         }).catch(function (error) {
+          if (state.disposed) {
+            return;
+          }
           UI.toast(error.message, 'error');
         });
       });
     }
 
     function openDetail(noticeId) {
+      if (state.disposed) {
+        return;
+      }
+      var ticket = ++state.detailSeq;
       var dialog = UI.openDialog('<p class="edu-dialog-title">通知详情</p>'
         + '<div id="eduNoticeDetailBody">' + UI.stateLoading('正在读取通知…') + '</div>'
         + '<div class="edu-dialog-actions">'
         + '<button type="button" class="edu-btn" data-role="close">关闭</button>'
         + '</div>');
+      state.dialogs.push(dialog);
       dialog.root.querySelector('[data-role="close"]').addEventListener('click', dialog.close);
       var body = dialog.root.querySelector('#eduNoticeDetailBody');
 
-      API.detail(noticeId).then(function (result) {
+      Promise.resolve().then(function () {
+        if (state.disposed || ticket !== state.detailSeq) {
+          return null;
+        }
+        return API.detail(noticeId);
+      }).then(function (result) {
+        if (result === null || state.disposed || ticket !== state.detailSeq) {
+          return;
+        }
         var item = result.data || {};
         body.innerHTML = '<p class="edu-detail-title">' + UI.esc(item.title) + '</p>'
           + '<p class="edu-detail-meta"><span class="edu-tag">' + UI.esc(UI.kindLabel(item.kind)) + '</span>'
@@ -268,22 +380,39 @@
         var markButton = body.querySelector('[data-role="mark-read"]');
         if (markButton) {
           markButton.addEventListener('click', function () {
+            if (state.disposed || ticket !== state.detailSeq || !gate.isReady()) {
+              return;
+            }
             markButton.disabled = true;
-            API.markRead(noticeId).then(function () {
-              // 不依赖 alreadyRead / readAt 做前端推算：成功后统一重拉列表与未读数，
-              // 以服务端返回的状态为准（学长 2026-11-03 确认的使用方式）。
+            Promise.resolve().then(function () {
+              if (state.disposed || ticket !== state.detailSeq) {
+                return null;
+              }
+              return API.markRead(noticeId);
+            }).then(function (result) {
+              if (result === null || state.disposed || ticket !== state.detailSeq) {
+                return;
+              }
+              // 不依赖 alreadyRead / readAt 做前端推算：成功后统一重拉列表与未读数。
               UI.toast('已标记为已读', 'ok');
               dialog.close();
-              loadNotices();
-              loadUnread();
+              gate.request(function () {
+                loadNotices();
+                loadUnread();
+              });
             }).catch(function (error) {
+              if (state.disposed || ticket !== state.detailSeq) {
+                return;
+              }
               markButton.disabled = false;
               if (error.isNotFound()) {
                 // 仅当通知仍可见时重复请求才返回原 readAt；退班或内容不可见时可能 404。
                 UI.toast('该通知已不可见：可能已退出该班级，或来源内容已下架', 'info');
                 dialog.close();
-                loadNotices();
-                loadUnread();
+                gate.request(function () {
+                  loadNotices();
+                  loadUnread();
+                });
                 return;
               }
               UI.toast(error.message, 'error');
@@ -294,12 +423,18 @@
         var sourceButton = body.querySelector('[data-role="open-source"]');
         if (sourceButton) {
           sourceButton.addEventListener('click', function () {
+            if (state.disposed) {
+              return;
+            }
             dialog.close();
             state.pendingAnnouncementId = item.sourceId;
             switchTab('announcements');
           });
         }
       }).catch(function (error) {
+        if (state.disposed || ticket !== state.detailSeq) {
+          return;
+        }
         body.innerHTML = UI.stateError(error, {
           title: '通知打开失败',
           notFoundHint: '通知不存在或当前不可访问：可能属于他人、尚未可见，或你已退出该班级。'
@@ -307,12 +442,29 @@
       });
     }
 
-    loadNotices();
-    loadUnread();
+    gate.request(function () {
+      loadNotices();
+      loadUnread();
+    });
 
     return {
       cleanup: function () {
+        state.disposed = true;
+        state.listSeq++;
+        state.unreadSeq++;
+        state.detailSeq++;
+        root.removeEventListener('click', onRootClick);
+        state.confirms.forEach(function (confirmPromise) {
+          confirmPromise.close();
+        });
+        state.confirms = [];
+        state.dialogs.forEach(function (dialog) {
+          dialog.close();
+        });
+        state.dialogs = [];
         disposeChild();
+        gate.cleanup();
+        root.innerHTML = '';
       }
     };
   }

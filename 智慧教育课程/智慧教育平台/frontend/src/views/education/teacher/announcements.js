@@ -36,7 +36,13 @@
       total: 0,
       rows: [],
       submitting: false,
-      detailDialog: null
+      listSeq: 0,
+      detailSeq: 0,
+      formSeq: 0,
+      dialogs: [],
+      confirms: [],
+      bindingCleanup: null,
+      disposed: false
     };
 
     root.innerHTML = '<div class="edu-page">'
@@ -59,47 +65,83 @@
       + '</div>';
 
     var region = root.querySelector('#eduListRegion');
+    var gate = null;
 
-    Views.wireBindingField(root, function (value) {
+    function showAuthFailure() {
+      if (state.disposed) {
+        return;
+      }
+      region.innerHTML = UI.stateEmpty(
+        '登录状态核验失败',
+        '未读取公告数据。请刷新页面或重新登录后再试。',
+        '<button type="button" class="edu-btn" data-action="retry-auth">重新核验登录</button>'
+      );
+    }
+
+    function showAuthPending() {
+      if (state.disposed) {
+        return;
+      }
+      region.innerHTML = UI.stateLoading('正在核验登录状态…');
+    }
+
+    gate = Views.createAuthGate({
+      onPending: showAuthPending,
+      onFailure: showAuthFailure
+    });
+
+    state.bindingCleanup = Views.wireBindingField(root, function (value) {
       state.bindingId = value;
       state.pageNum = 1;
-      load();
+      gate.request(load);
     });
 
     root.querySelector('#eduStatusFilter').addEventListener('change', function (event) {
       state.status = event.target.value;
       state.pageNum = 1;
-      load();
+      gate.request(load);
     });
 
-    root.addEventListener('click', function (event) {
+    function onRootClick(event) {
       var trigger = event.target.closest('[data-action]');
       if (!trigger) {
         return;
       }
       var action = trigger.getAttribute('data-action');
-      if (action === 'refresh') {
-        load();
+      if (action === 'refresh' || action === 'retry') {
+        gate.request(load);
+      } else if (action === 'retry-auth') {
+        gate.retry(load);
       } else if (action === 'create') {
-        openForm(null);
-      } else if (action === 'retry') {
-        load();
+        gate.request(function () {
+          openForm(null);
+        });
       } else if (action === 'page') {
         var page = parseInt(trigger.getAttribute('data-page'), 10);
         if (page >= 1) {
           state.pageNum = page;
-          load();
+          gate.request(load);
         }
       } else if (action === 'detail') {
-        openDetail(trigger.getAttribute('data-id'));
+        gate.request(function () {
+          openDetail(trigger.getAttribute('data-id'));
+        });
       } else if (action === 'edit') {
-        openForm(trigger.getAttribute('data-id'));
+        gate.request(function () {
+          openForm(trigger.getAttribute('data-id'));
+        });
       } else if (action === 'publish') {
-        changeState(trigger.getAttribute('data-id'), 'publish');
+        gate.request(function () {
+          changeState(trigger.getAttribute('data-id'), 'publish');
+        });
       } else if (action === 'archive') {
-        changeState(trigger.getAttribute('data-id'), 'archive');
+        gate.request(function () {
+          changeState(trigger.getAttribute('data-id'), 'archive');
+        });
       }
-    });
+    }
+
+    root.addEventListener('click', onRootClick);
 
     function needBinding() {
       region.innerHTML = UI.stateEmpty(
@@ -110,21 +152,40 @@
     }
 
     function load() {
+      if (state.disposed) {
+        return;
+      }
       if (!state.bindingId) {
         needBinding();
         return;
       }
+      var ticket = ++state.listSeq;
       region.innerHTML = UI.stateLoading('正在读取公告…');
-      API.list({
-        bindingId: state.bindingId,
-        status: state.status,
-        pageNum: state.pageNum,
-        pageSize: state.pageSize
+
+      // 排队微任务真正调用 API 前再次检查代际；cleanup/pagehide 后不再派发。
+      Promise.resolve().then(function () {
+        if (state.disposed || ticket !== state.listSeq) {
+          return null;
+        }
+        return API.list({
+          bindingId: state.bindingId,
+          status: state.status,
+          pageNum: state.pageNum,
+          pageSize: state.pageSize
+        });
       }).then(function (result) {
+        if (result === null || state.disposed || ticket !== state.listSeq) {
+          return;
+        }
         state.total = typeof result.total === 'number' ? result.total : 0;
         state.rows = Array.isArray(result.rows) ? result.rows : [];
         renderList();
-      }).catch(renderError);
+      }).catch(function (error) {
+        if (state.disposed || ticket !== state.listSeq) {
+          return;
+        }
+        renderError(error);
+      });
     }
 
     function renderError(error) {
@@ -173,13 +234,26 @@
     }
 
     function openDetail(announcementId) {
+      if (state.disposed) {
+        return;
+      }
+      var ticket = ++state.detailSeq;
       var dialog = UI.openDialog('<p class="edu-dialog-title">公告详情</p><div id="eduDetailBody">'
         + UI.stateLoading('正在读取公告…') + '</div>'
         + '<div class="edu-dialog-actions"><button type="button" class="edu-btn" data-role="close">关闭</button></div>');
+      state.dialogs.push(dialog);
       dialog.root.querySelector('[data-role="close"]').addEventListener('click', dialog.close);
       var body = dialog.root.querySelector('#eduDetailBody');
 
-      API.detail(announcementId).then(function (result) {
+      Promise.resolve().then(function () {
+        if (state.disposed || ticket !== state.detailSeq) {
+          return null;
+        }
+        return API.detail(announcementId);
+      }).then(function (result) {
+        if (result === null || state.disposed || ticket !== state.detailSeq) {
+          return;
+        }
         var item = result.data || {};
         body.innerHTML = '<p class="edu-detail-title">' + UI.esc(item.title) + '</p>'
           + '<p class="edu-detail-meta">' + UI.statusBadge(item)
@@ -191,6 +265,9 @@
           + '<span>创建人：' + UI.esc(item.createdByUserId) + '</span>'
           + '<span>发布人：' + UI.esc(item.publishedByUserId || '—') + '</span></p>';
       }).catch(function (error) {
+        if (state.disposed || ticket !== state.detailSeq) {
+          return;
+        }
         body.innerHTML = UI.stateError(error, {
           title: '公告详情读取失败',
           notFoundHint: '公告不存在、不属于当前班级，或当前账号不可查看。'
@@ -199,26 +276,42 @@
     }
 
     function changeState(announcementId, action) {
+      if (state.disposed) {
+        return;
+      }
       var isPublish = action === 'publish';
-      UI.confirm({
+      var confirmPromise = UI.confirm({
         title: isPublish ? '发布公告' : '归档公告',
         message: isPublish
-          ? '发布后本班学生在开放时间内即可查看；当前版本不生成站内通知。'
+          ? '发布后本班学生在开放时间内即可查看。'
           : '归档后学生不再可见；已发布状态不可恢复。',
         confirmText: isPublish ? '发布' : '归档',
         danger: !isPublish
-      }).then(function (ok) {
-        if (!ok) {
+      });
+      state.confirms.push(confirmPromise);
+      confirmPromise.then(function (ok) {
+        if (!ok || state.disposed) {
           return;
         }
-        var request = isPublish ? API.publish(announcementId) : API.archive(announcementId);
-        request.then(function () {
+        // 已发出的写请求可能已在服务端执行；cleanup 只能阻止旧视图继续派发和写 UI。
+        Promise.resolve().then(function () {
+          if (state.disposed) {
+            return null;
+          }
+          return isPublish ? API.publish(announcementId) : API.archive(announcementId);
+        }).then(function (result) {
+          if (result === null || state.disposed) {
+            return;
+          }
           UI.toast(isPublish ? '已发布' : '已归档', 'ok');
-          load();
+          gate.request(load);
         }).catch(function (error) {
+          if (state.disposed) {
+            return;
+          }
           if (error.isConflict()) {
             UI.toast('状态已变化，请刷新后重试', 'warn');
-            load();
+            gate.request(load);
             return;
           }
           UI.toast(error.message, 'error');
@@ -227,7 +320,11 @@
     }
 
     function openForm(announcementId) {
+      if (state.disposed) {
+        return;
+      }
       var editing = Boolean(announcementId);
+      var formTicket = ++state.formSeq;
       var dialog = UI.openDialog('<p class="edu-dialog-title">' + (editing ? '编辑公告草稿' : '新建公告草稿') + '</p>'
         + '<div class="edu-form">'
         + '<label class="edu-field"><span>标题</span><input id="eduFormTitle" maxlength="200" type="text" placeholder="1–200 字"></label>'
@@ -244,6 +341,7 @@
         + '<button type="button" class="edu-btn" data-role="close">取消</button>'
         + '<button type="button" class="edu-btn edu-btn-primary" data-role="submit">' + (editing ? '保存' : '保存草稿') + '</button>'
         + '</div>');
+      state.dialogs.push(dialog);
 
       var titleInput = dialog.root.querySelector('#eduFormTitle');
       var bodyInput = dialog.root.querySelector('#eduFormBody');
@@ -260,18 +358,31 @@
         countLabel.classList.toggle('over', codePoints > 20000 || bytes > 65535);
       }
 
+      function closeForm() {
+        state.formSeq++;
+        dialog.close();
+      }
+
       bodyInput.addEventListener('input', updateCount);
       updateCount();
-      dialog.root.querySelector('[data-role="close"]').addEventListener('click', dialog.close);
+      dialog.root.querySelector('[data-role="close"]').addEventListener('click', closeForm);
 
       if (editing) {
         submitButton.disabled = true;
-        API.detail(announcementId).then(function (result) {
+        Promise.resolve().then(function () {
+          if (state.disposed || formTicket !== state.formSeq) {
+            return null;
+          }
+          return API.detail(announcementId);
+        }).then(function (result) {
+          if (result === null || state.disposed || formTicket !== state.formSeq) {
+            return;
+          }
           var item = result.data || {};
           if (item.status !== 'DRAFT') {
-            dialog.close();
+            closeForm();
             UI.toast('仅草稿可以编辑，请刷新列表', 'warn');
-            load();
+            gate.request(load);
             return;
           }
           titleInput.value = item.title || '';
@@ -282,6 +393,9 @@
           submitButton.disabled = false;
           titleInput.focus();
         }).catch(function (error) {
+          if (state.disposed || formTicket !== state.formSeq) {
+            return;
+          }
           errorLabel.hidden = false;
           errorLabel.textContent = error.message;
           submitButton.disabled = false;
@@ -291,7 +405,7 @@
       }
 
       submitButton.addEventListener('click', function () {
-        if (state.submitting) {
+        if (state.submitting || state.disposed || formTicket !== state.formSeq || !gate.isReady()) {
           return;
         }
         var title = titleInput.value.trim();
@@ -326,25 +440,34 @@
         submitButton.textContent = '提交中…';
 
         var payload = { title: title, body: bodyText, opensAt: opensAt, closesAt: closesAt };
-        var request = editing
-          ? API.update(announcementId, payload)
-          : API.create({
-            bindingId: state.bindingId,
-            title: payload.title,
-            body: payload.body,
-            opensAt: payload.opensAt,
-            closesAt: payload.closesAt
-          });
-
-        request.then(function (result) {
+        Promise.resolve().then(function () {
+          if (state.disposed || formTicket !== state.formSeq) {
+            return null;
+          }
+          return editing
+            ? API.update(announcementId, payload)
+            : API.create({
+              bindingId: state.bindingId,
+              title: payload.title,
+              body: payload.body,
+              opensAt: payload.opensAt,
+              closesAt: payload.closesAt
+            });
+        }).then(function (result) {
+          if (result === null || state.disposed || formTicket !== state.formSeq) {
+            return;
+          }
           state.submitting = false;
-          dialog.close();
+          closeForm();
           UI.toast(editing ? '草稿已保存' : '草稿已创建，可继续发布', 'ok');
           if (!editing && result && result.data && result.data.id) {
             state.pageNum = 1;
           }
-          load();
+          gate.request(load);
         }).catch(function (error) {
+          if (state.disposed || formTicket !== state.formSeq) {
+            return;
+          }
           state.submitting = false;
           submitButton.disabled = false;
           submitButton.textContent = editing ? '保存' : '保存草稿';
@@ -353,7 +476,7 @@
             errorLabel.textContent = error.message + '（需要权限 ' + (editing ? PERM.edit : PERM.add) + '）';
           } else if (error.isConflict()) {
             errorLabel.textContent = '状态已变化，请刷新后重试';
-            load();
+            gate.request(load);
           } else {
             errorLabel.textContent = error.message;
           }
@@ -361,13 +484,31 @@
       });
     }
 
-    load();
+    gate.request(function () {
+      load();
+    });
 
     return {
       cleanup: function () {
-        if (state.detailDialog) {
-          state.detailDialog.close();
+        state.disposed = true;
+        state.listSeq++;
+        state.detailSeq++;
+        state.formSeq++;
+        if (state.bindingCleanup) {
+          state.bindingCleanup();
+          state.bindingCleanup = null;
         }
+        root.removeEventListener('click', onRootClick);
+        state.confirms.forEach(function (confirmPromise) {
+          confirmPromise.close();
+        });
+        state.confirms = [];
+        state.dialogs.forEach(function (dialog) {
+          dialog.close();
+        });
+        state.dialogs = [];
+        gate.cleanup();
+        root.innerHTML = '';
       }
     };
   }
