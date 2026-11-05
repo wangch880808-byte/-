@@ -59,6 +59,15 @@ frontend/src/
 - 离线自测：`mock-preview.html`（免登录免后端），或在运行页加 `?mock=1`。
 - 详细接口对照、状态处理与阻塞项见 [6-02 前端接口接入说明](../docs/6-02-frontend-integration.md)。
 
+## 6-03 三端总览（阶段1）
+
+`src/api/education/overview.js`、`src/components/education/overview-page.js`、三端 `overview.js`、管理员 `todos.js` 和 `overview.css` 已落地；四页尚未挂到 `teacher.html`、`student.html`、`admin.html`，阶段2再做公共外壳接入。
+
+- 页面自测：`overview-preview.html`（显式内存 Mock，不连后端、不校验登录、不写 sessionStorage/bindingId）。
+- 预设场景：正常、真实零、NO_DATA、UNAVAILABLE、混合、缺指标、非法值、空 items、缺 data、401/403/400/404/500/网络、管理员待办失败/非法 OK 0。
+- 总览只消费 #24 当前 16 个指标；不补算、不读其他组表、不把失败写成 0。
+- 详细设计与验证见 [6-03 总览前端设计](../docs/6-03-overview-frontend-design.md)。
+
 ## 课堂体验边界
 
 - 教师控制台同屏容纳 PPT、活动入口和私有反馈，避免签到/答题/讲课反复跳页。

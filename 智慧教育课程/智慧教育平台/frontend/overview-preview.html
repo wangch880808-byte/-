@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>6-03 总览页面自测（Mock）</title>
+<link rel="stylesheet" href="src/views/education/education-views.css">
+<link rel="stylesheet" href="src/views/education/overview.css">
+<style>
+  body.preview-page {
+    margin: 0;
+    padding: 0 20px 40px;
+    background: #f5f7fa;
+    color: #333;
+    font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+  }
+  .preview-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    padding: 16px 0; border-bottom: 1px solid #e5e8ef; margin-bottom: 12px;
+  }
+  .preview-head h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .preview-head .tag {
+    padding: 2px 8px; font-size: 11px; color: #ad6800;
+    background: #fffbe6; border: 1px solid #ffe58f; border-radius: 10px;
+  }
+  .preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .preview-controls label { font-size: 12px; color: #595959; }
+  .preview-controls select {
+    padding: 5px 8px; font: inherit; font-size: 13px; color: #333;
+    background: #fff; border: 1px solid #d9d9d9; border-radius: 4px;
+  }
+  .preview-controls button {
+    padding: 5px 10px; font: inherit; font-size: 12px; color: #555;
+    background: #fff; border: 1px solid #d9d9d9; border-radius: 4px; cursor: pointer;
+  }
+  .preview-warning {
+    margin: 0 0 12px; padding: 10px 12px; font-size: 12px; line-height: 1.7;
+    color: #614700; background: #fffbe6; border-left: 3px solid #faad14;
+  }
+  .preview-stage {
+    background: #fff; border: 1px solid #e5e8ef; border-radius: 8px;
+    padding: 8px 16px 16px; min-height: 420px;
+  }
+  /* 预览页已有一条固定警示条，隐藏 Mock 全局浮标，避免遮挡表单/卡片。 */
+  body.preview-page .edu-mock-banner { display: none; }
+  .preview-stage .content {
+    display: block; margin: 0; padding: 0; min-height: 0; overflow: visible;
+  }
+  .preview-stats { margin: 0 0 8px; font-size: 12px; color: #8c8c8c; }
+  .preview-debug {
+    margin-top: 14px; padding: 12px 14px; background: #fff;
+    border: 1px solid #e5e8ef; border-radius: 8px;
+  }
+  .preview-debug h2 { margin: 0 0 8px; font-size: 14px; color: #262626; }
+  .preview-debug pre {
+    max-height: 280px; overflow: auto; padding: 10px;
+    font-size: 11px; line-height: 1.5; color: #333; background: #fafafa;
+    border: 1px solid #f0f0f0; border-radius: 4px; white-space: pre-wrap; word-break: break-all;
+  }
+  .preview-debug table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+  .preview-debug th, .preview-debug td { padding: 4px 6px; border-bottom: 1px solid #f0f0f0; text-align: left; }
+  .preview-debug th { color: #8c8c8c; font-weight: 500; background: #fafafa; }
+  .preview-debug .debug-meta { font-size: 11px; color: #8c8c8c; margin-bottom: 6px; }
+  @media (max-width: 760px) {
+    body.preview-page { padding: 0 10px 30px; }
+    .preview-stage { padding: 6px 8px 12px; }
+    .preview-head { padding: 12px 0; }
+  }
+</style>
+</head>
+<body class="preview-page">
+
+<div class="preview-head">
+  <h1>6-03 总览页面自测</h1>
+  <span class="tag">Mock 演示数据</span>
+  <div class="preview-controls">
+    <label>页面
+      <select id="roleSelect">
+        <option value="teacher">教师 · 教学总览</option>
+        <option value="student">学生 · 学习总览</option>
+        <option value="admin">管理员 · 管理总览</option>
+        <option value="adminTodos">管理员 · 待办事项</option>
+      </select>
+    </label>
+    <label>场景
+      <select id="scenarioSelect">
+        <option value="normal">正常</option>
+        <option value="zero">真实零</option>
+        <option value="nodata">暂无数据</option>
+        <option value="unavailable">暂不可用</option>
+        <option value="mixed">混合</option>
+        <option value="missing">缺指标</option>
+        <option value="invalid">非法状态/value</option>
+        <option value="empty-items">空 items</option>
+        <option value="missing-data">缺 data</option>
+        <option value="error401">401</option>
+        <option value="error403">403</option>
+        <option value="error400">400</option>
+        <option value="error404">404</option>
+        <option value="error500">500</option>
+        <option value="network">网络异常</option>
+        <option value="adminTodoOkZero">管理员待办非法 OK 0</option>
+        <option value="adminTodosError">管理员待办失败</option>
+      </select>
+    </label>
+    <button type="button" id="reloadBtn">重新加载</button>
+    <label><input type="checkbox" id="debugToggle"> 显示调试信息</label>
+  </div>
+</div>
+
+<p class="preview-warning">
+  本页只用于页面自测：显式开启内存 Mock，不连接后端，不校验登录，不写 sessionStorage，
+  不修改真实教学班上下文，也不代表真实接口、权限或联调结论。真实页面不会自动进入 Mock；
+  未覆盖的 Mock 路径直接报错，真实失败不会回落到 Mock。
+</p>
+
+<div class="preview-stage">
+  <div class="content view-active" id="previewContent">
+    <div id="viewRoot"></div>
+  </div>
+</div>
+
+<p class="preview-stats" id="previewStats">尚未加载。</p>
+
+<div class="preview-debug" id="debugPanel" hidden>
+  <h2>调试信息（仅预览页，不进入正式卡片）</h2>
+  <div class="debug-meta" id="debugMeta">—</div>
+  <table id="debugTable">
+    <thead><tr><th>metricCode</th><th>status</th><th>value</th><th>source</th><th>sampleCount</th><th>actionPath</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="debug-meta">原始响应：</p>
+  <pre id="debugRaw">—</pre>
+</div>
+
+<script src="src/api/education/http.js"></script>
+<script src="src/api/education/mock.js"></script>
+<script src="src/api/education/overview.js"></script>
+<script src="src/views/education/ui-kit.js"></script>
+<script src="src/views/education/view-host.js"></script>
+<script src="src/components/education/overview-page.js"></script>
+<script src="src/views/education/teacher/overview.js"></script>
+<script src="src/views/education/student/overview.js"></script>
+<script src="src/views/education/admin/overview.js"></script>
+<script src="src/views/education/admin/todos.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // memoryOnly：只影响当前页面；不写 sessionStorage，不改真实 bindingId。
+  window.EduMock.enable({ memoryOnly: true, preserveBinding: true });
+  window.EduMock.setOverviewScenario('normal');
+
+  var roleSelect = document.getElementById('roleSelect');
+  var scenarioSelect = document.getElementById('scenarioSelect');
+  var debugToggle = document.getElementById('debugToggle');
+  var debugPanel = document.getElementById('debugPanel');
+  var debugMeta = document.getElementById('debugMeta');
+  var debugRaw = document.getElementById('debugRaw');
+  var debugBody = document.querySelector('#debugTable tbody');
+  var stats = document.getElementById('previewStats');
+  var currentRole = 'teacher';
+  var lastSnapshot = null;
+
+  var VIEW_INDEX = {
+    teacher: [0, 0],
+    student: [0, 0],
+    admin: [0, 0],
+    adminTodos: [0, 1]
+  };
+
+  var ROLE_LABEL = {
+    teacher: '教师 · 教学总览',
+    student: '学生 · 学习总览',
+    admin: '管理员 · 管理总览',
+    adminTodos: '管理员 · 待办事项'
+  };
+
+  function renderDebug(snapshot) {
+    if (!snapshot) {
+      return;
+    }
+    lastSnapshot = snapshot;
+    if (!debugToggle.checked) {
+      return;
+    }
+    debugMeta.textContent = [
+      snapshot.status || '—',
+      'endpoint=' + (snapshot.endpoint || '—'),
+      'query=' + JSON.stringify(snapshot.query || null)
+    ].join(' · ');
+    debugBody.innerHTML = '';
+    var response = snapshot.response;
+    if (response && response.data && Array.isArray(response.data.items)) {
+      response.data.items.forEach(function (item) {
+        var tr = document.createElement('tr');
+        [item.metricCode, item.status, item.value, item.source, item.sampleCount, item.actionPath]
+          .forEach(function (value) {
+            var td = document.createElement('td');
+            td.textContent = value === null || value === undefined ? 'null' : String(value);
+            tr.appendChild(td);
+          });
+        debugBody.appendChild(tr);
+      });
+    }
+    debugRaw.textContent = response ? JSON.stringify(response, null, 2)
+      : (snapshot.error ? JSON.stringify(snapshot.error, null, 2) : '—');
+  }
+
+  window.EduOverviewPage.onDebug = renderDebug;
+
+  function mount() {
+    var index = VIEW_INDEX[currentRole];
+    // 管理员待办注册在 admin 菜单 (0,1)，不是独立 adminTodos 角色。
+    var mountRole = currentRole === 'adminTodos' ? 'admin' : currentRole;
+    var mounted = window.EduViews.mount(mountRole, index[0], index[1], ROLE_LABEL[currentRole]);
+    stats.textContent = mounted
+      ? '已挂载：' + ROLE_LABEL[currentRole] + ' · 场景 ' + scenarioSelect.value
+      : '未挂载：' + ROLE_LABEL[currentRole] + '（视图未注册）';
+  }
+
+  roleSelect.addEventListener('change', function () {
+    currentRole = roleSelect.value;
+    mount();
+  });
+
+  scenarioSelect.addEventListener('change', function () {
+    window.EduMock.setOverviewScenario(scenarioSelect.value);
+    mount();
+  });
+
+  document.getElementById('reloadBtn').addEventListener('click', function () {
+    window.EduMock.setOverviewScenario(scenarioSelect.value);
+    mount();
+  });
+
+  debugToggle.addEventListener('change', function () {
+    debugPanel.hidden = !debugToggle.checked;
+    if (debugToggle.checked && lastSnapshot) {
+      renderDebug(lastSnapshot);
+    }
+  });
+
+  mount();
+})();
+</script>
+</body>
+</html>
