@@ -31,7 +31,7 @@ node frontend/tests/overview-stage1.js
 - `OVERVIEW_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8125`。
 - 测试页：`overview-stage1.html`，使用假 `EduHttp`，不连接后端、不校验真实登录、不发送真实请求。
 - 测试 context 固定 `timezoneId: 'Asia/Shanghai'`，避免依赖执行机器时区。
-- 阶段1脚本只输出 JSON 到 stdout；阶段2可用 `OVERVIEW_SCREENSHOT_DIR` 输出到仓库外独立目录。测试不提交截图/临时文件。
+- 阶段1脚本只输出 JSON 到 stdout；阶段2可用 `OVERVIEW_SCREENSHOT_DIR` 输出到仓库外独立目录。PR 复审截图单独存放于 `docs/6-03-screenshots/`，并标注为隔离测试数据。
 
 ## 覆盖
 
