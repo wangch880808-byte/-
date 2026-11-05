@@ -398,17 +398,27 @@
       renderSkeleton();
       notifyDebug({ status: 'loading', endpoint: config.endpoint, query: built.query });
 
+      // 请求先进入微任务队列；在真正调用 API 前再核验一次。
+      // cleanup/pagehide/新筛选/登录状态回退都可能发生在“已排队但未派发”的窗口，
+      // 此时必须直接跳过，不能调用 API，也不能把跳过值送入 handleSuccess 制造契约错误。
+      var skipped = false;
       Promise.resolve().then(function () {
+        if (isStale(ticket) || state.pageHidden || (!mockMode && state.authState !== 'ready')) {
+          skipped = true;
+          return null;
+        }
         return api(built.query);
       }).then(function (result) {
-        if (isStale(ticket)) {
+        if (skipped || isStale(ticket) || state.pageHidden
+          || (!mockMode && state.authState !== 'ready')) {
           return;
         }
         state.loading = false;
         setLoading(false);
         handleSuccess(result, built.query);
       }).catch(function (error) {
-        if (isStale(ticket)) {
+        if (skipped || isStale(ticket) || state.pageHidden
+          || (!mockMode && state.authState !== 'ready')) {
           return;
         }
         state.loading = false;

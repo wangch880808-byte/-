@@ -113,7 +113,8 @@ async function okBadgeCount(page) {
 
 (async () => {
   const browser = await chromium.launch({ channel: CHANNEL, headless: true });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  // 固定测试时区，避免被测试机器本地时区影响 datetime-local → UTC 断言。
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Asia/Shanghai' });
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('pageerror', (err) => consoleErrors.push('pageerror: ' + err.message));
@@ -209,6 +210,56 @@ async function okBadgeCount(page) {
   await page.waitForTimeout(100);
   check((await calls(page)).length === 0, 'cleanup 后迟到的登录结果不得请求 API');
   check((await page.locator('#viewRoot .ov-card').count()) === 0, 'cleanup 后不得写入卡片');
+
+  // 5b. 登录核验 resolve 后、load 微任务真正调用 API 前 cleanup：
+  //     resolveAuth 先排队 auth reaction，再排队 cleanup；cleanup 应阻断随后派发的 API。
+  await open(page);
+  await setResponse(page, response(teacherItems()));
+  await mount(page);
+  await page.evaluate(() => {
+    window.__resolveAuth(true);
+    queueMicrotask(() => window.__unmount());
+  });
+  await page.waitForTimeout(100);
+  check((await calls(page)).length === 0, 'cleanup 微任务应阻断已排队但未派发的 API');
+  check((await page.locator('#viewRoot .ov-card').count()) === 0, 'cleanup 微任务后不得写页面');
+
+  // 5c. 请求已排队但 pagehide 使其失效。
+  await open(page);
+  await setResponse(page, response(teacherItems()));
+  await mount(page);
+  await resolveAuth(page, true);
+  await waitCalls(page, 1);
+  const beforePageHide = (await calls(page)).length;
+  await page.evaluate(() => {
+    document.getElementById('ovFrom').value = '2026-11-04T08:00';
+    document.getElementById('ovTo').value = '2026-11-05T08:00';
+    document.querySelector('[data-action="apply-time"]').click();
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await page.waitForTimeout(100);
+  check((await calls(page)).length === beforePageHide, 'pagehide 应阻断已排队的请求');
+
+  // 5d. 请求已排队但新筛选使其失效：只请求最新一次。
+  await open(page);
+  await setResponse(page, response(teacherItems()));
+  await mount(page);
+  await resolveAuth(page, true);
+  await waitCalls(page, 1);
+  const beforeFilters = (await calls(page)).length;
+  await page.evaluate(() => {
+    document.getElementById('ovFrom').value = '2026-11-03T08:00';
+    document.getElementById('ovTo').value = '2026-11-04T08:00';
+    document.querySelector('[data-action="apply-time"]').click();
+    document.getElementById('ovFrom').value = '2026-11-04T08:00';
+    document.getElementById('ovTo').value = '2026-11-05T08:00';
+    document.querySelector('[data-action="apply-time"]').click();
+  });
+  await waitCalls(page, beforeFilters + 1);
+  await page.waitForTimeout(100);
+  const queuedCalls = await calls(page);
+  check(queuedCalls.length === beforeFilters + 1, '新筛选应只让最新排队请求调用 API');
+  check(queuedCalls[queuedCalls.length - 1].query.from === '2026-11-04T00:00:00.000Z', '新筛选请求应使用最新开始时间');
 
   // 6. 重复 metricCode：相同数据。
   await open(page);

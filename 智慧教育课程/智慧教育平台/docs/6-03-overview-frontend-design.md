@@ -125,6 +125,7 @@
 - cleanup 后，迟到的登录核验结果、尚未执行的 `load()` 微任务和 API 响应都被 `disposed/authTicket/seq` 拦截，不重新请求、不写页面。
 - 筛选应用后立即清空旧卡片为骨架，旧值不当作新结果。
 - 旧响应后到不会覆盖新筛选。
+- `load()` 在 `Promise.resolve().then` 内、真正调用 API 前再次检查 `ticket/disposed/pageHidden/authState`；已排队但被 cleanup/pagehide/新筛选/登录回退失效的请求直接跳过，不调用 API，也不把跳过值送入 `handleSuccess` 制造契约错误。
 - 当前 `http.js` 不支持 `AbortController.signal`，阶段1只做“失效丢弃”，**不宣称底层 HTTP 已取消**。TODO：共享客户端支持 signal 后再补真正取消；解除条件为 `http.js` 增加兼容 signal 参数并通过回归。
 - 时间输入使用 `datetime-local`，提交转 `toISOString()`；前后端都做 `from/to` 成对和顺序校验。
 - `classId` 输入只接受 `/^[1-9][0-9]*$/` 字符串；不 `Number()`/`parseInt()`，避免 Long 精度损失。
@@ -196,7 +197,8 @@ node check-overview.js
 
 结果：
 - 全部新增/修改 JS 语法检查通过。
-- `frontend/tests/overview-stage1.js` 修复前（当时 30 项断言）：**11 passed，19 failures**；修复后（新增 retry-auth 3 项）：**33 passed，0 failures，0 console/page errors**。
+- `frontend/tests/overview-stage1.js` 首轮修复前（当时 30 项断言）：**11 passed，19 failures**；首轮修复后（新增 retry-auth 3 项）：**33 passed，0 failures**。
+- 微任务窗口修订前（38 项断言）：**35 passed，3 failures**；修订后：**38 passed，0 failures，0 console/page errors**。测试 context 显式设置 `timezoneId: 'Asia/Shanghai'`，不依赖执行机器时区。
 - `check-overview.js`：**0 failures，0 console/page errors**。
 - 覆盖：
   - 四端点路径/参数；不含 userId/studentId/organizationId；
@@ -219,7 +221,9 @@ node check-overview.js
   - cleanup 后迟到核验不请求、不写页面；
   - 重复 metricCode（相同/冲突、交换顺序）单卡降级；
   - unit=PERCENT、source 与配置不一致单卡降级；
-  - 正常 COUNT + 合法 source 不回归。
+  - 正常 COUNT + 合法 source 不回归；
+  - 登录核验 resolve 后、API 微任务派发前 cleanup 不调用 API；
+  - request 已排队但 pagehide/新筛选使其失效，只保留最新有效请求。
 
 截图：
 - `G:\智慧教育全过程\_workspace\preview-teacher.png`

@@ -30,6 +30,7 @@ node frontend/tests/overview-stage1.js
 - `PLAYWRIGHT_CHANNEL`：默认 `msedge`，也可设为 `chrome` 等。
 - `OVERVIEW_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8125`。
 - 测试页：`overview-stage1.html`，使用假 `EduHttp`，不连接后端、不校验真实登录、不发送真实请求。
+- 测试 context 固定 `timezoneId: 'Asia/Shanghai'`，避免依赖执行机器时区。
 - 脚本只输出 JSON 到 stdout，不写截图或临时文件；需要截图时使用仓库外的预览截图脚本，输出到独立目录。
 
 ## 覆盖
@@ -38,5 +39,6 @@ node frontend/tests/overview-stage1.js
 - 核验 false/超时：筛选不能绕过；重试先重新核验。
 - BFCache 恢复重新核验，核验完成前零调用。
 - cleanup 后迟到核验不请求、不写页面。
+- 登录核验 resolve 后、API 微任务派发前 cleanup/pagehide/新筛选失效：不调用或只调用最新有效请求。
 - 重复 metricCode（相同/冲突、交换顺序）、unit 非 COUNT、source 与配置不一致：单卡降级，其他卡保留。
 - 正常 COUNT/source 不回归。
