@@ -1,0 +1,657 @@
+﻿/* ==========================================================================
+   xt.css —— 学习通风格外壳与课程页（教师端 / 学生端）
+   --------------------------------------------------------------------------
+   只作用于 teacher.html / student.html；管理员端仍用原来的控制台样式。
+   edu.css 继续提供弹窗、确认框、toast 等公共组件，两边一起加载。
+   ========================================================================== */
+
+:root {
+  --xt-blue: #2b7de9;
+  --xt-blue-dark: #1f66c9;
+  --xt-blue-weak: #eef4ff;
+  --xt-orange: #ff8a00;
+  --xt-green: #21b573;
+  --xt-text: #1f2329;
+  --xt-text-2: #646a73;
+  --xt-text-3: #8f959e;
+  --xt-line: #e5e6eb;
+  --xt-bg: #f5f7fa;
+  --xt-radius: 10px;
+  --xt-shadow: 0 2px 8px rgba(31, 35, 41, .06);
+  --xt-shadow-hover: 0 8px 24px rgba(31, 35, 41, .12);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--xt-bg);
+  color: var(--xt-text);
+  font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+}
+
+body.auth-pending > .xt-shell { visibility: hidden; }
+
+a { color: inherit; text-decoration: none; }
+
+/* ---------------- 外壳：左侧导航 + 右侧内容（学习通式） ---------------- */
+
+.xt-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---- 左侧导航 ---- */
+
+.xt-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-right: 1px solid var(--xt-line);
+  z-index: 30;
+}
+
+.xt-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 64px;
+  padding: 0 20px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  border-bottom: 1px solid #f2f3f5;
+  flex-shrink: 0;
+}
+
+.xt-brand img { width: 28px; height: 28px; object-fit: contain; }
+.xt-brand span { color: var(--xt-text); }
+
+.xt-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 10px;
+  overflow-y: auto;
+}
+
+.xt-nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 14.5px;
+  color: var(--xt-text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+
+.xt-nav a:hover { background: #f2f3f5; color: var(--xt-text); }
+
+.xt-nav a.active {
+  background: var(--xt-blue-weak);
+  color: var(--xt-blue);
+  font-weight: 600;
+}
+
+.xt-nav a.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--xt-blue);
+}
+
+.xt-nav .xt-ico {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* ---- 侧栏底部：用户与退出 ---- */
+
+.xt-side-foot {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid #f2f3f5;
+}
+
+.xt-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.xt-user .avatar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6aa8ff, var(--xt-blue));
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.xt-user-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.xt-user-meta b {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--xt-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xt-user-meta small {
+  font-size: 12px;
+  color: var(--xt-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xt-logout {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--xt-line);
+  background: #fff;
+  color: var(--xt-text-2);
+  border-radius: 8px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.xt-logout:hover { color: var(--xt-blue); border-color: var(--xt-blue); }
+.xt-logout-short { display: none; }
+
+/* ---- 右侧内容区 ---- */
+
+.xt-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xt-topbar {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid var(--xt-line);
+}
+
+.xt-crumb {
+  font-size: 13px;
+  color: var(--xt-text-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xt-crumb b { color: var(--xt-text); font-weight: 600; }
+
+.xt-search { display: flex; justify-content: flex-end; flex-shrink: 0; }
+
+.xt-search input {
+  width: 240px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 17px;
+  background: #f2f3f5;
+  font: inherit;
+  color: var(--xt-text);
+  outline: none;
+  transition: all .2s;
+}
+
+.xt-search input:focus {
+  background: #fff;
+  border-color: var(--xt-blue);
+  width: 280px;
+}
+
+/* ---------------- 主区域 ---------------- */
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 28px 48px;
+}
+
+.content { width: 100%; }
+
+.page-title { display: none; }
+
+/* ---------------- 页面标题 ---------------- */
+
+.xt-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.xt-page-head h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.xt-page-head p {
+  margin: 0;
+  color: var(--xt-text-3);
+  font-size: 13px;
+}
+
+.xt-head-actions { display: flex; gap: 10px; }
+
+/* ---------------- 按钮 ---------------- */
+
+.xt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 18px;
+  border: 1px solid var(--xt-line);
+  border-radius: 18px;
+  background: #fff;
+  color: var(--xt-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+
+.xt-btn:hover { border-color: var(--xt-blue); color: var(--xt-blue); }
+
+.xt-btn-primary {
+  background: var(--xt-blue);
+  border-color: var(--xt-blue);
+  color: #fff;
+}
+
+.xt-btn-primary:hover { background: var(--xt-blue-dark); border-color: var(--xt-blue-dark); color: #fff; }
+
+.xt-btn-ghost { background: transparent; border-color: rgba(255, 255, 255, .55); color: #fff; }
+.xt-btn-ghost:hover { background: rgba(255, 255, 255, .16); color: #fff; border-color: #fff; }
+
+.xt-btn-danger { color: #d4380d; border-color: #ffd6cc; background: #fff5f2; }
+.xt-btn-danger:hover { color: #fff; background: #d4380d; border-color: #d4380d; }
+
+.xt-btn-sm { height: 28px; padding: 0 12px; font-size: 13px; border-radius: 14px; }
+
+/* ---------------- 课程卡片 ---------------- */
+
+.xt-course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 18px;
+}
+
+.xt-course-card {
+  background: #fff;
+  border-radius: var(--xt-radius);
+  box-shadow: var(--xt-shadow);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .18s, box-shadow .18s;
+  display: flex;
+  flex-direction: column;
+}
+
+.xt-course-card:hover { transform: translateY(-3px); box-shadow: var(--xt-shadow-hover); }
+
+.xt-cover {
+  position: relative;
+  height: 132px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(135deg, var(--c1, #5b8ff9), var(--c2, #2b7de9));
+  color: #fff;
+}
+
+.xt-cover::after {
+  content: "";
+  position: absolute;
+  right: -30px;
+  top: -40px;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .12);
+}
+
+.xt-cover-badge {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .22);
+  font-size: 12px;
+}
+
+.xt-cover-title {
+  position: relative;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.xt-course-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+
+.xt-course-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xt-course-meta { color: var(--xt-text-3); font-size: 12.5px; }
+
+.xt-course-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed var(--xt-line);
+  display: flex;
+  justify-content: space-between;
+  color: var(--xt-text-3);
+  font-size: 12px;
+}
+
+/* ---------------- 课程详情 ---------------- */
+
+.xt-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 30px;
+  border-radius: var(--xt-radius);
+  background: linear-gradient(120deg, #2b7de9 0%, #4f9bff 55%, #6aa8ff 100%);
+  color: #fff;
+  overflow: hidden;
+}
+
+.xt-hero::after {
+  content: "";
+  position: absolute;
+  right: -60px;
+  top: -80px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .1);
+}
+
+.xt-hero-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .2);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.xt-hero h1 { margin: 0 0 10px; font-size: 26px; font-weight: 600; letter-spacing: .5px; }
+
+.xt-hero-meta { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: rgba(255, 255, 255, .85); }
+
+.xt-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; position: relative; z-index: 1; }
+
+.xt-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0 0;
+  border-bottom: 1px solid var(--xt-line);
+  overflow-x: auto;
+}
+
+.xt-tabs button {
+  position: relative;
+  padding: 12px 18px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: var(--xt-text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.xt-tabs button:hover { color: var(--xt-blue); }
+
+.xt-tabs button.active { color: var(--xt-blue); font-weight: 600; }
+
+.xt-tabs button.active::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--xt-blue);
+}
+
+.xt-panel {
+  margin-top: 18px;
+  background: #fff;
+  border-radius: var(--xt-radius);
+  box-shadow: var(--xt-shadow);
+  padding: 22px 24px;
+}
+
+.xt-panel + .xt-panel { margin-top: 14px; }
+
+.xt-panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ---------------- 章节 ---------------- */
+
+.xt-chapter { padding: 10px 0; border-bottom: 1px dashed var(--xt-line); }
+.xt-chapter:last-child { border-bottom: 0; }
+
+.xt-chapter-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.xt-chapter-title .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--xt-blue);
+  flex-shrink: 0;
+}
+
+.xt-section {
+  margin: 8px 0 0 22px;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid #eef1f5;
+  color: var(--xt-text-2);
+  font-size: 13.5px;
+}
+
+/* ---------------- 标签 / 空状态 ---------------- */
+
+.xt-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.xt-chip {
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: var(--xt-blue-weak);
+  color: var(--xt-blue);
+  font-size: 12.5px;
+}
+
+.xt-empty {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--xt-text-3);
+}
+
+.xt-empty b { display: block; margin-bottom: 8px; color: var(--xt-text-2); font-size: 15px; font-weight: 600; }
+
+.xt-state { padding: 60px 20px; text-align: center; color: var(--xt-text-3); }
+.xt-state b { display: block; margin-bottom: 8px; font-size: 16px; color: var(--xt-text-2); }
+.xt-state button { margin-top: 16px; }
+
+/* ---------------- 表格 ---------------- */
+
+.xt-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+
+.xt-table th {
+  text-align: left;
+  padding: 10px 12px;
+  color: var(--xt-text-3);
+  font-weight: 500;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--xt-line);
+}
+
+.xt-table td { padding: 12px; border-bottom: 1px solid #f2f3f5; }
+.xt-table tr:last-child td { border-bottom: 0; }
+.xt-table tr:hover td { background: #fafcff; }
+
+.xt-link { color: var(--xt-blue); cursor: pointer; }
+.xt-link-danger { color: #d4380d; cursor: pointer; }
+.xt-row-actions > span { margin-right: 14px; }
+.xt-row-actions > span:last-child { margin-right: 0; }
+
+/* ---------------- 加载骨架 ---------------- */
+
+.xt-loading { display: flex; gap: 18px; flex-wrap: wrap; }
+
+.xt-skeleton {
+  flex: 1 1 250px;
+  height: 250px;
+  border-radius: var(--xt-radius);
+  background: linear-gradient(90deg, #eef0f3 25%, #f7f8fa 37%, #eef0f3 63%);
+  background-size: 400% 100%;
+  animation: xt-shimmer 1.2s ease infinite;
+}
+
+@keyframes xt-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* ---------------- 登录态遮罩 ---------------- */
+
+#authStatus {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #555;
+  background: var(--xt-bg);
+  z-index: 40;
+}
+
+#authStatus[hidden], #authRetry[hidden] { display: none; }
+
+#authRetry {
+  border: 1px solid var(--xt-line);
+  background: #fff;
+  border-radius: 16px;
+  padding: 5px 14px;
+  color: var(--xt-text-2);
+  cursor: pointer;
+  font: inherit;
+}
+
+#authRetry:hover { color: var(--xt-blue); border-color: var(--xt-blue); }
+
+/* ---------------- 窄屏：侧栏收成图标轨道 ---------------- */
+
+@media (max-width: 1100px) {
+  .main { padding: 20px 20px 40px; }
+}
+
+@media (max-width: 900px) {
+  .xt-sidebar { width: 72px; }
+  .xt-brand { justify-content: center; padding: 0; }
+  .xt-brand span { display: none; }
+  .xt-nav { padding: 10px 8px; }
+  .xt-nav a { justify-content: center; gap: 0; padding: 0; }
+  .xt-nav a > span { display: none; }
+  .xt-nav a.active::before { display: none; }
+  .xt-user { justify-content: center; }
+  .xt-user-meta { display: none; }
+  .xt-side-foot { padding: 10px 8px; }
+  .xt-logout { padding: 0; font-size: 12px; }
+  .xt-logout-full { display: none; }
+  .xt-logout-short { display: inline; }
+  .xt-search { display: none; }
+  .xt-topbar { padding: 0 16px; }
+  .main { padding: 16px 14px 40px; }
+  .xt-hero { flex-direction: column; align-items: flex-start; }
+  .xt-hero-actions { justify-content: flex-start; }
+}
+
+@media (max-width: 640px) {
+  .xt-sidebar { width: 64px; }
+}
