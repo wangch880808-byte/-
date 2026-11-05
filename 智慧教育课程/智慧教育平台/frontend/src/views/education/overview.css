@@ -402,11 +402,67 @@ body.edu-overview-active .ov-grid {
 }
 
 @media (max-width: 760px) {
-  body.edu-overview-active .layout {
+  /* 仅学生总览挂载期间生效；教师/管理员桌面外壳不受影响。 */
+  body[data-role="student"].edu-overview-active .app-header {
+    height: auto;
+    min-height: 56px;
+    padding: 8px 10px;
+    gap: 6px 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  body[data-role="student"].edu-overview-active .logo {
+    flex: 1 1 100%;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  body[data-role="student"].edu-overview-active .logo img {
+    width: 26px;
+    height: 26px;
+  }
+
+  body[data-role="student"].edu-overview-active .logo b {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 15px;
+    line-height: 1.35;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  body[data-role="student"].edu-overview-active .header-right {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    font-size: 12px;
+  }
+
+  body[data-role="student"].edu-overview-active .header-right .item {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  body[data-role="student"].edu-overview-active .header-right .avatar {
+    flex-shrink: 0;
+  }
+
+  body[data-role="student"].edu-overview-active .logout-button {
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 5px 10px;
+    white-space: nowrap;
+  }
+
+  body[data-role="student"].edu-overview-active .layout {
     flex-direction: column;
   }
 
-  body.edu-overview-active .sidebar {
+  body[data-role="student"].edu-overview-active .sidebar {
     width: 100%;
     max-height: none;
     padding: 4px 8px;
@@ -417,27 +473,27 @@ body.edu-overview-active .ov-grid {
     border-bottom: 1px solid #e8e8e8;
   }
 
-  body.edu-overview-active .menu-group {
+  body[data-role="student"].edu-overview-active .menu-group {
     display: none;
   }
 
   /* 现有角色外壳未维护 active-group 类；用当前 active 菜单项定位当前分组。 */
-  body.edu-overview-active .menu-group:has(.menu-item.active) {
+  body[data-role="student"].edu-overview-active .menu-group:has(.menu-item.active) {
     display: block;
   }
 
-  body.edu-overview-active .menu-group-title {
+  body[data-role="student"].edu-overview-active .menu-group-title {
     display: none;
   }
 
-  body.edu-overview-active .menu-items {
+  body[data-role="student"].edu-overview-active .menu-items {
     display: flex;
     gap: 6px;
     padding: 4px 0;
     overflow-x: auto;
   }
 
-  body.edu-overview-active .menu-item {
+  body[data-role="student"].edu-overview-active .menu-item {
     padding: 7px 11px;
     font-size: 12px;
     white-space: nowrap;
@@ -445,46 +501,46 @@ body.edu-overview-active .ov-grid {
     border-radius: 16px;
   }
 
-  body.edu-overview-active .menu-item.active {
+  body[data-role="student"].edu-overview-active .menu-item.active {
     background: #e6f4ff;
   }
 
-  body.edu-overview-active .menu-item.active::before {
+  body[data-role="student"].edu-overview-active .menu-item.active::before {
     display: none;
   }
 
-  body.edu-overview-active .content {
+  body[data-role="student"].edu-overview-active .content {
     margin: 8px;
     padding: 12px;
   }
 
-  body.edu-overview-active .ov-grid {
+  body[data-role="student"].edu-overview-active .ov-grid {
     grid-template-columns: 1fr;
   }
 
-  body.edu-overview-active .ov-head-actions {
+  body[data-role="student"].edu-overview-active .ov-head-actions {
     width: 100%;
   }
 
-  body.edu-overview-active .ov-head-actions .ov-btn {
+  body[data-role="student"].edu-overview-active .ov-head-actions .ov-btn {
     flex: 1;
     min-height: 40px;
   }
 
-  body.edu-overview-active .ov-filter {
+  body[data-role="student"].edu-overview-active .ov-filter {
     flex-direction: column;
     align-items: stretch;
   }
 
-  body.edu-overview-active .ov-field {
+  body[data-role="student"].edu-overview-active .ov-field {
     width: 100%;
   }
 
-  body.edu-overview-active .ov-field input {
+  body[data-role="student"].edu-overview-active .ov-field input {
     min-height: 40px;
   }
 
-  body.edu-overview-active .ov-filter .ov-btn {
+  body[data-role="student"].edu-overview-active .ov-filter .ov-btn {
     min-height: 40px;
   }
 }

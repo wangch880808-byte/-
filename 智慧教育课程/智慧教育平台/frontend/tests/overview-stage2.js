@@ -410,6 +410,41 @@ async function screenshot(page, name) {
   check(columns === 1, '390px 总览应为单列');
   check(!(await mobile.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), '390px 总览不应水平溢出');
   check(await mobile.page.evaluate(() => document.body.classList.contains('edu-overview-active')), '学生总览应挂载局部样式类');
+  const mobileHeader = await mobile.page.evaluate(() => {
+    const rect = (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+    };
+    const overlap = (a, b) => !(a.right <= b.x || b.right <= a.x || a.bottom <= b.y || b.bottom <= a.y);
+    const logo = document.querySelector('.logo');
+    const right = document.querySelector('.header-right');
+    const notice = document.querySelectorAll('.header-right .item')[1];
+    const logout = document.getElementById('logoutBtn');
+    const logoText = document.querySelector('.logo b');
+    const logoutRect = rect(logout);
+    const hit = document.elementFromPoint(logoutRect.x + logoutRect.width / 2, logoutRect.y + logoutRect.height / 2);
+    return {
+      logo: rect(logo),
+      right: rect(right),
+      notice: rect(notice),
+      logout: logoutRect,
+      logoutWhiteSpace: getComputedStyle(logout).whiteSpace,
+      logoutHeight: logoutRect.height,
+      logoWhiteSpace: getComputedStyle(logoText).whiteSpace,
+      logoHeight: rect(logoText).height,
+      logoLineHeight: parseFloat(getComputedStyle(logoText).lineHeight) || 20,
+      hitIsLogout: hit === logout || logout.contains(hit),
+      viewportWidth: window.innerWidth,
+      overlapLogoRight: overlap(rect(logo), rect(right)),
+      overlapNoticeLogout: overlap(rect(notice), logoutRect)
+    };
+  });
+  check(mobileHeader.logout.height > 0 && mobileHeader.logout.right <= mobileHeader.viewportWidth + 1, '手机退出按钮应完整可见');
+  check(mobileHeader.logoutWhiteSpace === 'nowrap' && mobileHeader.logoutHeight <= 40, '手机退出按钮应单行且高度合理');
+  check(mobileHeader.hitIsLogout, '手机退出按钮不应被遮挡');
+  check(!mobileHeader.overlapLogoRight, '手机品牌区与右侧控件不应重叠');
+  check(!mobileHeader.overlapNoticeLogout, '手机通知与退出按钮不应重叠');
+  check(mobileHeader.logoWhiteSpace === 'nowrap' && mobileHeader.logoHeight <= mobileHeader.logoLineHeight * 2 + 2, '手机品牌名最多两行');
   await screenshot(mobile.page, 'stage2-student-mobile.png');
   const mobileNoticeMenu = mobile.page.locator('.menu-item', { hasText: '学习通知 / 课程公告' });
   await mobileNoticeMenu.scrollIntoViewIfNeeded();
@@ -417,6 +452,8 @@ async function screenshot(page, name) {
   await mobile.page.waitForURL(/student\.html\?g=0&i=3/, { timeout: 5000 });
   check(!(await mobile.page.evaluate(() => document.body.classList.contains('edu-overview-active'))), '离开总览后应移除局部样式类');
   check(!(await mobile.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), '离开总览后原外壳不应水平溢出');
+  const restoredHeaderHeight = await mobile.page.evaluate(() => document.querySelector('.app-header').getBoundingClientRect().height);
+  check(restoredHeaderHeight <= 60, '离开总览后顶栏应恢复原高度');
   await screenshot(mobile.page, 'stage2-student-notices-390.png');
   await close(mobile);
 

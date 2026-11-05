@@ -54,5 +54,5 @@ PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" PLAYWRIGHT_CHANNEL=msedge
 
 - 加载真实 `teacher.html`、`student.html`、`admin.html`。
 - 通过 Playwright route 夹具拦截 `/getInfo`、`/getRouters`、`/logout`、`/education/**`；不连接真实后端，不创建真实登录，不冒充真实联调。
-- 覆盖四页挂载、刷新/筛选、登录等待、核验失败重试、错角色、401/403、公告/通知/角标回归、非总览占位、迟到响应、学生通知入口、390px 总览和样式恢复、退出登录。
+- 覆盖四页挂载、刷新/筛选、登录等待、核验失败重试、错角色、401/403、公告/通知/角标回归、非总览占位、迟到响应、学生通知入口、390px 总览和顶栏布局/样式恢复、退出登录。
 - `OVERVIEW_SCREENSHOT_DIR` 不设置时不写截图；输出目录与源代码分离。

@@ -275,10 +275,10 @@ node check-overview.js
 - 管理员非总览占位；
 - 视图切换后迟到响应不写回；
 - 学生通知入口与范围提示；目标通知页继承 binding 时请求带 `bindingId`，卡片仍标注本人全部未读；
-- 390px 总览单列、无溢出，离开总览后移除局部样式类且原外壳无水平溢出；
+- 390px 总览单列、无溢出；顶栏品牌/通知/退出不重叠，退出按钮单行可点击；离开总览后移除局部样式类、顶栏恢复原高度且原外壳无水平溢出；
 - 退出登录。
 
-结果：**41 passed，0 failures**（路由夹具测试，不是真实后端/登录联调）。
+结果：**48 passed，0 failures**（路由夹具测试，不是真实后端/登录联调）。
 
 截图：
 - `G:\智慧教育全过程\_workspace\stage2-teacher.png`
@@ -287,7 +287,8 @@ node check-overview.js
 - `stage2-admin-todos.png`
 - `stage2-student-notices.png`
 - `stage2-student-announcements.png`
-- `stage2-student-mobile.png`
+- `stage2-student-mobile-before.png`（修复前）
+- `stage2-student-mobile.png`（修复后）
 - `stage2-student-notices-390.png`
 
 ## 10. 阶段2公共外壳复审清单与风险
