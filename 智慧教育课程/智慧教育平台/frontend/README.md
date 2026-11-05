@@ -66,6 +66,7 @@ frontend/src/
 - 页面自测：`overview-preview.html`（显式内存 Mock，不连后端、不校验登录、不写 sessionStorage/bindingId）。
 - 预设场景：正常、真实零、NO_DATA、UNAVAILABLE、混合、缺指标、非法值、空 items、缺 data、401/403/400/404/500/网络、管理员待办失败/非法 OK 0。
 - 总览只消费 #24 当前 16 个指标；不补算、不读其他组表、不把失败写成 0。
+- 阶段1回归：`tests/overview-stage1.html` + `tests/overview-stage1.js`，不提交 Playwright，不建产品 package.json。
 - 详细设计与验证见 [6-03 总览前端设计](../docs/6-03-overview-frontend-design.md)。
 
 ## 课堂体验边界

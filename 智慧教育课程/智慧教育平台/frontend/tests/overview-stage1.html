@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>6-03 阶段1回归测试页</title>
+<link rel="stylesheet" href="../src/views/education/education-views.css">
+<link rel="stylesheet" href="../src/views/education/overview.css">
+<style>
+  body { margin: 0; padding: 16px; background: #f5f7fa; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; }
+  #testContent { display: block; min-height: 500px; background: #fff; border: 1px solid #e5e8ef; border-radius: 8px; padding: 16px; }
+  #testNote { margin: 0 0 10px; font-size: 12px; color: #8c8c8c; }
+</style>
+</head>
+<body>
+<p id="testNote">阶段1回归测试页：不连接后端，不校验登录，不进入产品菜单。由 tests/overview-stage1.js 驱动。</p>
+<div class="content view-active" id="testContent">
+  <div id="viewRoot"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  // 测试专用假客户端：记录调用并返回固定响应，绝不发真实请求。
+  window.__calls = [];
+  window.__response = null;
+  window.__authCalls = 0;
+  window.__authResolvers = [];
+  window.__backToLogin = false;
+  window.EduHttp = {
+    get: function (url, query) {
+      window.__calls.push({ url: url, query: query });
+      return Promise.resolve(window.__response);
+    },
+    backToLogin: function () {
+      window.__backToLogin = true;
+    }
+  };
+})();
+</script>
+<script src="../src/api/education/overview.js"></script>
+<script src="../src/views/education/ui-kit.js"></script>
+<script src="../src/views/education/view-host.js"></script>
+<script src="../src/components/education/overview-page.js"></script>
+<script src="../src/views/education/teacher/overview.js"></script>
+<script src="../src/views/education/student/overview.js"></script>
+<script src="../src/views/education/admin/overview.js"></script>
+<script src="../src/views/education/admin/todos.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // 真实模式测试：覆盖公共登录等待，由 runner 显式 resolve。
+  window.EduViews.whenAuthorized = function () {
+    window.__authCalls += 1;
+    return new Promise(function (resolve) {
+      window.__authResolvers.push(resolve);
+    });
+  };
+
+  var INDEX = {
+    teacher: [0, 0],
+    student: [0, 0],
+    admin: [0, 0],
+    adminTodos: [0, 1]
+  };
+  var MOUNT_ROLE = {
+    teacher: 'teacher',
+    student: 'student',
+    admin: 'admin',
+    adminTodos: 'admin'
+  };
+
+  window.__mount = function (role) {
+    var index = INDEX[role];
+    return window.EduViews.mount(MOUNT_ROLE[role], index[0], index[1], 'test');
+  };
+
+  window.__unmount = function () {
+    return window.EduViews.mount('teacher', 9, 9, 'none');
+  };
+
+  window.__resolveAuth = function (value) {
+    var resolvers = window.__authResolvers.slice();
+    window.__authResolvers.length = 0;
+    resolvers.forEach(function (resolve) { resolve(value); });
+  };
+
+  window.__setResponse = function (response) {
+    window.__response = response;
+  };
+
+  window.__resetCalls = function () {
+    window.__calls.length = 0;
+  };
+})();
+</script>
+</body>
+</html>

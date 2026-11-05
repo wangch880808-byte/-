@@ -50,6 +50,14 @@
 | 单项违约只降级对应卡片 | `normalizeItem` 返回卡片级 `contract` 状态 |
 | 整体结构违约显示页面错误 | `handleSuccess` 校验 data/items/asOf/window |
 | 阶段1不开放未确认导航 | 学生通知仅显示“阶段2开放”；不读取 `actionPath` 跳转 |
+| 所有真实请求入口统一等待登录 | `beginAuth()` + `requestLoad()`；筛选、清除、恢复默认、刷新、BFCache 恢复都不能绕过 |
+| pending 期间只保留最新筛选 | `pendingReload`；登录通过后只请求一次，不重复派发 |
+| 核验失败/超时不能直接请求 | `authState=failed` 时 `requestLoad()` 只显示登录错误；重试走 `retry-auth` 重新核验 |
+| pagehide/BFCache 使旧登录等待失效 | `authTicket`、`authState=stale`；pageshow 重新 `beginAuth(true)` |
+| cleanup 后迟到核验/请求不写页面 | `disposed` + `authTicket` + `seq` 三重检查 |
+| 重复 metricCode 降级 | `duplicateCodes` → 单卡 `contract`，不保留首项、不求和、不取最大值 |
+| unit 必须 COUNT | `normalizeItem` 校验 `raw.unit === 'COUNT'` |
+| source 必须与配置一致 | `normalizeItem` 校验 `raw.source === metric.source` |
 
 ## 4. 页面与指标
 
@@ -107,7 +115,14 @@
 
 - 请求序号 `requestSeq`：每次刷新/筛选递增；响应返回时序号不匹配或视图已销毁则丢弃。
 - `disposed`：`cleanup` 后不再写页面、不再挂新监听。
-- `pagehide`：使在途请求失效；`pageshow(persisted)` 重新加载。
+- `authState`：`idle/pending/ready/failed/stale`。真实模式所有请求入口经 `requestLoad()`：
+  - `ready` 才允许 `load()`；
+  - `pending` 只设置 `pendingReload=true`，保留最新筛选，不调用 API；
+  - `failed/stale` 只显示登录错误，筛选/刷新不能绕过；
+  - 重试按钮 `retry-auth` 重新调用公共 `Views.whenAuthorized()`，核验完成前仍不请求。
+- `authTicket`：每次核验递增；pagehide、cleanup、重新核验都会使旧核验结果失效。
+- `pagehide`：使在途 API 和旧登录等待同时失效；`pageshow(persisted)` 清空旧状态、重新 `beginAuth(true)`，核验完成前零调用。
+- cleanup 后，迟到的登录核验结果、尚未执行的 `load()` 微任务和 API 响应都被 `disposed/authTicket/seq` 拦截，不重新请求、不写页面。
 - 筛选应用后立即清空旧卡片为骨架，旧值不当作新结果。
 - 旧响应后到不会覆盖新筛选。
 - 当前 `http.js` 不支持 `AbortController.signal`，阶段1只做“失效丢弃”，**不宣称底层 HTTP 已取消**。TODO：共享客户端支持 signal 后再补真正取消；解除条件为 `http.js` 增加兼容 signal 参数并通过回归。
@@ -138,6 +153,9 @@
 - `frontend/src/views/education/admin/overview.js`
 - `frontend/src/views/education/admin/todos.js`
 - `frontend/overview-preview.html`
+- `frontend/tests/overview-stage1.html`
+- `frontend/tests/overview-stage1.js`
+- `frontend/tests/README.md`
 - `docs/6-03-overview-frontend-design.md`
 
 修改：
@@ -150,7 +168,7 @@
 
 工具与环境：
 - Node.js `v24.21.0`（仅语法/测试）；
-- 本机 Edge + Playwright（npx 缓存工具，不建产品依赖）；
+- 本机 Edge + Playwright `1.64.1`（npx 缓存工具，不建产品依赖）；
 - Python 静态服务器；
 - 未运行 Maven、未启动后端、未连接 MySQL/Redis。
 
@@ -168,12 +186,17 @@ node --check frontend/src/api/education/mock.js
 cd frontend
 python -m http.server 8125 --bind 127.0.0.1
 
+# 仓库内阶段1回归（真实模式登录等待 + 契约违约）
+PLAYWRIGHT_MODULE="<playwright 模块路径>" PLAYWRIGHT_CHANNEL=msedge OVERVIEW_TEST_BASE=http://127.0.0.1:8125 node frontend/tests/overview-stage1.js
+
+# 既有 Mock 预览回归（脚本位于仓库外）
 cd "G:/智慧教育全过程/_workspace"
 node check-overview.js
 ```
 
 结果：
 - 全部新增/修改 JS 语法检查通过。
+- `frontend/tests/overview-stage1.js` 修复前（当时 30 项断言）：**11 passed，19 failures**；修复后（新增 retry-auth 3 项）：**33 passed，0 failures，0 console/page errors**。
 - `check-overview.js`：**0 failures，0 console/page errors**。
 - 覆盖：
   - 四端点路径/参数；不含 userId/studentId/organizationId；
@@ -188,7 +211,15 @@ node check-overview.js
   - Mock 不调用真实 `fetch`；
   - 预览不写 `sessionStorage`、不改 bindingId、不写登录令牌；
   - 6-02 教师公告/学生通知 Mock 回归通过；
-  - 390×844 实际视口单列、无水平溢出。
+  - 390×844 实际视口单列、无水平溢出；
+  - 登录 pending 时筛选/清除/刷新零 API 调用；
+  - pending 连续操作只保留最新筛选，核验通过后只请求一次；
+  - 核验 false/超时后筛选不能绕过，重试先重新核验；
+  - BFCache 恢复重新核验，核验完成前零调用；
+  - cleanup 后迟到核验不请求、不写页面；
+  - 重复 metricCode（相同/冲突、交换顺序）单卡降级；
+  - unit=PERCENT、source 与配置不一致单卡降级；
+  - 正常 COUNT + 合法 source 不回归。
 
 截图：
 - `G:\智慧教育全过程\_workspace\preview-teacher.png`

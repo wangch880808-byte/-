@@ -92,7 +92,10 @@
       seq: 0,
       disposed: false,
       pageHidden: false,
-      loading: false
+      loading: false,
+      authState: 'idle',
+      authTicket: 0,
+      pendingReload: false
     };
 
     var groups = Array.isArray(config.groups) ? config.groups : [];
@@ -117,24 +120,15 @@
     global.addEventListener('pageshow', onPageShow);
 
     // Mock 预览不校验登录；真实页面必须等 role-home 完成令牌/角色核验。
+    // 所有请求入口都经过 authState/requestLoad，避免筛选、刷新、pageshow
+    // 绕过登录等待直接调用 API。
     var mockMode = !!(global.EduMock && global.EduMock.enabled());
-    var ready = mockMode ? Promise.resolve(true) : Views.whenAuthorized();
-    ready.then(function (ok) {
-      if (state.disposed) {
-        return;
-      }
-      if (!ok) {
-        setLoading(false);
-        renderPageState('auth-timeout');
-        return;
-      }
+    if (mockMode) {
+      state.authState = 'ready';
       load();
-    }).catch(function () {
-      if (!state.disposed) {
-        setLoading(false);
-        renderPageState('500', '页面初始化失败，请刷新后重试。');
-      }
-    });
+    } else {
+      beginAuth(false);
+    }
 
     /**
      * 构建 shell；正式卡片不显示 metricCode/端口/PR 等工程信息。
@@ -192,13 +186,15 @@
       }
       var action = trigger.getAttribute('data-action');
       if (action === 'refresh' || action === 'retry') {
-        load();
+        requestLoad();
+      } else if (action === 'retry-auth') {
+        beginAuth(true);
       } else if (action === 'reset-filters') {
         state.from = '';
         state.to = '';
         state.classId = '';
         syncFilterInputs();
-        load();
+        requestLoad();
       } else if (action === 'apply-time') {
         applyTime();
       } else if (action === 'apply-class') {
@@ -209,7 +205,7 @@
         if (input) {
           input.value = '';
         }
-        load();
+        requestLoad();
       }
     }
 
@@ -240,7 +236,7 @@
       }
       state.from = from;
       state.to = to;
-      load();
+      requestLoad();
     }
 
     function applyClass() {
@@ -251,7 +247,7 @@
         return;
       }
       state.classId = value;
-      load();
+      requestLoad();
     }
 
     function validateTimeInputs(from, to) {
@@ -293,8 +289,98 @@
       return { query: query };
     }
 
+    /**
+     * 发起或复用公共登录核验。
+     *
+     * 所有真实请求入口都先经过这里；pending 时只记录“需要重新加载”，
+     * 不调用 API。BFCache 恢复和显式重新核验使用 force=true。
+     *
+     * @param {boolean} force 是否强制重新核验
+     */
+    function beginAuth(force) {
+      if (state.disposed || state.pageHidden) {
+        return;
+      }
+      if (!force && (state.authState === 'pending' || state.authState === 'ready')) {
+        return;
+      }
+      var ticket = ++state.authTicket;
+      state.seq++;
+      state.authState = 'pending';
+      state.pendingReload = true;
+      setLoading(true);
+      els.meta.textContent = '正在核验登录状态…';
+      els.windowHost.innerHTML = '';
+      els.bannerHost.innerHTML = '';
+      els.summary.textContent = '';
+      renderSkeleton();
+      notifyDebug({ status: 'auth-pending', endpoint: config.endpoint });
+
+      var promise;
+      try {
+        promise = Views.whenAuthorized();
+      } catch (error) {
+        promise = Promise.resolve(false);
+      }
+      Promise.resolve(promise).then(function (ok) {
+        // cleanup、pagehide 或新的核验已经使本次结果失效。
+        if (state.disposed || ticket !== state.authTicket) {
+          return;
+        }
+        if (!ok) {
+          state.authState = 'failed';
+          state.pendingReload = false;
+          setLoading(false);
+          renderPageState('auth-timeout');
+          return;
+        }
+        state.authState = 'ready';
+        if (state.pendingReload) {
+          state.pendingReload = false;
+          load();
+        }
+      }).catch(function () {
+        if (state.disposed || ticket !== state.authTicket) {
+          return;
+        }
+        state.authState = 'failed';
+        state.pendingReload = false;
+        setLoading(false);
+        renderPageState('auth-timeout');
+      });
+    }
+
+    /**
+     * 统一请求入口：真实模式必须先登录就绪。
+     * pending 期间只保留最新筛选，不重复派发请求；failed 状态不允许绕过。
+     */
+    function requestLoad() {
+      if (state.disposed || state.pageHidden) {
+        return;
+      }
+      if (mockMode || state.authState === 'ready') {
+        load();
+        return;
+      }
+      if (state.authState === 'pending') {
+        state.pendingReload = true;
+        els.meta.textContent = '正在核验登录状态，完成后按最新筛选读取…';
+        renderSkeleton();
+        return;
+      }
+      if (state.authState === 'failed' || state.authState === 'stale') {
+        renderPageState('auth-timeout');
+        return;
+      }
+      beginAuth(false);
+    }
+
     function load() {
       if (state.disposed || state.pageHidden) {
+        return;
+      }
+      if (!mockMode && state.authState !== 'ready') {
+        requestLoad();
         return;
       }
       var built = buildQuery();
@@ -366,11 +452,14 @@
       }
 
       var byCode = {};
+      var duplicateCodes = {};
       data.items.forEach(function (item) {
         if (item && typeof item.metricCode === 'string') {
-          if (byCode[item.metricCode]) {
+          if (Object.prototype.hasOwnProperty.call(byCode, item.metricCode)
+            || Object.prototype.hasOwnProperty.call(duplicateCodes, item.metricCode)) {
+            duplicateCodes[item.metricCode] = true;
             if (global.console && global.console.warn) {
-              global.console.warn('[EduOverview] 重复 metricCode，保留首项', item.metricCode);
+              global.console.warn('[EduOverview] 重复 metricCode，按契约违约降级', item.metricCode);
             }
           } else {
             byCode[item.metricCode] = item;
@@ -379,17 +468,12 @@
       });
 
       var rows = metrics.map(function (metric) {
+        if (duplicateCodes[metric.code]) {
+          return contractRow(metric, 'metricCode 重复，不能确定唯一指标值');
+        }
         var raw = byCode[metric.code];
         if (!raw) {
-          return {
-            config: metric,
-            status: STATUS_UNAVAILABLE,
-            contract: true,
-            message: '接口未返回该指标',
-            value: null,
-            unit: '',
-            source: metric.source
-          };
+          return contractRow(metric, '接口未返回该指标');
         }
         return normalizeItem(metric, raw);
       });
@@ -408,8 +492,27 @@
     }
 
     /**
-     * 严格校验单指标：状态/值必须成对，数值必须为非负整数。
-     * 违约只降级当前卡片，不抛异常拖垮整页。
+     * 构造单卡契约违约结果；不保留服务端数值，避免任选一个重复值。
+     *
+     * @param {object} metric 页面指标配置
+     * @param {string} message 违约原因（仅用于卡片提示，不展示原始数值）
+     * @returns {object} 卡片行
+     */
+    function contractRow(metric, message) {
+      return {
+        config: metric,
+        status: STATUS_UNAVAILABLE,
+        contract: true,
+        message: message,
+        value: null,
+        unit: '',
+        source: metric.source
+      };
+    }
+
+    /**
+     * 严格校验单指标：状态/值必须成对，数值必须为非负整数，unit 必须为 COUNT，
+     * source 必须与页面配置一致。违约只降级当前卡片，不抛异常拖垮整页。
      */
     function normalizeItem(metric, raw) {
       var invalid = function (message) {
@@ -440,8 +543,14 @@
       if (typeof raw.unit !== 'string' || raw.unit === '') {
         return invalid('unit 缺失');
       }
+      if (raw.unit !== 'COUNT') {
+        return invalid('unit 不是 COUNT');
+      }
       if (typeof raw.source !== 'string' || raw.source === '') {
         return invalid('source 缺失');
+      }
+      if (metric.source && raw.source !== metric.source) {
+        return invalid('source 与页面配置不一致');
       }
       if (config.requireNoData && raw.status !== STATUS_NO_DATA) {
         return invalid('管理员待办当前只接受 NO_DATA');
@@ -615,6 +724,7 @@
     function showParamError(message) {
       // 参数错误不发请求；递增序号使任何在途旧响应失效。
       state.seq++;
+      state.pendingReload = false;
       state.loading = false;
       setLoading(false);
       els.meta.textContent = '筛选参数不合法';
@@ -653,7 +763,8 @@
       var actions = '';
       if (kind === 'auth-timeout') {
         title = '登录状态核验超时';
-        text = '页面未读取总览数据；请刷新页面或重新登录。';
+        text = '页面未读取总览数据；请重新核验登录，或刷新页面后重试。';
+        actions = '<div class="ov-state-actions"><button type="button" class="ov-btn ov-btn-primary" data-action="retry-auth">重新核验登录</button></div>';
       } else if (kind === '403') {
         title = '无权限查看总览';
         text = message || '当前账号无权访问该总览范围，页面不显示旧数据。';
@@ -730,15 +841,20 @@
     }
 
     function onPageHide() {
-      // 页面离开或进入 bfcache：使在途响应失效，避免迟到写入。
+      // 页面离开或进入 bfcache：使在途响应和旧登录等待同时失效。
       state.pageHidden = true;
       state.seq++;
+      state.authTicket++;
+      state.authState = 'stale';
+      state.pendingReload = false;
     }
 
     function onPageShow(event) {
       if (event && event.persisted && !state.disposed) {
         state.pageHidden = false;
-        load();
+        state.seq++;
+        // BFCache 恢复后必须重新等待公共登录/角色核验，不能直接 load。
+        beginAuth(true);
       }
     }
 
@@ -747,6 +863,9 @@
         state.disposed = true;
         state.pageHidden = true;
         state.seq++;
+        state.authTicket++;
+        state.authState = 'stale';
+        state.pendingReload = false;
         root.removeEventListener('click', onClick);
         global.removeEventListener('pagehide', onPageHide);
         global.removeEventListener('pageshow', onPageShow);
