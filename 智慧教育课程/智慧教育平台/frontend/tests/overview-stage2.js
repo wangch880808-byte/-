@@ -26,16 +26,94 @@ function check(condition, message) {
   }
 }
 
-// 6-02 视图的请求要等角色壳核验完成后才派出，断言不能只看挂载标记。
-async function waitForCall(calls, predicate, timeoutMs) {
+/**
+ * 判断一条请求记录是否为指定教学班的学生通知列表请求。
+ *
+ * 必须与未读数请求区分：/education/student/notices/unread-count 也以列表路径为前缀，
+ * 只看前缀会把未读数误判为列表请求。这里解析 URL 后精确比较 pathname，并精确比较
+ * bindingId，避免缺少参数或多一位数字的 bindingId 被当成同一教学班。
+ *
+ * @param {string} call 按 pathname+search 记录的请求路径
+ * @param {string} bindingId 期望的课程—教学班 ID
+ * @returns {boolean} pathname 与 bindingId 均精确匹配返回 true；URL 解析失败或任一条件不满足返回 false
+ */
+function isInheritedNoticeListRequest(call, bindingId) {
+  let url;
+  try {
+    url = new URL(call, 'http://stage2.local');
+  } catch (e) {
+    return false;
+  }
+  return url.pathname === '/education/student/notices'
+    && url.searchParams.get('bindingId') === bindingId;
+}
+
+/**
+ * 在点击「查看通知」后新增的请求里查找学生通知列表请求。
+ *
+ * 只从 startIndex 开始检查，避免把点击前总览页或旧页面已经发出的请求算作本次导航结果。
+ * 该函数是纯判断，异步等待由调用方负责。
+ *
+ * @param {string[]} calls 按发生顺序记录的 /education/** 请求
+ * @param {number} startIndex 点击「查看通知」前的请求数量
+ * @param {string} bindingId 期望的课程—教学班 ID
+ * @returns {boolean} startIndex 之后存在精确匹配的通知列表请求返回 true；否则返回 false
+ */
+function hasInheritedNoticeListRequest(calls, startIndex, bindingId) {
+  for (let i = startIndex; i < calls.length; i += 1) {
+    if (isInheritedNoticeListRequest(calls[i], bindingId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 有上限地等待条件成立，避免固定延时掩盖异步时序。
+ *
+ * @param {Function} predicate 返回 boolean 的条件函数
+ * @param {number} [timeoutMs] 超时毫秒数，默认 5000
+ * @returns {Promise<boolean>} 条件成立返回 true；超时返回 false
+ */
+async function waitForCondition(predicate, timeoutMs) {
   const deadline = Date.now() + (timeoutMs || 5000);
   while (Date.now() < deadline) {
-    if (calls.some(predicate)) {
+    if (predicate()) {
       return true;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return false;
+}
+
+// 匹配函数的负例自检；只在显式设置环境变量时运行，不启动浏览器。
+if (process.env.STAGE2_MATCHER_SELFTEST === '1') {
+  const binding = '910000000001';
+  const listPath = '/education/student/notices?bindingId=' + binding + '&pageNum=1&pageSize=10';
+  const cases = [
+    { name: '正确列表请求', calls: [listPath], startIndex: 0, expected: true },
+    { name: '仅有未读数请求', calls: ['/education/student/notices/unread-count?bindingId=' + binding], startIndex: 0, expected: false },
+    { name: '列表缺少 bindingId', calls: ['/education/student/notices?pageNum=1&pageSize=10'], startIndex: 0, expected: false },
+    { name: '列表 bindingId 多一位', calls: ['/education/student/notices?bindingId=' + binding + '0&pageNum=1'], startIndex: 0, expected: false },
+    { name: '点击前旧列表不计入', calls: [listPath], startIndex: 1, expected: false },
+    { name: '点击后新列表计入', calls: ['/education/student/announcements?bindingId=' + binding, listPath], startIndex: 1, expected: true }
+  ];
+  const results = cases.map((entry) => {
+    const actual = hasInheritedNoticeListRequest(entry.calls, entry.startIndex, binding);
+    return {
+      name: entry.name,
+      expected: entry.expected,
+      actual: actual,
+      passed: actual === entry.expected
+    };
+  });
+  const failed = results.filter((entry) => !entry.passed);
+  console.log(JSON.stringify({
+    matcherSelfTest: results,
+    passed: results.length - failed.length,
+    failures: failed.map((entry) => entry.name)
+  }, null, 2));
+  process.exit(failed.length ? 1 : 0);
 }
 
 function item(code, value, source, unit, sampleCount) {
@@ -400,17 +478,18 @@ async function screenshot(page, name) {
   const noticeLink = studentNotice.page.locator('a.ov-link', { hasText: '查看通知' });
   // 目标通知页继承课程—教学班上下文；卡片仍显示本人全部未读，范围差异由文案说明。
   await studentNotice.page.evaluate(() => sessionStorage.setItem('zhijiao.bindingId', '910000000001'));
+  const noticeCallStart = studentNotice.state.educationCalls.length;
   await noticeLink.click();
   await studentNotice.page.waitForURL(/student\.html\?g=0&i=3/, { timeout: 5000 });
   await studentNotice.page.waitForSelector('#viewRoot .edu-seg', { timeout: 5000 });
   check(await studentNotice.page.locator('#viewRoot .ov-card').count() === 0, '学生通知页不应保留总览卡片');
   check((await studentNotice.page.locator('#viewRoot').innerText()).includes('学习通知'), '学生通知页应挂载既有通知视图');
-  const inheritedBinding = await waitForCall(
-    studentNotice.state.educationCalls,
-    (p) => p.startsWith('/education/student/notices') && p.includes('bindingId=910000000001')
+  // 只认点击「查看通知」后新增的请求；未读数请求和旧页面请求都不算列表继承。
+  const inheritedBinding = await waitForCondition(
+    () => hasInheritedNoticeListRequest(studentNotice.state.educationCalls, noticeCallStart, '910000000001')
   );
   check(inheritedBinding, '学生通知页应继承当前教学班上下文: '
-    + JSON.stringify(studentNotice.state.educationCalls));
+    + JSON.stringify(studentNotice.state.educationCalls.slice(noticeCallStart)));
   await screenshot(studentNotice.page, 'stage2-student-notices.png');
   await studentNotice.page.click('[data-tab="announcements"]');
   await studentNotice.page.waitForTimeout(150);
