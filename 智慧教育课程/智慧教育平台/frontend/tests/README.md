@@ -14,7 +14,7 @@
 
 ```bash
 cd frontend
-# 6-02 生命周期与 Mock 隔离回归
+# 6-02 生命周期、Mock 隔离、草稿 ID 回归
 python -m http.server 8130 --bind 127.0.0.1
 # 6-03 总览回归（另开终端或改用 8125）
 python -m http.server 8125 --bind 127.0.0.1
@@ -52,6 +52,20 @@ node frontend/tests/mock-isolation.js
   `/getInfo`、`/getRouters`、`/logout`、`/education/**` 由 Playwright route 夹具返回。
 - 不连接真实后端、不创建真实登录；预览脚本位于 `frontend/preview/education-mock.js`，
   不在打包范围 `frontend/src/**` 内。
+
+### 草稿 ID 边界回归
+
+```bash
+PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" \
+PLAYWRIGHT_CHANNEL=msedge \
+MOCK_ID_TEST_BASE=http://127.0.0.1:8134 \
+node frontend/tests/mock-draft-id.js
+```
+
+- `MOCK_ID_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8134`。
+- 通过 Playwright route 把预览 Mock 的公告序号推进到 `Number.MAX_SAFE_INTEGER` 附近，
+  验证连续创建草稿的字符串 ID 不同、按 ID 查详情、编辑互不影响。
+- 不连接真实后端、不创建真实登录。
 
 ### 6-03 阶段1回归
 
@@ -113,6 +127,11 @@ PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" PLAYWRIGHT_CHANNEL=msedge
 - 同标签页从预览转运行页沿用原教学班与登录态，走真实请求且不显示 Mock 横幅；
 - 教师/学生/管理员运行页的旧 `zhijiao.mock=1` 与 `?mock=1` 均无效；
 - 登录核验前零业务请求；真实 500 显示错误状态，不退化为 Mock 成功。
+
+### 草稿 ID
+
+- 连续创建两条草稿得到不同字符串 ID，越过 `Number.MAX_SAFE_INTEGER` 后仍精确递增；
+- 按各自 ID 查到正确详情；编辑一条不影响另一条；新 ID 不与内置公告冲突。
 
 ### 6-03 阶段1
 

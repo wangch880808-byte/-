@@ -189,7 +189,25 @@ A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清
 - `mock-isolation.js` 驱动真实 `mock-preview.html`、`teacher.html`、`student.html`，
   但 `/getInfo`、`/getRouters`、`/logout`、`/education/**` 全部由 Playwright route 夹具返回。
 - 未执行真实登录、真实 HTTP、服务端授权、真实数据库或真实浏览器缓存恢复。
-- Mock 大整数 ID 与参数解析差异未改，见「未关闭」。
+- 草稿公告 ID 已在下方补修；Mock 通知 noticeSeq 仍是 Number 占位，参数解析差异未改，见「未关闭」。
+
+### 草稿 ID 边界补修（2026-11-08）
+
+复现：新增 `frontend/tests/mock-draft-id.js`，用 Playwright route 把预览 Mock 的公告序号
+临时推进到 `Number.MAX_SAFE_INTEGER` 附近。旧实现 **6 passed，3 failed**：连续两条草稿
+都得到 `9007199254740992`，按各自 ID 查详情和编辑隔离随之失败。
+
+修改：`announcementSeq` 改为十进制字符串；新增 `incrementDecimalId()` 逐位进位和
+`nextAnnouncementId()`；创建草稿改用字符串 ID，不经过 Number。响应字段、按 ID 查询和
+编辑行为保持不变。
+
+验证：`mock-draft-id.js` **9 passed，0 failed，0 console/page errors**；ID 为
+`9007199254740992` / `9007199254740993`，按 ID 查到各自详情，编辑一条不影响另一条。
+`mock-isolation.js` **30 passed，0 failed，0 console/page errors**。`node --check` 与
+`git diff --check` 通过。
+
+边界：测试通过 route 夹具替换序号初始值，模拟长会话越过安全整数；不是实际创建
+2^53 条草稿，也未连接真实后端。
 
 ### 后续同步注意（#34）
 
@@ -200,7 +218,7 @@ A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清
 ## 未关闭
 
 - 创建公告仍无服务端幂等键；按钮禁用不构成服务端幂等。
-- Mock 大整数 ID 仍用 Number 自增（已加 TODO 说明原因与解除条件）；
+- Mock 通知 noticeSeq 仍为 Number 占位（当前没有通知写入路由，已加 TODO 说明原因与解除条件）；
   Mock 参数解析与后端 `Long.parseLong`/`Integer.parseInt` 仍有差异，留待独立任务。
 - 文档残留：`frontend/README.md` 旧“待实现/后端待实现”、`docs/6-02-frontend-integration.md` 503 旧表述等历史文案仍待后续清理。
 - `role-home.js` HTTP 401 空正文/HTML 缺口不在本轮修改范围，需第 1 组/负责人处理。
