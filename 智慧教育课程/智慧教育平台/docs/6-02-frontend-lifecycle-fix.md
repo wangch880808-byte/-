@@ -189,7 +189,7 @@ A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清
 - `mock-isolation.js` 驱动真实 `mock-preview.html`、`teacher.html`、`student.html`，
   但 `/getInfo`、`/getRouters`、`/logout`、`/education/**` 全部由 Playwright route 夹具返回。
 - 未执行真实登录、真实 HTTP、服务端授权、真实数据库或真实浏览器缓存恢复。
-- 草稿公告 ID 已在下方补修；Mock 通知 noticeSeq 仍是 Number 占位，参数解析差异未改，见「未关闭」。
+- 草稿公告 ID 与 ID/分页/筛选解析已在下方补修；Mock 通知 noticeSeq 仍是 Number 占位，见「未关闭」。
 
 ### 草稿 ID 边界补修（2026-11-08）
 
@@ -209,6 +209,31 @@ A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清
 边界：测试通过 route 夹具替换序号初始值，模拟长会话越过安全整数；不是实际创建
 2^53 条草稿，也未连接真实后端。
 
+### ID、分页与筛选解析补修（2026-11-08）
+
+复现：新增 `frontend/tests/mock-params.js`，直接调用预览 Mock 路由层覆盖显式空查询值。
+旧实现 **12 passed，42 failed，0 console/page errors**，失败包括：
+
+- bindingId/路径 ID 前导零、正号被拒；Long 上界无 400/404 区分；
+- 路径 ID 未单次解码，双重编码和编码斜杠处理错误；
+- 学生通知显式空 bindingId 未 400；
+- pageNum/pageSize 接受指数/十六进制，空串和空白默认值不一致；
+- status/kind 空值、大小写和非法值处理与 Controller 不一致；
+- unreadOnly 显式空值和非法值未 400。
+
+修改：新增 `parsePositiveLongId`（字符串比较 Long 上界，不把整串 ID 转 Number）、
+`parseOptionalPositiveLongId`（区分省略与显式空）、`parsePathId`（单路径段解码一次）、
+`parseIntegerParam`（Integer.parseInt 语义与范围）、`parseOptionalStatus`、
+`parseOptionalKind`、`parseOptionalBoolean`。教师/学生列表、详情和写路由统一使用这些解析。
+中文注释说明 ID 精度和空值区别；测试页补 data favicon 消除无关 404。
+
+验证：`mock-params.js` **54 passed，0 failed，0 console/page errors**；
+`mock-draft-id.js` **9 passed，0 failed**；`mock-isolation.js` **30 passed，0 failed**。
+`node --check` 与 `git diff --check` 通过。
+
+边界：显式空查询值直接测试 Mock 路由层，沿用 `EduHttp` 省略空串的规则；路径解码测试
+使用编码后的请求路径。未连接真实后端、未执行真实 HTTP 或服务端授权。
+
 ### 后续同步注意（#34）
 
 - #34 的 `overview-preview.html` 与共用 Mock 数据后续同步到 six 时需保留；
@@ -219,6 +244,6 @@ A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清
 
 - 创建公告仍无服务端幂等键；按钮禁用不构成服务端幂等。
 - Mock 通知 noticeSeq 仍为 Number 占位（当前没有通知写入路由，已加 TODO 说明原因与解除条件）；
-  Mock 参数解析与后端 `Long.parseLong`/`Integer.parseInt` 仍有差异，留待独立任务。
+  Mock 时间参数解析未在本轮对齐，保留现有行为，留待独立任务。
 - 文档残留：`frontend/README.md` 旧“待实现/后端待实现”、`docs/6-02-frontend-integration.md` 503 旧表述等历史文案仍待后续清理。
 - `role-home.js` HTTP 401 空正文/HTML 缺口不在本轮修改范围，需第 1 组/负责人处理。

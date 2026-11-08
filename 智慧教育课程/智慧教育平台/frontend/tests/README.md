@@ -1,4 +1,4 @@
-# 6-02 生命周期与 6-03 总览回归测试
+# 6-02 生命周期、离线 Mock 与 6-03 总览回归测试
 
 本目录只放测试页和可移植脚本，不提交 Playwright、浏览器、node_modules、截图或临时输出，不创建产品 `package.json`/锁文件。
 
@@ -14,7 +14,7 @@
 
 ```bash
 cd frontend
-# 6-02 生命周期、Mock 隔离、草稿 ID 回归
+# 6-02 生命周期、Mock 隔离、草稿 ID、参数解析回归
 python -m http.server 8130 --bind 127.0.0.1
 # 6-03 总览回归（另开终端或改用 8125）
 python -m http.server 8125 --bind 127.0.0.1
@@ -65,6 +65,22 @@ node frontend/tests/mock-draft-id.js
 - `MOCK_ID_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8134`。
 - 通过 Playwright route 把预览 Mock 的公告序号推进到 `Number.MAX_SAFE_INTEGER` 附近，
   验证连续创建草稿的字符串 ID 不同、按 ID 查详情、编辑互不影响。
+- 不连接真实后端、不创建真实登录。
+
+### ID、分页与筛选解析回归
+
+```bash
+PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" \
+PLAYWRIGHT_CHANNEL=msedge \
+MOCK_PARAM_TEST_BASE=http://127.0.0.1:8135 \
+node frontend/tests/mock-params.js
+```
+
+- `MOCK_PARAM_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8135`。
+- 直接调用 `EduMock.request`，覆盖显式空查询值（沿用 `EduHttp` 省略空串的规则）。
+- 覆盖 ID 前导零/正号/Long 上界/溢出/路径单次解码、学生 bindingId 省略与显式空、
+  分页默认值和范围、status/kind/unreadOnly 空值/大小写/非法值。
+- 本轮数字输入覆盖半角数字；全角等非 ASCII 数字按非法格式处理。
 - 不连接真实后端、不创建真实登录。
 
 ### 6-03 阶段1回归
@@ -132,6 +148,15 @@ PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" PLAYWRIGHT_CHANNEL=msedge
 
 - 连续创建两条草稿得到不同字符串 ID，越过 `Number.MAX_SAFE_INTEGER` 后仍精确递增；
 - 按各自 ID 查到正确详情；编辑一条不影响另一条；新 ID 不与内置公告冲突。
+
+### ID、分页与筛选解析
+
+- ID 接受前导零/正号并规范成十进制字符串；Long 上界合法但不存在的路径 ID 返回 404，
+  零、负数、非法格式和溢出返回 400；路径 ID 只解码一次。
+- 学生接口区分省略 bindingId 与显式空值；显式空值和纯空白返回 400。
+- 分页缺失/空串/纯空白用默认值；整数范围与小数、指数、十六进制、溢出处理对齐 Controller。
+- status/kind/unreadOnly 的空值、大小写和非法值处理对齐 Controller。
+- 数字输入覆盖半角数字；全角等非 ASCII 数字按非法格式处理。
 
 ### 6-03 阶段1
 
