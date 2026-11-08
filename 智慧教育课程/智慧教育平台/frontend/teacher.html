@@ -105,6 +105,7 @@
   #authRetry, .logout-button { border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; padding: 5px 10px; color: #555; cursor: pointer; font: inherit; }
   #authRetry:hover, .logout-button:hover { color: #1890ff; border-color: #1890ff; }
 </style>
+<link rel="stylesheet" href="/src/views/education/education-views.css">
 </head>
 <body class="auth-pending" data-role="teacher">
   <div id="authStatus" role="status"><span id="authMessage">正在核验登录信息…</span><button type="button" id="authRetry" hidden>重试</button></div>
@@ -130,10 +131,16 @@
       <div class="content">
         <div class="page-title" id="pageTitle"></div>
         <div class="hint">内容区（待实现）</div>
+        <div id="viewRoot" class="edu-view-root" hidden></div>
       </div>
     </main>
   </div>
 
+<script src="/src/api/education/http.js"></script>
+<script src="/src/api/education/announcement.js"></script>
+<script src="/src/views/education/ui-kit.js"></script>
+<script src="/src/views/education/view-host.js"></script>
+<script src="/src/views/education/teacher/announcements.js"></script>
 <script>
 var ROLE = 'teacher';
 var currentGi = 0, currentIi = 0;
@@ -181,6 +188,11 @@ function select(gi, ii) {
   document.getElementById('breadcrumb').innerHTML =
     g.name + ' <span>&gt;</span> <span class="cur">' + g.children[ii] + '</span>';
   document.getElementById('pageTitle').textContent = g.children[ii];
+
+  // 6-02：已登记的教学业务页在此挂载；未登记的菜单仍保留占位提示。
+  if (window.EduViews) {
+    window.EduViews.mount(ROLE, gi, ii, g.children[ii]);
+  }
 }
 
 var TAB_KEY = 'zhijiao_tabs_' + ROLE;

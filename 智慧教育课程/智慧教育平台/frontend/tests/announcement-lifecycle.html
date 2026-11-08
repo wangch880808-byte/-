@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>6-02 生命周期回归测试页</title>
+<link rel="stylesheet" href="../src/views/education/education-views.css">
+<style>
+  body { margin: 0; padding: 16px; background: #f5f7fa; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; }
+  #testContent { display: block; min-height: 500px; background: #fff; border: 1px solid #e5e8ef; border-radius: 8px; padding: 16px; }
+</style>
+</head>
+<body>
+<span id="noticeBadge" hidden></span>
+<div class="content view-active" id="testContent">
+  <div id="viewRoot"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  // 测试专用假客户端；所有请求进入 pending，由 runner 显式 resolve/reject。
+  window.__calls = [];
+  window.__pending = [];
+  window.__authCalls = 0;
+  window.__authResolvers = [];
+  window.__backToLogin = false;
+  window.EduHttp = {
+    get: function (url, query) { return fake('GET', url, query, undefined); },
+    post: function (url, body) { return fake('POST', url, undefined, body); },
+    put: function (url, body) { return fake('PUT', url, undefined, body); },
+    backToLogin: function () { window.__backToLogin = true; }
+  };
+  function fake(method, url, query, body) {
+    var call = { method: method, url: url, query: query, body: body };
+    var promise = new Promise(function (resolve, reject) {
+      call.resolve = resolve;
+      call.reject = reject;
+    });
+    call.promise = promise;
+    window.__calls.push(call);
+    window.__pending.push(call);
+    return promise;
+  }
+  window.__resolveCall = function (index, body) {
+    var call = window.__pending[index];
+    if (!call) throw new Error('pending call not found: ' + index);
+    window.__pending.splice(index, 1);
+    call.resolve(body);
+  };
+  window.__rejectCall = function (index, error) {
+    var call = window.__pending[index];
+    if (!call) throw new Error('pending call not found: ' + index);
+    window.__pending.splice(index, 1);
+    call.reject(error);
+  };
+  window.__findPending = function (part) {
+    for (var i = 0; i < window.__pending.length; i++) {
+      if (window.__pending[i].url.indexOf(part) >= 0) return i;
+    }
+    return -1;
+  };
+  window.__findPendingExact = function (url) {
+    for (var i = 0; i < window.__pending.length; i++) {
+      if (window.__pending[i].url === url) return i;
+    }
+    return -1;
+  };
+  window.__findPendingByBinding = function (part, bindingId) {
+    for (var i = 0; i < window.__pending.length; i++) {
+      var call = window.__pending[i];
+      if (call.url.indexOf(part) >= 0 && call.query && call.query.bindingId === bindingId) return i;
+    }
+    return -1;
+  };
+  window.__clearCalls = function () {
+    window.__calls.length = 0;
+    window.__pending.length = 0;
+  };
+})();
+</script>
+<script src="../src/api/education/announcement.js"></script>
+<script src="../src/api/education/notice.js"></script>
+<script src="../src/views/education/ui-kit.js"></script>
+<script src="../src/views/education/view-host.js"></script>
+<script src="../src/views/education/teacher/announcements.js"></script>
+<script src="../src/views/education/student/announcements.js"></script>
+<script src="../src/views/education/student/notices.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  window.EduViews.whenAuthorized = function () {
+    window.__authCalls += 1;
+    return new Promise(function (resolve) {
+      window.__authResolvers.push(resolve);
+    });
+  };
+
+  window.__mount = function (role, groupIndex, itemIndex) {
+    return window.EduViews.mount(role, groupIndex, itemIndex, 'test');
+  };
+  window.__unmount = function () {
+    return window.EduViews.mount('teacher', 9, 9, 'none');
+  };
+  window.__resolveAuth = function (value) {
+    var resolvers = window.__authResolvers.slice();
+    window.__authResolvers.length = 0;
+    resolvers.forEach(function (resolve) { resolve(value); });
+  };
+
+  // 模拟 bfcache 页面事件；不模拟真实浏览器缓存恢复，只验证视图对 persisted 事件的处理。
+  function dispatchPageEvent(type, persisted) {
+    var event;
+    try {
+      event = new PageTransitionEvent(type, { persisted: persisted });
+    } catch (e) {
+      event = new Event(type);
+      Object.defineProperty(event, 'persisted', { value: persisted });
+    }
+    window.dispatchEvent(event);
+  }
+  window.__dispatchPageHide = function (persisted) {
+    dispatchPageEvent('pagehide', persisted !== false);
+  };
+  window.__dispatchPageShow = function (persisted) {
+    dispatchPageEvent('pageshow', persisted !== false);
+  };
+})();
+</script>
+</body>
+</html>
