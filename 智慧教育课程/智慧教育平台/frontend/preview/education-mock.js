@@ -81,11 +81,49 @@
   // 内置数据（与后端 DTO 字段一一对应）
   // ------------------------------------------------------------------
 
-  // TODO(6-02-mock-id): 新建 ID 仍用 Number 自增，超过 Number.MAX_SAFE_INTEGER 会失真。
-  // 原因：本轮只处理预览隔离，ID 策略需与后端大整数契约统一；解除条件：改用字符串或
-  // 大整数生成，或在独立任务确认 Mock ID 上限与递增方式后删除本 TODO。
-  var announcementSeq = 820000000000000100;
+  // 草稿公告 ID 不能用 Number 自增：内置 ID 是 18 位十进制字符串，
+  // 超过 Number.MAX_SAFE_INTEGER（2^53）后 +1 不再改变数值，连续创建会拿到同一 ID。
+  // 这里用字符串逐位进位，保证越过边界后仍精确递增。
+  var announcementSeq = '820000000000000100';
   var noticeSeq = 830000000000000100;
+
+  // TODO(6-02-mock-notice-id): noticeSeq 目前没有通知写入路由，仍是 Number 占位。
+  // 原因：本轮只修草稿公告 ID，通知写入/fan-out 不在范围；
+  // 解除条件：Mock 新增通知创建接口或需要分配通知 ID 时，改用 incrementDecimalId。
+
+  /**
+   * 对十进制字符串 ID 精确加一，不经过 Number。
+   *
+   * @param {string} value 仅由十进制数字组成的正整数
+   * @returns {string} value + 1 的十进制字符串；输入为空或非数字时按 0 处理并返回 '1'
+   */
+  function incrementDecimalId(value) {
+    var digits = String(value || '').trim();
+    if (!/^\d+$/.test(digits)) {
+      return '1';
+    }
+    var chars = digits.split('');
+    var carry = 1;
+    for (var i = chars.length - 1; i >= 0 && carry === 1; i--) {
+      var digit = chars[i].charCodeAt(0) - 48 + carry;
+      carry = digit >= 10 ? 1 : 0;
+      chars[i] = String(digit % 10);
+    }
+    if (carry === 1) {
+      chars.unshift('1');
+    }
+    return chars.join('');
+  }
+
+  /**
+   * 分配下一个草稿公告 ID。
+   *
+   * @returns {string} 递增后的十进制字符串 ID，不经过 Number，越过安全整数边界仍精确
+   */
+  function nextAnnouncementId() {
+    announcementSeq = incrementDecimalId(announcementSeq);
+    return announcementSeq;
+  }
 
   var announcements = [
     {
@@ -417,7 +455,7 @@
     ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     validateDraftFields(body.title, body.body, body.opensAt, body.closesAt, ctx.method, ctx.path);
     var item = {
-      id: String(++announcementSeq),
+      id: nextAnnouncementId(),
       bindingId: bindingId,
       title: body.title.trim(),
       body: body.body,
