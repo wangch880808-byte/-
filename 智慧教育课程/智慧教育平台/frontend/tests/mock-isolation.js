@@ -85,6 +85,27 @@ function noticeList(title) {
   };
 }
 
+function adminOverviewBody() {
+  return {
+    code: 200,
+    msg: '操作成功',
+    data: {
+      asOf: '2026-11-08T00:00:00.000Z',
+      window: {
+        startsAt: '2026-11-08T00:00:00.000Z',
+        endsAt: '2026-11-09T00:00:00.000Z'
+      },
+      items: [
+        { metricCode: 'admin.class.count', value: 12, unit: 'COUNT', status: 'OK', source: 'course', sampleCount: 12, actionPath: '/admin/classes' },
+        { metricCode: 'admin.student.count', value: 420, unit: 'COUNT', status: 'OK', source: 'course', sampleCount: 12, actionPath: '/admin/classes' },
+        { metricCode: 'admin.session.running', value: 2, unit: 'COUNT', status: 'OK', source: 'classroom', sampleCount: 12, actionPath: '/admin/classes' },
+        { metricCode: 'admin.assignment.pending', value: 37, unit: 'COUNT', status: 'OK', source: 'assignment', sampleCount: 12, actionPath: '/admin/assignments' },
+        { metricCode: 'admin.grade.pending', value: 18, unit: 'COUNT', status: 'OK', source: 'grade', sampleCount: 12, actionPath: '/admin/grades' }
+      ]
+    }
+  };
+}
+
 async function makePage(browser, role, storage, options) {
   const opts = options || {};
   const context = await browser.newContext({
@@ -157,6 +178,10 @@ async function makePage(browser, role, storage, options) {
         return;
       }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(teacherList('真实路由公告')) });
+      return;
+    }
+    if (url.pathname === '/education/admin/overview') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(adminOverviewBody()) });
       return;
     }
     if (url.pathname === '/education/student/notices') {
@@ -306,6 +331,28 @@ function sameStorage(actual, expected) {
   check(await student.page.locator('#eduMockBanner').count() === 0, '学生运行页不得显示 Mock 横幅');
   check(student.state.errors.length === 0, '学生运行页不应有浏览器错误: ' + student.state.errors.join(' | '));
   await student.context.close();
+
+  // 6. 管理员运行页旧开关同样等待登录核验。
+  let releaseAdminInfo = null;
+  const admin = await makePage(browser, 'admin', {
+    token: 'admin-token',
+    role: 'admin',
+    binding: '910000000002',
+    mock: '1'
+  });
+  admin.state.infoGate = new Promise((resolve) => { releaseAdminInfo = resolve; });
+  await admin.page.goto(BASE + '/admin.html?mock=1&g=0&i=0', { waitUntil: 'load' });
+  await waitUntil(() => admin.state.infoCalls === 1);
+  await admin.page.waitForTimeout(200);
+  check(admin.state.educationCalls.length === 0, '管理员登录核验前不得发业务请求');
+  check(await admin.page.locator('#eduMockBanner').count() === 0, '管理员运行页旧开关不得进入 Mock');
+  releaseAdminInfo();
+  const adminRequested = await waitUntil(() => admin.state.educationCalls
+    .some((call) => call.startsWith('/education/admin/overview')));
+  check(adminRequested, '管理员旧开关下核验后应走真实总览请求: ' + JSON.stringify(admin.state.educationCalls));
+  check(await admin.page.locator('#eduMockBanner').count() === 0, '管理员真实请求页不得显示 Mock 横幅');
+  check(admin.state.errors.length === 0, '管理员运行页不应有浏览器错误: ' + admin.state.errors.join(' | '));
+  await admin.context.close();
 
   console.log(JSON.stringify({ passed: passed.length, failures, consoleErrors: [] }, null, 2));
   await browser.close();

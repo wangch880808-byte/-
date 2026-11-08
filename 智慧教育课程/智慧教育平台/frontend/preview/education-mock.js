@@ -787,6 +787,319 @@
     return ok({ markedCount: markedCount, unreadCount: unread, operatedAt: operatedAt });
   });
 
+  // --- 6-03 总览（显式 Mock；字段与 #24 DTO 对齐） ---
+
+  var overviewScenario = 'normal';
+  var overviewDelayMs = null;
+
+  var OVERVIEW_DEFS = {
+    teacher: [
+      { code: 'teacher.class.count', source: 'course', actionPath: '/teacher/classes' },
+      { code: 'teacher.student.count', source: 'course', actionPath: '/teacher/classes' },
+      { code: 'teacher.session.running', source: 'classroom', actionPath: '/teacher/classes' },
+      { code: 'teacher.assignment.pending', source: 'assignment', actionPath: '/teacher/assignments' },
+      { code: 'teacher.grade.pending', source: 'grade', actionPath: '/teacher/grades' },
+      { code: 'teacher.notice.unread', source: 'notice', actionPath: '/teacher/notices' }
+    ],
+    student: [
+      { code: 'student.class.count', source: 'course', actionPath: '/student/classes' },
+      { code: 'student.session.active', source: 'classroom', actionPath: '/student/todos' },
+      { code: 'student.assignment.due', source: 'assignment', actionPath: '/student/todos' },
+      { code: 'student.notice.unread', source: 'notice', actionPath: '/student/notices' }
+    ],
+    admin: [
+      { code: 'admin.class.count', source: 'course', actionPath: '/admin/classes' },
+      { code: 'admin.student.count', source: 'course', actionPath: '/admin/classes' },
+      { code: 'admin.session.running', source: 'classroom', actionPath: '/admin/classes' },
+      { code: 'admin.assignment.pending', source: 'assignment', actionPath: '/admin/assignments' },
+      { code: 'admin.grade.pending', source: 'grade', actionPath: '/admin/grades' }
+    ],
+    adminTodos: [
+      { code: 'admin.todo.pending', source: 'pending_product_confirmation', actionPath: null }
+    ]
+  };
+
+  var OVERVIEW_SAMPLES = {
+    'teacher.class.count': 3,
+    'teacher.student.count': 3,
+    'teacher.session.running': 3,
+    'teacher.assignment.pending': 4,
+    'teacher.grade.pending': 3,
+    'teacher.notice.unread': null,
+    'student.class.count': 2,
+    'student.session.active': 2,
+    'student.assignment.due': 3,
+    'student.notice.unread': null,
+    'admin.class.count': 12,
+    'admin.student.count': 12,
+    'admin.session.running': 12,
+    'admin.assignment.pending': 12,
+    'admin.grade.pending': 12,
+    'admin.todo.pending': null
+  };
+
+  function overviewNormalValues(role, classId) {
+    if (role === 'teacher') {
+      return {
+        'teacher.class.count': classId ? 9 : 3,
+        'teacher.student.count': classId ? 40 : 86,
+        'teacher.session.running': classId ? 2 : 1,
+        'teacher.assignment.pending': classId ? 7 : 12,
+        'teacher.grade.pending': classId ? 3 : 5,
+        'teacher.notice.unread': classId ? 1 : 4
+      };
+    }
+    if (role === 'student') {
+      return {
+        'student.class.count': 2,
+        'student.session.active': 1,
+        'student.assignment.due': 3,
+        'student.notice.unread': 0
+      };
+    }
+    if (role === 'admin') {
+      return {
+        'admin.class.count': 12,
+        'admin.student.count': 420,
+        'admin.session.running': 2,
+        'admin.assignment.pending': 37,
+        'admin.grade.pending': 18
+      };
+    }
+    return { 'admin.todo.pending': null };
+  }
+
+  function overviewZeroValues(role) {
+    if (role === 'teacher') {
+      return {
+        'teacher.class.count': 3,
+        'teacher.student.count': 0,
+        'teacher.session.running': 0,
+        'teacher.assignment.pending': 0,
+        'teacher.grade.pending': 0,
+        'teacher.notice.unread': 0
+      };
+    }
+    if (role === 'student') {
+      return {
+        'student.class.count': 2,
+        'student.session.active': 0,
+        // 学生 assignment.due 空列表是 NO_DATA，没有 OK 0。
+        'student.assignment.due': null,
+        'student.notice.unread': 0
+      };
+    }
+    if (role === 'admin') {
+      return {
+        'admin.class.count': 12,
+        'admin.student.count': 0,
+        'admin.session.running': 0,
+        'admin.assignment.pending': 0,
+        'admin.grade.pending': 0
+      };
+    }
+    return { 'admin.todo.pending': null };
+  }
+
+  function overviewMixedValues(role) {
+    if (role === 'teacher') {
+      return {
+        'teacher.class.count': ['OK', 3],
+        'teacher.student.count': ['UNAVAILABLE', null],
+        'teacher.session.running': ['OK', 0],
+        'teacher.assignment.pending': ['NO_DATA', null],
+        'teacher.grade.pending': ['UNAVAILABLE', null],
+        'teacher.notice.unread': ['OK', 4]
+      };
+    }
+    if (role === 'student') {
+      return {
+        'student.class.count': ['OK', 2],
+        'student.session.active': ['UNAVAILABLE', null],
+        'student.assignment.due': ['OK', 3],
+        'student.notice.unread': ['NO_DATA', null]
+      };
+    }
+    if (role === 'admin') {
+      return {
+        'admin.class.count': ['OK', 12],
+        'admin.student.count': ['NO_DATA', null],
+        'admin.session.running': ['UNAVAILABLE', null],
+        'admin.assignment.pending': ['OK', 37],
+        'admin.grade.pending': ['OK', 0]
+      };
+    }
+    return { 'admin.todo.pending': ['NO_DATA', null] };
+  }
+
+  function overviewWindow(ctx) {
+    var from = ctx.query.from;
+    var to = ctx.query.to;
+    if ((from && !to) || (!from && to)) {
+      throw apiError(400, 'from 和 to 必须同时提供', ctx.method, ctx.path);
+    }
+    if (from && to) {
+      var fromMs = Date.parse(from);
+      var toMs = Date.parse(to);
+      if (isNaN(fromMs) || isNaN(toMs) || fromMs >= toMs) {
+        throw apiError(400, '时间窗不合法：必须为 RFC 3339，且 to 晚于 from', ctx.method, ctx.path);
+      }
+      return { startsAt: new Date(fromMs).toISOString(), endsAt: new Date(toMs).toISOString() };
+    }
+    var now = new Date();
+    var start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return {
+      startsAt: new Date(start).toISOString(),
+      endsAt: new Date(start + 24 * 60 * 60 * 1000).toISOString()
+    };
+  }
+
+  function overviewItem(def, status, value, sample) {
+    return {
+      metricCode: def.code,
+      value: status === 'OK' ? value : null,
+      unit: 'COUNT',
+      status: status,
+      source: def.source,
+      sampleCount: status === 'OK' && sample !== undefined ? sample : null,
+      actionPath: def.actionPath
+    };
+  }
+
+  function buildOverviewResponse(role, ctx) {
+    if (overviewScenario === 'error401') {
+      throw apiError(401, '登录状态已失效（Mock）', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'error403') {
+      throw apiError(403, '当前账号无权查看该总览范围', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'error400') {
+      throw apiError(400, '筛选参数不合法（Mock）', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'error404') {
+      throw apiError(404, '总览接口未部署（Mock）', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'error500') {
+      throw apiError(500, '服务端异常（Mock）', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'network') {
+      throw apiError(0, '网络异常（Mock）', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'adminTodosError' && role === 'adminTodos') {
+      throw apiError(500, '管理员待办读取失败（Mock）', ctx.method, ctx.path);
+    }
+    if (overviewScenario === 'missing-data') {
+      return { code: 200, msg: '操作成功', data: null };
+    }
+
+    var window = overviewWindow(ctx);
+    var defs = OVERVIEW_DEFS[role];
+    var normal = role === 'adminTodos' ? { 'admin.todo.pending': null }
+      : overviewNormalValues(role, ctx.query.classId);
+    var items = [];
+
+    if (overviewScenario === 'empty-items') {
+      items = [];
+    } else if (role === 'adminTodos') {
+      items = overviewScenario === 'adminTodoOkZero'
+        ? [overviewItem(defs[0], 'OK', 0, 0)]
+        : [overviewItem(defs[0], 'NO_DATA', null, null)];
+    } else if (overviewScenario === 'nodata') {
+      items = defs.map(function (def) { return overviewItem(def, 'NO_DATA', null, null); });
+    } else if (overviewScenario === 'unavailable') {
+      items = defs.map(function (def) { return overviewItem(def, 'UNAVAILABLE', null, null); });
+    } else if (overviewScenario === 'mixed') {
+      var mixed = overviewMixedValues(role);
+      items = defs.map(function (def) {
+        var state = mixed[def.code] || ['NO_DATA', null];
+        return overviewItem(def, state[0], state[1], OVERVIEW_SAMPLES[def.code]);
+      });
+    } else if (overviewScenario === 'zero') {
+      var zero = overviewZeroValues(role);
+      items = defs.map(function (def) {
+        if (role === 'student' && def.code === 'student.assignment.due') {
+          return overviewItem(def, 'NO_DATA', null, null);
+        }
+        return overviewItem(def, 'OK', zero[def.code], OVERVIEW_SAMPLES[def.code]);
+      });
+    } else if (overviewScenario === 'missing') {
+      var omit = role === 'teacher' ? 'teacher.grade.pending'
+        : role === 'student' ? 'student.assignment.due' : 'admin.grade.pending';
+      items = defs.filter(function (def) { return def.code !== omit; }).map(function (def) {
+        return overviewItem(def, 'OK', normal[def.code], OVERVIEW_SAMPLES[def.code]);
+      });
+    } else if (overviewScenario === 'invalid') {
+      items = defs.map(function (def, index) {
+        if (index === 0) {
+          return {
+            metricCode: def.code,
+            value: null,
+            unit: 'COUNT',
+            status: 'OK',
+            source: def.source,
+            sampleCount: null,
+            actionPath: def.actionPath
+          };
+        }
+        if (index === 1) {
+          return {
+            metricCode: def.code,
+            value: 5,
+            unit: 'COUNT',
+            status: 'NO_DATA',
+            source: def.source,
+            sampleCount: null,
+            actionPath: def.actionPath
+          };
+        }
+        return overviewItem(def, 'OK', normal[def.code], OVERVIEW_SAMPLES[def.code]);
+      });
+    } else {
+      items = defs.map(function (def) {
+        return overviewItem(def, 'OK', normal[def.code], OVERVIEW_SAMPLES[def.code]);
+      });
+    }
+
+    return ok({ asOf: nowIso(), window: window, items: items });
+  }
+
+  function overviewDelayed(fn) {
+    var wait = overviewDelayMs === null
+      ? LATENCY_MIN + Math.floor(Math.random() * (LATENCY_MAX - LATENCY_MIN))
+      : overviewDelayMs;
+    return new Promise(function (resolve, reject) {
+      global.setTimeout(function () {
+        try {
+          resolve(fn());
+        } catch (error) {
+          reject(error);
+        }
+      }, wait);
+    });
+  }
+
+  function overviewHandler(role, ctx) {
+    // 在请求进入时构建响应，保证并发乱序测试看到的是各自请求时刻的数据。
+    var response = buildOverviewResponse(role, ctx);
+    return overviewDelayed(function () { return response; });
+  }
+
+  route('GET', /^\/education\/teacher\/overview$/, function (ctx) {
+    return overviewHandler('teacher', ctx);
+  });
+
+  route('GET', /^\/education\/student\/today-todos$/, function (ctx) {
+    return overviewHandler('student', ctx);
+  });
+
+  route('GET', /^\/education\/admin\/overview$/, function (ctx) {
+    return overviewHandler('admin', ctx);
+  });
+
+  route('GET', /^\/education\/admin\/todos$/, function (ctx) {
+    return overviewHandler('adminTodos', ctx);
+  });
+
   // --- 课程—教学班上下文（C-1，2 组未交付，Mock 先给演示数据） ---
 
   route('GET', /^\/education\/(teacher|student)\/bindings$/, function () {
@@ -875,6 +1188,15 @@
       body: opts.body || {},
       params: found.params
     };
+    // 总览请求由 handler 自己控制延迟；这样并发乱序测试能在请求进入时
+    // 固定各自的数据快照，不被外层随机延迟改变顺序。
+    if (/^\/education\/(teacher\/overview|student\/today-todos|admin\/overview|admin\/todos)$/.test(path)) {
+      try {
+        return Promise.resolve(found.handler(ctx));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
     return delayed(function () {
       return found.handler(ctx);
     });
@@ -924,6 +1246,28 @@
         item.readAt = null;
       }
     });
+    overviewScenario = 'normal';
+    overviewDelayMs = null;
+  }
+
+  /**
+   * 切换总览 Mock 场景。
+   *
+   * @param {string} scenario normal|zero|nodata|unavailable|mixed|missing|invalid|
+   *   empty-items|missing-data|error401|error403|error400|error404|error500|network|
+   *   adminTodoOkZero|adminTodosError
+   */
+  function setOverviewScenario(scenario) {
+    overviewScenario = scenario || 'normal';
+  }
+
+  /**
+   * 设置总览 Mock 延迟，仅用于预览/并发测试；null 恢复随机延迟。
+   *
+   * @param {number|null} ms 毫秒
+   */
+  function setOverviewDelay(ms) {
+    overviewDelayMs = (typeof ms === 'number' && ms >= 0) ? ms : null;
   }
 
   if (typeof document !== 'undefined') {
@@ -941,6 +1285,8 @@
     handles: handles,
     request: request,
     reset: reset,
+    setOverviewScenario: setOverviewScenario,
+    setOverviewDelay: setOverviewDelay,
     bindings: [DEMO_BINDING, '910000000002'],
     deniedBinding: DENIED_BINDING,
     unavailableBinding: UNAVAILABLE_BINDING
