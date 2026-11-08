@@ -76,6 +76,56 @@ node frontend/tests/announcement-lifecycle.js
 - 全部已读文案与全量范围一致；
 - 13 个接口方法/路径回归。
 
+## #32 复审补修（2026-11-08）
+
+### 复现证据（six@ee4dad9）
+
+在原有 30 项用例之外补 31 项生命周期断言；未改产品代码时（最终测试脚本 + HEAD 产品源码）
+运行结果为 **42 passed，19 failed，0 console/page errors**。失败覆盖：
+
+- 核验期间勾选「仅未读」/改筛选后，核验通过只发列表请求，未补首次未读数；
+- 核验期间切到课程公告后，旧通知任务仍发通知请求并覆盖公告区域；
+- pagehide 后排队读请求仍派发；
+- pagehide 后迟到列表、未读数、详情、发布响应仍更新旧页面/弹窗/角标或弹旧提示；
+- pageshow(persisted) 未重新核验，恢复后不加载当前视图；
+- 通知页签恢复会重放旧「全部已读」；
+- 课程公告页签 pagehide 后排队读请求仍派发。
+
+### 本轮修改
+
+- `view-host.js`：`createAuthGate` 增加 `onHidden`、`onRestore` 和 `cancelPending()`。
+  - pagehide 统一作废登录等待、排队 action，并通知视图作废请求代际、关闭临时 UI；
+  - pageshow 且 persisted=true 时重新调用现有 `EduViews.whenAuthorized()`（复用角色壳核验），
+    只执行视图按当前页签返回的只读 action；离开前排队的写操作不进入恢复队列；
+  - Mock 预览没有角色壳，恢复后保持 ready，只执行只读 action。
+- `student/notices.js`：
+  - 筛选/分页保存为「列表 + 首次未读数只补一次」，核验通过后按最终条件只请求一次列表；
+  - 切到课程公告时 `cancelPending()`，核验/失败回调不再写公告区域；
+  - 通知页签恢复只重读列表和未读数；公告页签由子视图自己的门卫恢复；
+  - 全部已读确认文案、全量范围、`PUT read-all` 不变。
+- 三个视图增加请求代际 `epoch`：pagehide/恢复/cleanup 后，已经排队或在途的读写响应
+  不得再更新页面、弹窗或 toast；详情/编辑/确认弹窗在 pagehide 时关闭。
+- `role-home.js` 未修改；本轮无 Java、Mapper、SQL、Mock 隔离或 401 处理改动。
+
+### 验证结果
+
+同一测试页、同一 Edge 无头配置：
+
+- 新增后完整脚本：**61 passed，0 failed，0 console/page errors**；
+- 用 `git show HEAD:智慧教育课程/智慧教育平台/frontend/tests/announcement-lifecycle.js`
+  取回修改前 30 项原脚本
+  独立重跑：**30 passed，0 failed，0 console/page errors**（原断言未削弱）。
+
+### 测试边界
+
+- 测试夹具：假 `EduHttp`（请求进入 pending，由 runner 显式 resolve/reject）+
+  假 `EduViews.whenAuthorized`（手动 resolve），不连接真实后端。
+- 缓存恢复：用合成 `PageTransitionEvent('pagehide'/'pageshow', {persisted:true})`
+  模拟事件顺序，不是真实浏览器 bfcache 恢复。
+- 真实登录、真实 bfcache 恢复、真实后端联调本轮均未执行；角色壳重新核验仅通过
+  调用现有 `whenAuthorized()` 的路径验证，`role-home.js` 的 `/getInfo`、`/getRouters`
+  行为未在本轮测试范围内。
+
 ## 未关闭
 
 - 创建公告仍无服务端幂等键；按钮禁用不构成服务端幂等。

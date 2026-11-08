@@ -74,10 +74,18 @@
    * - pending 时只保存最新 action，不调用业务 API；
    * - 核验失败不执行 action，由视图显示登录错误；
    * - 显式 Mock 预览直接就绪，不影响真实模式；
-   * - cleanup/pagehide 后旧登录结果和排队 action 失效，不重新请求。
+   * - pagehide 使旧登录结果和排队 action 失效，并通知视图作废请求代际；
+   * - pageshow 且 persisted=true 时重新走现有角色壳核验，通过后只执行视图返回的只读 action，
+   *   不重放离开前排队的写操作；
+   * - cleanup 后旧登录结果和排队 action 失效，不重新请求。
    *
-   * @param {{onPending?:Function,onFailure?:Function}} options 状态回调
-   * @returns {{request:Function,retry:Function,cleanup:Function,
+   * onRestore 必须同步返回一个只读 action（或 null）；返回 null 表示该门卫当前不负责
+   * 恢复加载（例如学生通知停在公告页签时，由公告子视图自己的门卫恢复）。
+   * onRestore 抛错按 null 处理，不把门卫置为失败态。
+   *
+   * @param {{onPending?:Function,onFailure?:Function,onHidden?:Function,
+   *   onRestore?:Function}} options 状态回调
+   * @returns {{request:Function,retry:Function,cancelPending:Function,cleanup:Function,
    *   isReady:Function,isFailed:Function,isPending:Function}} 门卫 API
    */
   function createAuthGate(options) {
@@ -135,13 +143,48 @@
 
     function onPageHide() {
       // 页面离开或进入 bfcache：旧登录等待和未执行 action 全部失效。
+      // 视图必须同时作废自己的请求代际，否则已经排队/在途的读写仍会写旧页面。
       pageHidden = true;
       state = 'stale';
       ticket++;
       pendingAction = null;
+      notify('onHidden');
+    }
+
+    function onPageShow(event) {
+      if (disposed || !event || !event.persisted) {
+        return;
+      }
+      // 只用页面的 pageshow 恢复路径重新核验，不重放离开前保存的 action。
+      // 恢复后要加载的数据由视图按当前页签/视图重新给出，避免旧发布、归档或已读操作被重放。
+      pageHidden = false;
+      state = 'idle';
+      ticket++;
+      pendingAction = null;
+      var action = null;
+      if (typeof opts.onRestore === 'function') {
+        try {
+          action = opts.onRestore();
+        } catch (e) {
+          action = null;
+        }
+      }
+      if (mockMode) {
+        // Mock 预览没有角色壳可核验：恢复后保持就绪，只执行视图给出的只读 action。
+        state = 'ready';
+        if (typeof action === 'function') {
+          action();
+        }
+        return;
+      }
+      if (typeof action === 'function') {
+        pendingAction = action;
+        start();
+      }
     }
 
     global.addEventListener('pagehide', onPageHide);
+    global.addEventListener('pageshow', onPageShow);
 
     return {
       request: function (action) {
@@ -175,6 +218,16 @@
         start();
         return false;
       },
+      /**
+       * 取消核验期间保存的排队 action，门卫仍保持 pending。
+       *
+       * 用于页签切换：旧页签的加载任务不能让新页签在核验通过后发请求或覆盖区域。
+       *
+       * @returns {void} 无返回值；cleanup 后调用无副作用
+       */
+      cancelPending: function () {
+        pendingAction = null;
+      },
       cleanup: function () {
         disposed = true;
         pageHidden = true;
@@ -182,6 +235,7 @@
         ticket++;
         pendingAction = null;
         global.removeEventListener('pagehide', onPageHide);
+        global.removeEventListener('pageshow', onPageShow);
       },
       isReady: function () { return state === 'ready'; },
       isFailed: function () { return state === 'failed' || state === 'stale'; },

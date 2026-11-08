@@ -39,6 +39,7 @@
       listSeq: 0,
       detailSeq: 0,
       formSeq: 0,
+      epoch: 0,
       dialogs: [],
       confirms: [],
       bindingCleanup: null,
@@ -85,9 +86,44 @@
       region.innerHTML = UI.stateLoading('正在核验登录状态…');
     }
 
+    /**
+     * 页面离开或进入 bfcache：作废本视图代际，关闭临时 UI。
+     *
+     * 代际不回退，离开前已发出的请求即使迟到，也不能再刷新旧页面或弹旧提示。
+     */
+    function handlePageHidden() {
+      state.epoch++;
+      state.listSeq++;
+      state.detailSeq++;
+      state.formSeq++;
+      state.submitting = false;
+      state.confirms.forEach(function (confirmPromise) {
+        confirmPromise.close();
+      });
+      state.confirms = [];
+      state.dialogs.forEach(function (dialog) {
+        dialog.close();
+      });
+      state.dialogs = [];
+    }
+
+    /**
+     * pageshow persisted 时只返回当前视图的只读列表加载。
+     *
+     * 发布/归档、表单提交等写操作不进入恢复队列，避免缓存恢复重放旧操作。
+     */
+    function handlePageRestore() {
+      state.epoch++;
+      return function restoreList() {
+        load();
+      };
+    }
+
     gate = Views.createAuthGate({
       onPending: showAuthPending,
-      onFailure: showAuthFailure
+      onFailure: showAuthFailure,
+      onHidden: handlePageHidden,
+      onRestore: handlePageRestore
     });
 
     state.bindingCleanup = Views.wireBindingField(root, function (value) {
@@ -160,11 +196,12 @@
         return;
       }
       var ticket = ++state.listSeq;
+      var epoch = state.epoch;
       region.innerHTML = UI.stateLoading('正在读取公告…');
 
       // 排队微任务真正调用 API 前再次检查代际；cleanup/pagehide 后不再派发。
       Promise.resolve().then(function () {
-        if (state.disposed || ticket !== state.listSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.listSeq) {
           return null;
         }
         return API.list({
@@ -174,14 +211,14 @@
           pageSize: state.pageSize
         });
       }).then(function (result) {
-        if (result === null || state.disposed || ticket !== state.listSeq) {
+        if (result === null || state.disposed || state.epoch !== epoch || ticket !== state.listSeq) {
           return;
         }
         state.total = typeof result.total === 'number' ? result.total : 0;
         state.rows = Array.isArray(result.rows) ? result.rows : [];
         renderList();
       }).catch(function (error) {
-        if (state.disposed || ticket !== state.listSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.listSeq) {
           return;
         }
         renderError(error);
@@ -238,6 +275,7 @@
         return;
       }
       var ticket = ++state.detailSeq;
+      var epoch = state.epoch;
       var dialog = UI.openDialog('<p class="edu-dialog-title">公告详情</p><div id="eduDetailBody">'
         + UI.stateLoading('正在读取公告…') + '</div>'
         + '<div class="edu-dialog-actions"><button type="button" class="edu-btn" data-role="close">关闭</button></div>');
@@ -246,12 +284,12 @@
       var body = dialog.root.querySelector('#eduDetailBody');
 
       Promise.resolve().then(function () {
-        if (state.disposed || ticket !== state.detailSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.detailSeq) {
           return null;
         }
         return API.detail(announcementId);
       }).then(function (result) {
-        if (result === null || state.disposed || ticket !== state.detailSeq) {
+        if (result === null || state.disposed || state.epoch !== epoch || ticket !== state.detailSeq) {
           return;
         }
         var item = result.data || {};
@@ -265,7 +303,7 @@
           + '<span>创建人：' + UI.esc(item.createdByUserId) + '</span>'
           + '<span>发布人：' + UI.esc(item.publishedByUserId || '—') + '</span></p>';
       }).catch(function (error) {
-        if (state.disposed || ticket !== state.detailSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.detailSeq) {
           return;
         }
         body.innerHTML = UI.stateError(error, {
@@ -279,6 +317,8 @@
       if (state.disposed) {
         return;
       }
+      // 代际在确认前捕获：离开页面或在恢复后，旧发布/归档操作不得重放或弹提示。
+      var epoch = state.epoch;
       var isPublish = action === 'publish';
       var confirmPromise = UI.confirm({
         title: isPublish ? '发布公告' : '归档公告',
@@ -290,23 +330,23 @@
       });
       state.confirms.push(confirmPromise);
       confirmPromise.then(function (ok) {
-        if (!ok || state.disposed) {
+        if (!ok || state.disposed || state.epoch !== epoch) {
           return;
         }
-        // 已发出的写请求可能已在服务端执行；cleanup 只能阻止旧视图继续派发和写 UI。
+        // 已发出的写请求可能已在服务端执行；cleanup/pagehide 只能阻止旧视图继续派发和写 UI。
         Promise.resolve().then(function () {
-          if (state.disposed) {
+          if (state.disposed || state.epoch !== epoch) {
             return null;
           }
           return isPublish ? API.publish(announcementId) : API.archive(announcementId);
         }).then(function (result) {
-          if (result === null || state.disposed) {
+          if (result === null || state.disposed || state.epoch !== epoch) {
             return;
           }
           UI.toast(isPublish ? '已发布' : '已归档', 'ok');
           gate.request(load);
         }).catch(function (error) {
-          if (state.disposed) {
+          if (state.disposed || state.epoch !== epoch) {
             return;
           }
           if (error.isConflict()) {
@@ -325,6 +365,7 @@
       }
       var editing = Boolean(announcementId);
       var formTicket = ++state.formSeq;
+      var epoch = state.epoch;
       var dialog = UI.openDialog('<p class="edu-dialog-title">' + (editing ? '编辑公告草稿' : '新建公告草稿') + '</p>'
         + '<div class="edu-form">'
         + '<label class="edu-field"><span>标题</span><input id="eduFormTitle" maxlength="200" type="text" placeholder="1–200 字"></label>'
@@ -370,12 +411,12 @@
       if (editing) {
         submitButton.disabled = true;
         Promise.resolve().then(function () {
-          if (state.disposed || formTicket !== state.formSeq) {
+          if (state.disposed || state.epoch !== epoch || formTicket !== state.formSeq) {
             return null;
           }
           return API.detail(announcementId);
         }).then(function (result) {
-          if (result === null || state.disposed || formTicket !== state.formSeq) {
+          if (result === null || state.disposed || state.epoch !== epoch || formTicket !== state.formSeq) {
             return;
           }
           var item = result.data || {};
@@ -393,7 +434,7 @@
           submitButton.disabled = false;
           titleInput.focus();
         }).catch(function (error) {
-          if (state.disposed || formTicket !== state.formSeq) {
+          if (state.disposed || state.epoch !== epoch || formTicket !== state.formSeq) {
             return;
           }
           errorLabel.hidden = false;
@@ -405,7 +446,8 @@
       }
 
       submitButton.addEventListener('click', function () {
-        if (state.submitting || state.disposed || formTicket !== state.formSeq || !gate.isReady()) {
+        if (state.submitting || state.disposed || state.epoch !== epoch
+          || formTicket !== state.formSeq || !gate.isReady()) {
           return;
         }
         var title = titleInput.value.trim();
@@ -441,7 +483,7 @@
 
         var payload = { title: title, body: bodyText, opensAt: opensAt, closesAt: closesAt };
         Promise.resolve().then(function () {
-          if (state.disposed || formTicket !== state.formSeq) {
+          if (state.disposed || state.epoch !== epoch || formTicket !== state.formSeq) {
             return null;
           }
           return editing
@@ -454,7 +496,7 @@
               closesAt: payload.closesAt
             });
         }).then(function (result) {
-          if (result === null || state.disposed || formTicket !== state.formSeq) {
+          if (result === null || state.disposed || state.epoch !== epoch || formTicket !== state.formSeq) {
             return;
           }
           state.submitting = false;
@@ -465,7 +507,7 @@
           }
           gate.request(load);
         }).catch(function (error) {
-          if (state.disposed || formTicket !== state.formSeq) {
+          if (state.disposed || state.epoch !== epoch || formTicket !== state.formSeq) {
             return;
           }
           state.submitting = false;
@@ -491,6 +533,7 @@
     return {
       cleanup: function () {
         state.disposed = true;
+        state.epoch++;
         state.listSeq++;
         state.detailSeq++;
         state.formSeq++;

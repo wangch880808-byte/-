@@ -12,6 +12,7 @@
 </style>
 </head>
 <body>
+<span id="noticeBadge" hidden></span>
 <div class="content view-active" id="testContent">
   <div id="viewRoot"></div>
 </div>
@@ -100,6 +101,24 @@
     var resolvers = window.__authResolvers.slice();
     window.__authResolvers.length = 0;
     resolvers.forEach(function (resolve) { resolve(value); });
+  };
+
+  // 模拟 bfcache 页面事件；不模拟真实浏览器缓存恢复，只验证视图对 persisted 事件的处理。
+  function dispatchPageEvent(type, persisted) {
+    var event;
+    try {
+      event = new PageTransitionEvent(type, { persisted: persisted });
+    } catch (e) {
+      event = new Event(type);
+      Object.defineProperty(event, 'persisted', { value: persisted });
+    }
+    window.dispatchEvent(event);
+  }
+  window.__dispatchPageHide = function (persisted) {
+    dispatchPageEvent('pagehide', persisted !== false);
+  };
+  window.__dispatchPageShow = function (persisted) {
+    dispatchPageEvent('pageshow', persisted !== false);
   };
 })();
 </script>

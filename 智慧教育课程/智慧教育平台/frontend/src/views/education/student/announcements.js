@@ -29,6 +29,7 @@
       rows: [],
       listSeq: 0,
       detailSeq: 0,
+      epoch: 0,
       dialogs: [],
       bindingCleanup: null,
       disposed: false
@@ -72,9 +73,38 @@
       region.innerHTML = UI.stateLoading('正在核验登录状态…');
     }
 
+    /**
+     * 页面离开或进入 bfcache：作废本视图代际并关闭详情弹窗。
+     *
+     * 代际不回退，离开前已发出的公告读取即使迟到，也不能再写旧页面或弹窗。
+     */
+    function handlePageHidden() {
+      state.epoch++;
+      state.listSeq++;
+      state.detailSeq++;
+      state.dialogs.forEach(function (dialog) {
+        dialog.close();
+      });
+      state.dialogs = [];
+    }
+
+    /**
+     * pageshow persisted 时只返回当前公告列表的只读加载。
+     *
+     * 不重开离开前的详情弹窗，也不恢复任何写操作。
+     */
+    function handlePageRestore() {
+      state.epoch++;
+      return function restoreList() {
+        load();
+      };
+    }
+
     gate = Views.createAuthGate({
       onPending: showAuthPending,
-      onFailure: showAuthFailure
+      onFailure: showAuthFailure,
+      onHidden: handlePageHidden,
+      onRestore: handlePageRestore
     });
 
     state.bindingCleanup = Views.wireBindingField(root, function (value) {
@@ -121,11 +151,12 @@
         return;
       }
       var ticket = ++state.listSeq;
+      var epoch = state.epoch;
       region.innerHTML = UI.stateLoading('正在读取公告…');
 
       // API 调用前再次检查代际；cleanup/pagehide 后不派发排队请求。
       Promise.resolve().then(function () {
-        if (state.disposed || ticket !== state.listSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.listSeq) {
           return null;
         }
         return API.list({
@@ -134,7 +165,7 @@
           pageSize: state.pageSize
         });
       }).then(function (result) {
-        if (result === null || state.disposed || ticket !== state.listSeq) {
+        if (result === null || state.disposed || state.epoch !== epoch || ticket !== state.listSeq) {
           return;
         }
         state.total = typeof result.total === 'number' ? result.total : 0;
@@ -144,7 +175,7 @@
           openDetail(openAnnouncementId);
         }
       }).catch(function (error) {
-        if (state.disposed || ticket !== state.listSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.listSeq) {
           return;
         }
         region.innerHTML = UI.stateError(error, {
@@ -184,6 +215,7 @@
         return;
       }
       var ticket = ++state.detailSeq;
+      var epoch = state.epoch;
       var dialog = UI.openDialog('<p class="edu-dialog-title">公告详情</p>'
         + '<div id="eduStudentDetailBody">' + UI.stateLoading('正在读取公告…') + '</div>'
         + '<div class="edu-dialog-actions"><button type="button" class="edu-btn" data-role="close">关闭</button></div>');
@@ -192,7 +224,7 @@
       var body = dialog.root.querySelector('#eduStudentDetailBody');
 
       API.detail(announcementId).then(function (result) {
-        if (state.disposed || ticket !== state.detailSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.detailSeq) {
           return;
         }
         var item = result.data || {};
@@ -201,7 +233,7 @@
           + '<span>关闭：' + UI.esc(UI.formatCloseTime(item.closesAt)) + '</span></p>'
           + '<div class="edu-detail-body">' + UI.esc(item.body) + '</div>';
       }).catch(function (error) {
-        if (state.disposed || ticket !== state.detailSeq) {
+        if (state.disposed || state.epoch !== epoch || ticket !== state.detailSeq) {
           return;
         }
         body.innerHTML = UI.stateError(error, {
@@ -219,6 +251,7 @@
     return {
       cleanup: function () {
         state.disposed = true;
+        state.epoch++;
         state.listSeq++;
         state.detailSeq++;
         if (state.bindingCleanup) {

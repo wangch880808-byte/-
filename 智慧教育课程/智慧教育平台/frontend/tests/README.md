@@ -30,17 +30,24 @@ node frontend/tests/announcement-lifecycle.js
 - `PLAYWRIGHT_CHANNEL`：默认 `msedge`，也可设为 `chrome` 等。
 - `SIX_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8130`。
 - 测试页：`announcement-lifecycle.html`，使用假 `EduHttp` 和假 `EduViews.whenAuthorized`；不连接后端、不校验真实登录、不发送真实请求。
+- 页面离开/恢复用合成 `PageTransitionEvent` 模拟 `pagehide` / `pageshow(persisted=true)`，不等同于真实浏览器 bfcache 恢复。
 - 脚本只输出 JSON 到 stdout，不写截图或临时文件。
 
 ## 覆盖
 
 - 登录 pending/失败时首个加载、筛选、刷新零业务请求；
 - 核验通过后只按最新筛选请求一次；
+- 核验期间修改筛选后补齐首次未读数请求；
+- 核验期间切到课程公告后只加载公告页签，旧通知任务不发请求、不覆盖公告区域；
 - 同一视图挂载三次后一次刷新只产生一次列表请求；
 - cleanup 关闭详情/编辑/确认弹窗；
 - cleanup 后旧确认不发起发布/归档；
 - 状态、A/B binding、页签切换的旧响应不覆盖新结果；
 - 旧详情响应不写入新弹窗；
-- cleanup 后排队微任务不派发 API；
+- cleanup/pagehide 后排队微任务不派发 API；
+- pagehide 后迟到列表、未读数、详情、发布响应不更新旧页面/弹窗/角标，不弹旧提示；
+- pageshow persisted 恢复核验期间零业务调用，通过后只重读当前视图；
+- 恢复不重放旧发布、全部已读操作；
+- 教师公告、学生通知（两个页签）、学生公告三视图的离开/恢复路径；
 - 全部已读确认文案为全量范围，PUT 不带 binding；
 - 13 个接口方法/路径回归。

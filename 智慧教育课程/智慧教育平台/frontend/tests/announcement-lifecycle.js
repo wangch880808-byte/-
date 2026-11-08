@@ -99,6 +99,23 @@ async function waitForText(page, text) {
   await page.waitForFunction((t) => document.querySelector('#viewRoot').innerText.includes(t), text, { timeout: 3000 });
 }
 
+function studentAnnRows(title) {
+  return [{
+    id: '840000000000000001',
+    title: title,
+    opensAt: '2026-11-05T00:00:00.000Z',
+    closesAt: null
+  }];
+}
+
+function studentAnnListBody(title) {
+  return { code: 200, msg: '查询成功', total: 1, rows: studentAnnRows(title) };
+}
+
+async function toastText(page) {
+  return page.locator('#eduToastBox').innerText().catch(() => '');
+}
+
 (async () => {
   const browser = await chromium.launch({ channel: CHANNEL, headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Asia/Shanghai' });
@@ -333,6 +350,253 @@ async function waitForText(page, text) {
   check(endpointCalls[8].method === 'GET' && endpointCalls[8].url === '/education/student/notices', '通知列表方法/路径错误');
   check(endpointCalls[11].method === 'POST' && endpointCalls[11].url === '/education/student/notices/1/read', '单条已读方法/路径错误');
   check(endpointCalls[12].method === 'PUT' && endpointCalls[12].url === '/education/student/notices/read-all', '全部已读方法/路径错误');
+
+  // 10. 核验期间修改筛选：通过后按最终条件请求一次列表，并补齐首次未读数。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await page.check('#eduUnreadOnly');
+  await page.selectOption('#eduKindFilter', 'ASSIGNMENT');
+  await page.waitForTimeout(100);
+  check((await pendingCount(page)) === 0, '核验期间修改筛选不得请求通知 API');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(200);
+  const filteredCalls = await calls(page);
+  const filteredLists = filteredCalls.filter((c) => c.url === '/education/student/notices');
+  const filteredUnread = filteredCalls.filter((c) => c.url === '/education/student/notices/unread-count');
+  check(filteredLists.length === 1, '核验通过后应按最终筛选请求一次通知列表');
+  check(Boolean(filteredLists[0]
+    && filteredLists[0].query.unreadOnly === 'true'
+    && filteredLists[0].query.kind === 'ASSIGNMENT'), '通知列表应使用最终筛选条件');
+  check(filteredUnread.length === 1, '核验通过后应补齐首次未读数请求');
+
+  // 11. 核验期间切到课程公告：通过后只加载公告页签，旧通知任务不发请求。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await page.click('[data-tab="announcements"]');
+  await page.waitForTimeout(100);
+  check((await pendingCount(page)) === 0, '核验期间切换公告页签不得请求 API');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(200);
+  const tabSwitchCalls = await calls(page);
+  const staleNoticeCalls = tabSwitchCalls.filter((c) => c.url.indexOf('/education/student/notices') === 0);
+  const announcementCalls = tabSwitchCalls.filter((c) => c.url === '/education/student/announcements');
+  check(staleNoticeCalls.length === 0, '核验中切走后旧通知任务不得发请求');
+  check(announcementCalls.length === 1, '核验通过后只加载当前公告页签');
+  const announcementIndex = await findPendingExact(page, '/education/student/announcements');
+  if (announcementIndex >= 0) {
+    await resolvePending(page, announcementIndex, studentAnnListBody('页签公告'));
+  }
+  await page.waitForTimeout(100);
+  const tabText = await page.locator('#viewRoot').innerText();
+  check(tabText.includes('页签公告') && !tabText.includes('正在读取通知'), '公告页签内容不得被旧通知任务覆盖');
+
+  // 12. pagehide 后排队读请求不派发（教师公告）。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await resolvePending(page, idx, teacherListBody('离开前公告', 'DRAFT'));
+  await page.waitForTimeout(80);
+  await page.evaluate(() => window.__clearCalls());
+  await page.evaluate(() => {
+    document.querySelector('[data-action="refresh"]').click();
+    window.__dispatchPageHide(true);
+  });
+  await page.waitForTimeout(150);
+  check((await pendingCount(page)) === 0, 'pagehide 后排队读请求不得派发');
+
+  // 12b. 已发出的列表请求迟到：不得更新旧页面。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await page.evaluate(() => window.__dispatchPageHide(true));
+  await resolvePending(page, idx, teacherListBody('离开后迟到列表', 'DRAFT'));
+  await page.waitForTimeout(100);
+  check(!(await page.locator('#viewRoot').innerText()).includes('离开后迟到列表'), 'pagehide 后迟到列表响应不得更新旧页面');
+
+  // 12c. 已发出的未读数请求迟到：不得更新旧页面或再派发角标请求。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  const staleUnreadCalls = (await calls(page)).length;
+  const staleUnreadIndex = await findPendingExact(page, '/education/student/notices/unread-count');
+  await page.evaluate(() => window.__dispatchPageHide(true));
+  await resolvePending(page, staleUnreadIndex, { code: 200, msg: '成功', data: { unreadCount: 7 } });
+  await page.waitForTimeout(120);
+  check((await page.locator('#eduUnreadCount').innerText()) !== '7', 'pagehide 后迟到未读数不得更新旧页面');
+  check((await calls(page)).length === staleUnreadCalls, 'pagehide 后迟到未读数不得再派发角标请求');
+
+  // 13. 已发出的读请求迟到：不得更新旧弹窗。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await resolvePending(page, idx, teacherListBody('离开前公告', 'DRAFT'));
+  await page.waitForTimeout(80);
+  await page.locator('[data-action="detail"]').first().click();
+  await page.waitForTimeout(80);
+  const lateDetailIndex = await findPending(page, '/education/teacher/announcements/');
+  await page.evaluate(() => window.__dispatchPageHide(true));
+  await resolvePending(page, lateDetailIndex, teacherDetailBody('离开后迟到详情'));
+  await page.waitForTimeout(100);
+  const lateDialogText = await page.locator('.edu-overlay .edu-dialog').innerText().catch(() => '');
+  check(!lateDialogText.includes('离开后迟到详情'), 'pagehide 后迟到详情响应不得更新旧弹窗');
+
+  // 13b. 已发出的写请求迟到：不得弹提示或刷新旧页面。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await resolvePending(page, idx, teacherListBody('迟到写公告', 'DRAFT'));
+  await page.waitForTimeout(80);
+  await page.locator('[data-action="publish"]').first().click();
+  await page.waitForTimeout(80);
+  await page.locator('.edu-dialog [data-role="ok"]').click();
+  await page.waitForTimeout(80);
+  const publishIndex = await findPending(page, '/publish');
+  check(publishIndex >= 0, '发布请求应先派发以便测试迟到响应');
+  const callsBeforeHide = (await calls(page)).length;
+  await page.evaluate(() => window.__dispatchPageHide(true));
+  if (publishIndex >= 0) {
+    await resolvePending(page, publishIndex, { code: 200, msg: '操作成功', data: {} });
+  }
+  await page.waitForTimeout(120);
+  check((await toastText(page)).indexOf('已发布') < 0, 'pagehide 后迟到写响应不得弹旧提示');
+  check((await calls(page)).length === callsBeforeHide, 'pagehide 后迟到写响应不得刷新旧页面');
+
+  // 14. 教师公告 pageshow persisted：恢复核验期间零业务调用，通过后只重读当前视图，不重放发布。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await resolvePending(page, idx, teacherListBody('恢复前公告', 'DRAFT'));
+  await page.waitForTimeout(80);
+  await page.evaluate(() => window.__clearCalls());
+  await page.locator('[data-action="publish"]').first().click();
+  await page.waitForTimeout(80);
+  const authCallsBeforeRestore = await page.evaluate(() => window.__authCalls);
+  await page.evaluate(() => {
+    document.querySelector('.edu-dialog [data-role="ok"]').click();
+    window.__dispatchPageHide(true);
+    window.__dispatchPageShow(true);
+  });
+  await page.waitForTimeout(150);
+  check((await pendingCount(page)) === 0, '恢复核验期间不得派发业务请求（含排队发布）');
+  check((await page.evaluate(() => window.__authCalls)) === authCallsBeforeRestore + 1, 'pageshow 应重新走现有角色壳核验');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(200);
+  const teacherRestoreCalls = await calls(page);
+  check(teacherRestoreCalls.length === 1, '恢复核验通过后只加载当前视图一次: '
+    + JSON.stringify(teacherRestoreCalls.map((c) => c.method + ' ' + c.url)));
+  check(Boolean(teacherRestoreCalls[0]
+    && teacherRestoreCalls[0].url === '/education/teacher/announcements'), '恢复后只读取教师公告列表');
+  check((await toastText(page)).indexOf('已发布') < 0, '恢复不得重放旧发布操作');
+
+  // 15. 课程公告页签恢复：只加载公告页签，不加载通知。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  let noticeIndex = await findPendingExact(page, '/education/student/notices');
+  await resolvePending(page, noticeIndex, { code: 200, msg: '查询成功', total: 1, rows: noticeRows('恢复前通知') });
+  let unreadIndex = await findPendingExact(page, '/education/student/notices/unread-count');
+  if (unreadIndex >= 0) {
+    await resolvePending(page, unreadIndex, { code: 200, msg: '成功', data: { unreadCount: 1 } });
+  }
+  await page.waitForTimeout(100);
+  await page.click('[data-tab="announcements"]');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  let announcementTabIndex = await findPendingExact(page, '/education/student/announcements');
+  check(announcementTabIndex >= 0, '公告页签应先加载');
+  if (announcementTabIndex >= 0) {
+    await resolvePending(page, announcementTabIndex, studentAnnListBody('恢复前公告'));
+  }
+  await page.waitForTimeout(100);
+  await page.evaluate(() => window.__clearCalls());
+  await page.evaluate(() => {
+    window.__dispatchPageHide(true);
+    window.__dispatchPageShow(true);
+  });
+  await page.waitForTimeout(150);
+  check((await pendingCount(page)) === 0, '公告页签恢复核验期间零业务调用');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(200);
+  const announcementRestoreCalls = await calls(page);
+  check(announcementRestoreCalls.length === 1, '公告页签恢复后只加载当前视图');
+  check(Boolean(announcementRestoreCalls[0]
+    && announcementRestoreCalls[0].url === '/education/student/announcements'), '恢复后不得加载通知页签数据');
+  const announcementRestoreIndex = await findPendingExact(page, '/education/student/announcements');
+  if (announcementRestoreIndex >= 0) {
+    await resolvePending(page, announcementRestoreIndex, studentAnnListBody('恢复后公告'));
+  }
+  await page.waitForTimeout(100);
+  check((await page.locator('#viewRoot').innerText()).includes('恢复后公告'), '恢复后应渲染公告页签');
+
+  // 16. 通知页签恢复：只重读列表和未读数，不重放旧全部已读操作。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  noticeIndex = await findPendingExact(page, '/education/student/notices');
+  await resolvePending(page, noticeIndex, { code: 200, msg: '查询成功', total: 1, rows: noticeRows('通知恢复前') });
+  unreadIndex = await findPendingExact(page, '/education/student/notices/unread-count');
+  if (unreadIndex >= 0) {
+    await resolvePending(page, unreadIndex, { code: 200, msg: '成功', data: { unreadCount: 1 } });
+  }
+  await page.waitForTimeout(100);
+  await page.click('[data-action="mark-all"]');
+  await page.waitForTimeout(80);
+  await page.evaluate(() => window.__clearCalls());
+  await page.evaluate(() => {
+    document.querySelector('.edu-dialog [data-role="ok"]').click();
+    window.__dispatchPageHide(true);
+    window.__dispatchPageShow(true);
+  });
+  await page.waitForTimeout(150);
+  check((await pendingCount(page)) === 0, '通知页签恢复核验期间不得派发已读操作');
+  check((await toastText(page)).indexOf('已标记') < 0, 'pagehide 后不得弹旧已读提示');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(200);
+  const noticeRestoreCalls = await calls(page);
+  const noticeRestoreLists = noticeRestoreCalls.filter((c) => c.url === '/education/student/notices');
+  const noticeRestoreUnread = noticeRestoreCalls.filter((c) => c.url === '/education/student/notices/unread-count');
+  const readAllReplay = noticeRestoreCalls.filter((c) => c.url === '/education/student/notices/read-all');
+  check(noticeRestoreLists.length === 1 && noticeRestoreUnread.length === 1, '通知页签恢复后只重读列表和未读数');
+  check(readAllReplay.length === 0, '恢复不得重放旧全部已读操作');
+
+  // 17. 课程公告页签 pagehide 后排队读请求不派发。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  noticeIndex = await findPendingExact(page, '/education/student/notices');
+  await resolvePending(page, noticeIndex, { code: 200, msg: '查询成功', total: 1, rows: noticeRows('通知离开前') });
+  unreadIndex = await findPendingExact(page, '/education/student/notices/unread-count');
+  if (unreadIndex >= 0) {
+    await resolvePending(page, unreadIndex, { code: 200, msg: '成功', data: { unreadCount: 1 } });
+  }
+  await page.waitForTimeout(100);
+  await page.click('[data-tab="announcements"]');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  announcementTabIndex = await findPendingExact(page, '/education/student/announcements');
+  await resolvePending(page, announcementTabIndex, studentAnnListBody('公告离开前'));
+  await page.waitForTimeout(100);
+  await page.evaluate(() => window.__clearCalls());
+  await page.evaluate(() => {
+    document.querySelector('[data-action="refresh"]').click();
+    window.__dispatchPageHide(true);
+  });
+  await page.waitForTimeout(150);
+  check((await pendingCount(page)) === 0, '课程公告 pagehide 后排队读请求不得派发');
 
   check(consoleErrors.length === 0, '测试页不应有 console/page 错误: ' + consoleErrors.join(' | '));
   console.log(JSON.stringify({ passed: passed.length, failures, consoleErrors }, null, 2));
