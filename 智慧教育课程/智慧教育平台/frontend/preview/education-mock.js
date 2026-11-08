@@ -1,32 +1,29 @@
 /**
- * 6-02 前端 Mock 数据层（第 6 组 6B）。
+ * 6-02 离线预览 Mock 数据层（第 6 组 6B）。
  *
- * 用途：让页面能在不连后端、不登录的情况下离线自测。
- * 后端通知接口已在 main@f21f51d 合并，Mock 只用于页面行为验证，
- * 不替代真实联调，也不会在真实页面里静默兜底。
+ * 用途：只让 mock-preview.html 在不连后端、不登录的情况下离线自测。
+ * 本文件位于 frontend/preview/，不在打包范围 frontend/src/** 内，运行页不引用。
  *
- * 三条纪律：
- * 1. 只有显式开启才生效（URL 加 ?mock=1 或调用 EduMock.enable()），默认关闭；
+ * 隔离纪律：
+ * 1. 开关只存在当前预览页内存，不读写 sessionStorage；运行页的 ?mock=1 或旧
+ *    zhijiao.mock=1 不会启用本文件；
  * 2. 字段、业务码、状态机严格对齐 main 分支的 Controller / DTO，
  *    不允许出现"文档里有、后端没有"的字段；
- * 3. 真实请求失败时绝不回退到 Mock，否则会把 500/403 伪装成成功。
+ * 3. 真实请求失败时绝不回退到 Mock，否则会把 500/403 伪装成成功；
+ * 4. 预览页切换或清空教学班只改页面内上下文，不影响同标签页真实会话。
  */
 (function (global) {
   'use strict';
 
-  var FLAG_KEY = 'zhijiao.mock';
-  var BINDING_KEY = 'zhijiao.bindingId';
   var DEMO_BINDING = '910000000001';
   var DENIED_BINDING = '999999999999';
   var UNAVAILABLE_BINDING = '999999999998';
 
+  // 只在本预览页内存生效；不持久化、不随 URL 自动开启。
+  var enabled = false;
+
   var LATENCY_MIN = 120;
   var LATENCY_MAX = 320;
-
-  // 预览页可只在当前页面内存启用 Mock：不写 sessionStorage、不改 bindingId，
-  // 避免打开预览后污染真实角色页的登录态或教学班上下文。
-  var memoryEnabled = false;
-  var memoryMode = false;
 
   // ------------------------------------------------------------------
   // 时间与响应封装
@@ -84,6 +81,9 @@
   // 内置数据（与后端 DTO 字段一一对应）
   // ------------------------------------------------------------------
 
+  // TODO(6-02-mock-id): 新建 ID 仍用 Number 自增，超过 Number.MAX_SAFE_INTEGER 会失真。
+  // 原因：本轮只处理预览隔离，ID 策略需与后端大整数契约统一；解除条件：改用字符串或
+  // 大整数生成，或在独立任务确认 Mock ID 上限与递增方式后删除本 TODO。
   var announcementSeq = 820000000000000100;
   var noticeSeq = 830000000000000100;
 
@@ -939,50 +939,38 @@
     return null;
   }
 
+  /**
+   * 返回当前预览页内存中的 Mock 开关状态。
+   *
+   * @returns {boolean} 当前页面已显式开启 Mock 时返回 true；页面刷新后默认 false
+   */
   function isEnabled() {
-    if (memoryEnabled) {
-      return true;
-    }
-    try {
-      return global.sessionStorage.getItem(FLAG_KEY) === '1';
-    } catch (e) {
-      return false;
-    }
+    return enabled;
   }
 
   /**
-   * 开启 Mock。
+   * 在当前预览页内存中开启 Mock，并挂载预览横幅。
    *
-   * @param {{memoryOnly?:boolean,preserveBinding?:boolean}} options
-   *   memoryOnly=true 时只影响当前页面内存，不写 sessionStorage；
-   *   preserveBinding=true 时不自动写入演示 bindingId。
+   * 不写 sessionStorage，也不读取 URL/旧存储开关；因此同标签页转去运行页时，
+   * 预览开关不会残留或改变真实登录态与教学班上下文。
+   *
+   * @returns {void}
    */
-  function enable(options) {
-    var opts = options || {};
-    if (opts.memoryOnly) {
-      memoryEnabled = true;
-      memoryMode = true;
-      mountBadge();
-      return;
-    }
-    try {
-      global.sessionStorage.setItem(FLAG_KEY, '1');
-      if (!opts.preserveBinding && !global.sessionStorage.getItem(BINDING_KEY)) {
-        global.sessionStorage.setItem(BINDING_KEY, DEMO_BINDING);
-      }
-    } catch (e) {
-      /* 存储不可用时只能依赖于页面内已开启 */
-    }
+  function enable() {
+    enabled = true;
     mountBadge();
   }
 
+  /**
+   * 在当前预览页内关闭 Mock，并移除预览横幅。
+   *
+   * @returns {void}
+   */
   function disable() {
-    memoryEnabled = false;
-    memoryMode = false;
-    try {
-      global.sessionStorage.removeItem(FLAG_KEY);
-    } catch (e) {
-      /* 忽略 */
+    enabled = false;
+    var banner = document.getElementById('eduMockBanner');
+    if (banner && banner.parentNode) {
+      banner.parentNode.removeChild(banner);
     }
   }
 
@@ -990,6 +978,13 @@
     return isEnabled() && match(method, path) !== null;
   }
 
+  /**
+   * 处理已开启 Mock 的预览请求。
+   *
+   * @param {{method?:string,path:string,query?:object,body?:object}} options 请求选项
+   * @returns {Promise<object>} 命中内置路由时返回与后端同形的响应；
+   *   未覆盖路由返回拒绝的 404，不回退真实请求
+   */
   function request(options) {
     var opts = options || {};
     var method = (opts.method || 'GET').toUpperCase();
@@ -1031,24 +1026,29 @@
     banner.className = 'edu-mock-banner';
 
     var label = document.createElement('span');
-    label.textContent = 'Mock 数据 · 未连接后端';
+    label.textContent = '离线预览 · 未连接后端';
     var hint = document.createElement('span');
     hint.className = 'edu-mock-hint';
-    hint.textContent = memoryMode ? '预览页 · 演示数据，不连接后端' : '演示上下文 ' + DEMO_BINDING;
-    var exit = document.createElement('button');
-    exit.type = 'button';
-    exit.textContent = '退出 Mock';
-    exit.addEventListener('click', function () {
-      disable();
-      global.location.replace(global.location.pathname);
+    hint.textContent = '数据仅在本页内存';
+    var resetButton = document.createElement('button');
+    resetButton.type = 'button';
+    resetButton.textContent = '重置预览数据';
+    resetButton.addEventListener('click', function () {
+      reset();
+      global.location.reload();
     });
 
     banner.appendChild(label);
     banner.appendChild(hint);
-    banner.appendChild(exit);
+    banner.appendChild(resetButton);
     document.body.appendChild(banner);
   }
 
+  /**
+   * 把预览数据恢复到初始演示集，只影响当前页面内存。
+   *
+   * @returns {void}
+   */
   function reset() {
     announcements = announcements.slice(0, 7);
     notices = notices.slice(0, 6);
@@ -1080,15 +1080,6 @@
    */
   function setOverviewDelay(ms) {
     overviewDelayMs = (typeof ms === 'number' && ms >= 0) ? ms : null;
-  }
-
-  if (typeof global.location !== 'undefined' && global.location.search) {
-    var search = global.location.search;
-    if (/[?&]mock=1(&|$)/.test(search)) {
-      enable();
-    } else if (/[?&]mock=0(&|$)/.test(search)) {
-      disable();
-    }
   }
 
   if (typeof document !== 'undefined') {

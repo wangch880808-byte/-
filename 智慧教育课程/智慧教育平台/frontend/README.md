@@ -56,7 +56,7 @@ frontend/src/
 - 页面由 `teacher.html`、`student.html` 通过 `#viewRoot` 挂载，未注册的菜单仍显示占位。
 - 教师端公告必须带 `bindingId`；2-04 课程列表接口就绪前只能手工填写。
 - 学生通知接口已在 `main@f21f51d` 合并（列表/详情/未读数/单条已读/全部已读）；失败时不使用本地假数据，也不把失败渲染成 0 或空列表。
-- 离线自测：`mock-preview.html`（免登录免后端），或在运行页加 `?mock=1`。
+- 离线预览：仅 `mock-preview.html`（免登录免后端）。预览脚本在 `preview/education-mock.js`，不在打包范围；开关、演示教学班和数据只存在当前页面内存。运行页不再加载 Mock，带 `?mock=1` 或旧 `zhijiao.mock=1` 仍走真实认证和请求。
 - 详细接口对照、状态处理与阻塞项见 [6-02 前端接口接入说明](../docs/6-02-frontend-integration.md)。
 
 ## 6-03 三端总览（阶段1/2）

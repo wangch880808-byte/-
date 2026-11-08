@@ -10,11 +10,11 @@
 
 ## 运行
 
-在 `frontend/` 根目录启动静态服务器（两套回归共用同一静态根，按被测脚本选择端口）：
+在 `frontend/` 根目录启动静态服务器（各套回归共用同一静态根，按被测脚本选择端口）：
 
 ```bash
 cd frontend
-# 6-02 生命周期回归
+# 6-02 生命周期与 Mock 隔离回归
 python -m http.server 8130 --bind 127.0.0.1
 # 6-03 总览回归（另开终端或改用 8125）
 python -m http.server 8125 --bind 127.0.0.1
@@ -37,6 +37,21 @@ node frontend/tests/announcement-lifecycle.js
 - 测试页：`announcement-lifecycle.html`，使用假 `EduHttp` 和假 `EduViews.whenAuthorized`；不连接后端、不校验真实登录、不发送真实请求。
 - 页面离开/恢复用合成 `PageTransitionEvent` 模拟 `pagehide` / `pageshow(persisted=true)`，不等同于真实浏览器 bfcache 恢复。
 - 脚本只输出 JSON 到 stdout，不写截图或临时文件。
+
+### 离线 Mock 隔离回归
+
+```bash
+PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" \
+PLAYWRIGHT_CHANNEL=msedge \
+MOCK_TEST_BASE=http://127.0.0.1:8132 \
+node frontend/tests/mock-isolation.js
+```
+
+- `MOCK_TEST_BASE`：静态服务器地址，默认 `http://127.0.0.1:8132`，可复用同一 `frontend/` 静态根。
+- 直接驱动真实 `mock-preview.html`、`teacher.html`、`student.html`、`admin.html`；
+  `/getInfo`、`/getRouters`、`/logout`、`/education/**` 由 Playwright route 夹具返回。
+- 不连接真实后端、不创建真实登录；预览脚本位于 `frontend/preview/education-mock.js`，
+  不在打包范围 `frontend/src/**` 内。
 
 ### 6-03 阶段1回归
 
@@ -90,6 +105,14 @@ PLAYWRIGHT_MODULE="<playwright 模块路径或包名>" PLAYWRIGHT_CHANNEL=msedge
 - 教师公告、学生通知（两个页签）、学生公告三视图的离开/恢复路径；
 - 全部已读确认文案为全量范围，PUT 不带 binding；
 - 13 个接口方法/路径回归。
+
+### Mock 隔离
+
+- 预览教师公告、学生通知、课程公告均可用；
+- 预览开关、教学班切换/清空不读写真实 sessionStorage；
+- 同标签页从预览转运行页沿用原教学班与登录态，走真实请求且不显示 Mock 横幅；
+- 教师/学生/管理员运行页的旧 `zhijiao.mock=1` 与 `?mock=1` 均无效；
+- 登录核验前零业务请求；真实 500 显示错误状态，不退化为 Mock 成功。
 
 ### 6-03 阶段1
 

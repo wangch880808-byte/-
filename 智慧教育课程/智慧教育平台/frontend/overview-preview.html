@@ -135,7 +135,7 @@
 </div>
 
 <script src="src/api/education/http.js"></script>
-<script src="src/api/education/mock.js"></script>
+<script src="preview/education-mock.js"></script>
 <script src="src/api/education/overview.js"></script>
 <script src="src/views/education/ui-kit.js"></script>
 <script src="src/views/education/view-host.js"></script>
@@ -148,8 +148,8 @@
 (function () {
   'use strict';
 
-  // memoryOnly：只影响当前页面；不写 sessionStorage，不改真实 bindingId。
-  window.EduMock.enable({ memoryOnly: true, preserveBinding: true });
+  // 合并后的 Mock 只在当前页面内存开启：不写 sessionStorage，不改真实 bindingId。
+  window.EduMock.enable();
   window.EduMock.setOverviewScenario('normal');
 
   var roleSelect = document.getElementById('roleSelect');

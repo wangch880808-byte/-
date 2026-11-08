@@ -24,9 +24,10 @@
 </div>
 
 <p class="mock-preview-note">
-  本页只用于 6B 页面自测：数据来自 <code>src/api/education/mock.js</code>，字段、业务码、状态机与 main 分支
-  Controller 一致。真实页面不会自动进入 Mock，必须显式加 <code>?mock=1</code>，
-  且真实的 403/404/500 不会被 Mock 兜底成成功。
+  本页只用于 6B 离线预览：数据来自 <code>preview/education-mock.js</code>，字段、业务码、状态机与 main 分支
+  Controller 一致。预览开关、演示教学班和数据只存在本页内存，不读写真实会话；
+  教师/学生运行页不再加载本脚本，带 <code>?mock=1</code> 或旧 <code>zhijiao.mock=1</code>
+  仍走正常认证与真实请求，真实 403/404/500 不会被 Mock 兜底成成功。
 </p>
 
 <div class="mock-preview-stage">
@@ -34,7 +35,7 @@
 </div>
 
 <script src="src/api/education/http.js"></script>
-<script src="src/api/education/mock.js"></script>
+<script src="preview/education-mock.js"></script>
 <script src="src/api/education/announcement.js"></script>
 <script src="src/api/education/notice.js"></script>
 <script src="src/views/education/ui-kit.js"></script>
@@ -45,6 +46,13 @@
 <script>
 (function () {
   'use strict';
+
+  // 预览专用内存教学班上下文：不读写 sessionStorage，切换角色或清空只影响本页。
+  var previewBinding = { value: '910000000001' };
+  window.EduViews.setBindingStore({
+    get: function () { return previewBinding.value; },
+    set: function (value) { previewBinding.value = value || ''; }
+  });
 
   // 先开 Mock 再挂载视图，确保首屏请求就命中内置数据。
   window.EduMock.enable();

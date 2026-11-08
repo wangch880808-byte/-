@@ -134,11 +134,12 @@
 ## 6. Mock 与隔离
 
 - 新增 `frontend/overview-preview.html`，固定黄色警示：Mock、不连后端、不校验登录、不是真实联调。
-- 预览调用 `EduMock.enable({ memoryOnly: true, preserveBinding: true })`：
+- 预览脚本与 6-02 `mock-preview.html` 共用 `frontend/preview/education-mock.js`，运行页不引用。
+- 预览调用 `EduMock.enable()`：
   - 只设置当前页面内存开关，不写 `sessionStorage`；
   - 不自动写入演示 `bindingId`；
   - 不改真实登录令牌/角色/教学班上下文。
-- `mock.js` 新增四个总览路由和场景：normal、zero、nodata、unavailable、mixed、missing、invalid、empty-items、missing-data、401、403、400、404、500、network、adminTodoOkZero、adminTodosError。
+- 合并后的预览 Mock 保留四个总览路由和场景：normal、zero、nodata、unavailable、mixed、missing、invalid、empty-items、missing-data、401、403、400、404、500、network、adminTodoOkZero、adminTodosError。
 - 总览请求在 Mock 中由 handler 自己控制延迟，并在请求进入时固定响应快照，用于并发乱序测试；未覆盖路径仍返回“Mock 未覆盖该接口”，真实失败不会回落到 Mock。
 - 正式卡片不显示调试信息；预览调试区才显示 metricCode/status/value/source/sampleCount/actionPath/原始响应。
 - 预览的全局 Mock 浮标已隐藏，避免遮挡 390px 表单；预览自身保留固定警示条。
@@ -160,7 +161,7 @@
 - `docs/6-03-overview-frontend-design.md`
 
 修改：
-- `frontend/src/api/education/mock.js`：总览路由/场景 + memoryOnly 预览隔离。
+- `frontend/preview/education-mock.js`：合并 #32 页面内存预览隔离，并保留总览路由/场景。
 - `frontend/README.md`：6-03 阶段1说明。
 
 未修改：`teacher.html`、`student.html`、`admin.html`、Java、SQL、`pom.xml`、`SecurityConfig`、#24/#32 文档残留。
@@ -182,7 +183,7 @@ node --check frontend/src/views/education/teacher/overview.js
 node --check frontend/src/views/education/student/overview.js
 node --check frontend/src/views/education/admin/overview.js
 node --check frontend/src/views/education/admin/todos.js
-node --check frontend/src/api/education/mock.js
+node --check frontend/preview/education-mock.js
 
 cd frontend
 python -m http.server 8125 --bind 127.0.0.1

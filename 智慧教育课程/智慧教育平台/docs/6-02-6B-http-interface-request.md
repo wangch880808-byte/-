@@ -351,6 +351,8 @@ GET /education/student/bindings            → [{ bindingId, courseName, classNa
 ## F. 我的自测方式（不替代真实联调）
 
 即使接口已合并，我本机仍无 MySQL/Redis/JDK 运行环境，因此用 `frontend/mock-preview.html` 做离线页面自测：
+预览脚本位于 `frontend/preview/education-mock.js`，只由预览页引用，不进入打包范围；
+开关、演示教学班和预览数据只存在当前页面内存，不读写真实会话。
 内置与上述字段**完全一致**的 Mock 数据（含 400/403/404/409/503 分支），无需登录、无需后端。
 
 这只是我这边页面验证的手段，**不写进交付逻辑**，也不会在真实页面里静默兜底假数据；
