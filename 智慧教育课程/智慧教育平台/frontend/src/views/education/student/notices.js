@@ -149,6 +149,9 @@
      */
     function handlePageRestore() {
       state.epoch++;
+      // 恢复是新的读取生命周期：若用户在重新核验期间又改筛选，恢复任务会被最新筛选替换，
+      // 此时首次未读数仍须补请求，不能沿用离开前的 unreadRequested=true。
+      state.unreadRequested = false;
       if (state.tab !== 'notices') {
         return null;
       }
@@ -184,6 +187,12 @@
     });
 
     function onRootClick(event) {
+      // 公告页签的子视图位于本视图根节点内，其 data-action 点击会冒泡到这里。
+      // 父视图只处理学习通知页签，否则会把子视图的刷新/重试/详情误当成通知操作，
+      // 重写 #eduNoticeRegion 并销毁公告子视图。
+      if (state.tab !== 'notices') {
+        return;
+      }
       var trigger = event.target.closest('[data-action]');
       if (!trigger) {
         return;
@@ -223,7 +232,9 @@
         return;
       }
       state.tab = tab;
-      // 页签切换会使旧通知列表/未读响应失效，不能写进新页签区域。
+      // 页签切换会使旧通知列表/未读/详情/写响应全部失效，不能写进新页签区域。
+      // 写操作只带 epoch 守卫，因此这里也必须递增 epoch，拦住切换前已发出的已读请求。
+      state.epoch++;
       state.listSeq++;
       state.unreadSeq++;
       state.detailSeq++;

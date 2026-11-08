@@ -563,6 +563,9 @@ async function toastText(page) {
   await page.waitForTimeout(150);
   check((await pendingCount(page)) === 0, '通知页签恢复核验期间不得派发已读操作');
   check((await toastText(page)).indexOf('已标记') < 0, 'pagehide 后不得弹旧已读提示');
+  await page.selectOption('#eduKindFilter', 'GRADE');
+  await page.waitForTimeout(60);
+  check((await pendingCount(page)) === 0, '恢复核验期间修改筛选不得派发请求');
   await resolveAuth(page, true);
   await page.waitForTimeout(200);
   const noticeRestoreCalls = await calls(page);
@@ -570,9 +573,10 @@ async function toastText(page) {
   const noticeRestoreUnread = noticeRestoreCalls.filter((c) => c.url === '/education/student/notices/unread-count');
   const readAllReplay = noticeRestoreCalls.filter((c) => c.url === '/education/student/notices/read-all');
   check(noticeRestoreLists.length === 1 && noticeRestoreUnread.length === 1, '通知页签恢复后只重读列表和未读数');
+  check(Boolean(noticeRestoreLists[0] && noticeRestoreLists[0].query.kind === 'GRADE'), '恢复核验期间的最新筛选应生效');
   check(readAllReplay.length === 0, '恢复不得重放旧全部已读操作');
 
-  // 17. 课程公告页签 pagehide 后排队读请求不派发。
+  // 17. 课程公告子视图刷新不被父通知视图截获，pagehide 后排队读请求不派发。
   await open(page);
   await mount(page, 'student', 0, 3);
   await resolveAuth(page, true);
@@ -592,11 +596,52 @@ async function toastText(page) {
   await page.waitForTimeout(100);
   await page.evaluate(() => window.__clearCalls());
   await page.evaluate(() => {
-    document.querySelector('[data-action="refresh"]').click();
+    document.querySelector('#eduNoticeRegion [data-action="refresh"]').click();
     window.__dispatchPageHide(true);
   });
   await page.waitForTimeout(150);
+  const announcementLeaveCalls = await calls(page);
   check((await pendingCount(page)) === 0, '课程公告 pagehide 后排队读请求不得派发');
+  check(announcementLeaveCalls.filter((c) => c.url.indexOf('/education/student/notices') === 0).length === 0,
+    '公告页签刷新不得触发父通知视图请求');
+  check((await page.locator('#eduNoticeRegion #eduStudentListRegion').count()) === 1,
+    '公告页签刷新不得被父通知视图覆盖');
+
+  // 18. 页签切换后迟到的全部已读响应：不弹提示、不加载通知、不覆盖公告区域。
+  await open(page);
+  await mount(page, 'student', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  noticeIndex = await findPendingExact(page, '/education/student/notices');
+  await resolvePending(page, noticeIndex, { code: 200, msg: '查询成功', total: 1, rows: noticeRows('切换前通知') });
+  unreadIndex = await findPendingExact(page, '/education/student/notices/unread-count');
+  if (unreadIndex >= 0) {
+    await resolvePending(page, unreadIndex, { code: 200, msg: '成功', data: { unreadCount: 1 } });
+  }
+  await page.waitForTimeout(100);
+  await page.click('[data-action="mark-all"]');
+  await page.waitForTimeout(80);
+  await page.locator('.edu-dialog [data-role="ok"]').click();
+  await page.waitForTimeout(80);
+  const lateReadAllIndex = await findPendingExact(page, '/education/student/notices/read-all');
+  check(lateReadAllIndex >= 0, '全部已读请求应先派发以便测试迟到响应');
+  await page.click('[data-tab="announcements"]');
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  const lateAnnouncementIndex = await findPendingExact(page, '/education/student/announcements');
+  if (lateAnnouncementIndex >= 0) {
+    await resolvePending(page, lateAnnouncementIndex, studentAnnListBody('切换后公告'));
+  }
+  await page.waitForTimeout(80);
+  const callsBeforeLateReadAll = (await calls(page)).length;
+  const pendingReadAllIndex = await findPendingExact(page, '/education/student/notices/read-all');
+  if (pendingReadAllIndex >= 0) {
+    await resolvePending(page, pendingReadAllIndex, { code: 200, msg: '成功', data: { markedCount: 1 } });
+  }
+  await page.waitForTimeout(120);
+  check((await toastText(page)).indexOf('已标记') < 0, '页签切换后迟到已读响应不得弹旧提示');
+  check((await calls(page)).length === callsBeforeLateReadAll, '页签切换后迟到已读响应不得加载通知列表');
+  check((await page.locator('#viewRoot').innerText()).includes('切换后公告'), '迟到已读响应不得覆盖公告区域');
 
   check(consoleErrors.length === 0, '测试页不应有 console/page 错误: ' + consoleErrors.join(' | '));
   console.log(JSON.stringify({ passed: passed.length, failures, consoleErrors }, null, 2));

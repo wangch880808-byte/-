@@ -80,16 +80,18 @@ node frontend/tests/announcement-lifecycle.js
 
 ### 复现证据（six@ee4dad9）
 
-在原有 30 项用例之外补 31 项生命周期断言；未改产品代码时（最终测试脚本 + HEAD 产品源码）
-运行结果为 **42 passed，19 failed，0 console/page errors**。失败覆盖：
+在原有 30 项用例之外补 39 项生命周期断言；未改产品代码时（最终测试脚本 + HEAD 产品源码）
+运行结果为 **43 passed，26 failed，0 console/page errors**。失败覆盖：
 
 - 核验期间勾选「仅未读」/改筛选后，核验通过只发列表请求，未补首次未读数；
 - 核验期间切到课程公告后，旧通知任务仍发通知请求并覆盖公告区域；
 - pagehide 后排队读请求仍派发；
 - pagehide 后迟到列表、未读数、详情、发布响应仍更新旧页面/弹窗/角标或弹旧提示；
-- pageshow(persisted) 未重新核验，恢复后不加载当前视图；
+- pageshow(persisted) 未重新核验，恢复后不加载当前视图；恢复核验期间改筛选会丢未读数；
 - 通知页签恢复会重放旧「全部已读」；
-- 课程公告页签 pagehide 后排队读请求仍派发。
+- 课程公告页签 pagehide 后排队读请求仍派发；
+- 公告页签子视图的刷新等 `data-action` 点击冒泡到父通知视图，导致通知请求覆盖公告区域；
+- 切到公告页签后迟到的全部已读响应仍弹提示并加载通知列表。
 
 ### 本轮修改
 
@@ -100,7 +102,10 @@ node frontend/tests/announcement-lifecycle.js
   - Mock 预览没有角色壳，恢复后保持 ready，只执行只读 action。
 - `student/notices.js`：
   - 筛选/分页保存为「列表 + 首次未读数只补一次」，核验通过后按最终条件只请求一次列表；
-  - 切到课程公告时 `cancelPending()`，核验/失败回调不再写公告区域；
+  - 切到课程公告时 `cancelPending()`，父视图不再处理公告子视图冒泡的 `data-action`，
+    核验/失败回调也不写公告区域；
+  - 页签切换同时递增 `epoch`，拦截切换前已发出的全部已读响应；
+  - 恢复时重置首次未读标记，重新核验期间再改筛选仍会补未读数；
   - 通知页签恢复只重读列表和未读数；公告页签由子视图自己的门卫恢复；
   - 全部已读确认文案、全量范围、`PUT read-all` 不变。
 - 三个视图增加请求代际 `epoch`：pagehide/恢复/cleanup 后，已经排队或在途的读写响应
@@ -111,7 +116,7 @@ node frontend/tests/announcement-lifecycle.js
 
 同一测试页、同一 Edge 无头配置：
 
-- 新增后完整脚本：**61 passed，0 failed，0 console/page errors**；
+- 新增后完整脚本：**69 passed，0 failed，0 console/page errors**；
 - 用 `git show HEAD:智慧教育课程/智慧教育平台/frontend/tests/announcement-lifecycle.js`
   取回修改前 30 项原脚本
   独立重跑：**30 passed，0 failed，0 console/page errors**（原断言未削弱）。
@@ -128,6 +133,8 @@ node frontend/tests/announcement-lifecycle.js
 
 ## 未关闭
 
+- 教师公告把 binding 清空时，旧列表请求若仍在途，仍可能覆盖“尚未选择课程—教学班上下文”
+  提示；属既有请求代际问题，不在本轮两类修复范围。
 - 创建公告仍无服务端幂等键；按钮禁用不构成服务端幂等。
 - Mock 持久化 `zhijiao.mock`/binding、`mock.js` 随 `src/**` 进入生产、Mock ID 生成使用超安全整数 Number。
 - Mock 参数解析与后端 `Long.parseLong`/`Integer.parseInt` 仍有差异（前导零不应一概判错）。
