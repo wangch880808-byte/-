@@ -67,6 +67,13 @@
     }
     return -1;
   };
+  window.__findPendingByBinding = function (part, bindingId) {
+    for (var i = 0; i < window.__pending.length; i++) {
+      var call = window.__pending[i];
+      if (call.url.indexOf(part) >= 0 && call.query && call.query.bindingId === bindingId) return i;
+    }
+    return -1;
+  };
   window.__clearCalls = function () {
     window.__calls.length = 0;
     window.__pending.length = 0;

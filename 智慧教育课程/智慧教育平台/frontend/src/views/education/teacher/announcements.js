@@ -191,11 +191,14 @@
       if (state.disposed) {
         return;
       }
+      // 清空 binding 后即使不发新列表请求，也必须推进列表代际：
+      // 旧教学班的请求可能已排队或已发出，若不推进 ticket，它们迟到的成功/失败响应
+      // 仍会通过代际检查并覆盖“尚未选择课程—教学班上下文”提示。
+      var ticket = ++state.listSeq;
       if (!state.bindingId) {
         needBinding();
         return;
       }
-      var ticket = ++state.listSeq;
       var epoch = state.epoch;
       region.innerHTML = UI.stateLoading('正在读取公告…');
 

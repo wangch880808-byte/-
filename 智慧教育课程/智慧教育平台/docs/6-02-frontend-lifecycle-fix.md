@@ -78,7 +78,7 @@ node frontend/tests/announcement-lifecycle.js
 
 ## #32 复审补修（2026-11-08）
 
-### 复现证据（six@ee4dad9）
+### 复现证据一：核验/恢复（six@ee4dad9，69 项脚本）
 
 在原有 30 项用例之外补 39 项生命周期断言；未改产品代码时（最终测试脚本 + HEAD 产品源码）
 运行结果为 **43 passed，26 failed，0 console/page errors**。失败覆盖：
@@ -92,6 +92,17 @@ node frontend/tests/announcement-lifecycle.js
 - 课程公告页签 pagehide 后排队读请求仍派发；
 - 公告页签子视图的刷新等 `data-action` 点击冒泡到父通知视图，导致通知请求覆盖公告区域；
 - 切到公告页签后迟到的全部已读响应仍弹提示并加载通知列表。
+
+### 复现证据二：清空教学班（six@77048ef，79 项脚本）
+
+在 69 项脚本上补 10 项断言；未改产品代码时（最终测试脚本 + HEAD 产品源码）
+运行结果为 **76 passed，3 failed，0 console/page errors**：
+
+- 清空 binding 后，已排队的旧班列表请求仍会派发；
+- 清空 binding 后，旧班成功响应覆盖“尚未选择课程—教学班上下文”提示；
+- 清空 binding 后，旧班失败响应覆盖同一提示。
+
+A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清空不破坏重新选择”的回归护栏保留。
 
 ### 本轮修改
 
@@ -108,6 +119,9 @@ node frontend/tests/announcement-lifecycle.js
   - 恢复时重置首次未读标记，重新核验期间再改筛选仍会补未读数；
   - 通知页签恢复只重读列表和未读数；公告页签由子视图自己的门卫恢复；
   - 全部已读确认文案、全量范围、`PUT read-all` 不变。
+- `teacher/announcements.js`：`load()` 在空 binding 早退前推进 `listSeq`。即使不发新列表请求，
+  也立即作废旧班已排队或已发出的请求代际；迟到成功/失败都不能覆盖未选择教学班提示。
+  重新选择有效教学班后，新 `load()` 正常推进代际并按新 binding 加载。
 - 三个视图增加请求代际 `epoch`：pagehide/恢复/cleanup 后，已经排队或在途的读写响应
   不得再更新页面、弹窗或 toast；详情/编辑/确认弹窗在 pagehide 时关闭。
 - `role-home.js` 未修改；本轮无 Java、Mapper、SQL、Mock 隔离或 401 处理改动。
@@ -116,10 +130,12 @@ node frontend/tests/announcement-lifecycle.js
 
 同一测试页、同一 Edge 无头配置：
 
-- 新增后完整脚本：**69 passed，0 failed，0 console/page errors**；
+- 第一轮补修后 69 项脚本：**69 passed，0 failed，0 console/page errors**；
+- 清空教学班补修后完整脚本：**79 passed，0 failed，0 console/page errors**；
 - 用 `git show HEAD:智慧教育课程/智慧教育平台/frontend/tests/announcement-lifecycle.js`
-  取回修改前 30 项原脚本
-  独立重跑：**30 passed，0 failed，0 console/page errors**（原断言未削弱）。
+  取回 69 项原脚本（HEAD@77048ef）独立重跑：
+  **69 passed，0 failed，0 console/page errors**（原断言未削弱）；
+- 更早的 30 项原脚本独立重跑：**30 passed，0 failed，0 console/page errors**。
 
 ### 测试边界
 
@@ -133,8 +149,6 @@ node frontend/tests/announcement-lifecycle.js
 
 ## 未关闭
 
-- 教师公告把 binding 清空时，旧列表请求若仍在途，仍可能覆盖“尚未选择课程—教学班上下文”
-  提示；属既有请求代际问题，不在本轮两类修复范围。
 - 创建公告仍无服务端幂等键；按钮禁用不构成服务端幂等。
 - Mock 持久化 `zhijiao.mock`/binding、`mock.js` 随 `src/**` 进入生产、Mock ID 生成使用超安全整数 Number。
 - Mock 参数解析与后端 `Long.parseLong`/`Integer.parseInt` 仍有差异（前导零不应一概判错）。

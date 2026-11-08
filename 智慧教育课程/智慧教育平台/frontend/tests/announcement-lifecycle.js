@@ -87,12 +87,30 @@ async function resolvePending(page, index, body) {
   await page.evaluate(({ index, body }) => window.__resolveCall(index, body), { index, body });
 }
 
+async function rejectPendingServerError(page, index, message) {
+  await page.evaluate(({ index, message }) => {
+    var error = new Error(message);
+    error.code = 500;
+    error.method = 'GET';
+    error.url = '/education/teacher/announcements';
+    error.isPermission = function () { return false; };
+    error.isNotFound = function () { return false; };
+    error.isServerSide = function () { return true; };
+    error.isNetwork = function () { return false; };
+    window.__rejectCall(index, error);
+  }, { index, message });
+}
+
 async function findPending(page, part) {
   return page.evaluate((part) => window.__findPending(part), part);
 }
 
 async function findPendingExact(page, url) {
   return page.evaluate((url) => window.__findPendingExact(url), url);
+}
+
+async function findPendingByBinding(page, part, bindingId) {
+  return page.evaluate(({ part, bindingId }) => window.__findPendingByBinding(part, bindingId), { part, bindingId });
 }
 
 async function waitForText(page, text) {
@@ -642,6 +660,85 @@ async function toastText(page) {
   check((await toastText(page)).indexOf('已标记') < 0, '页签切换后迟到已读响应不得弹旧提示');
   check((await calls(page)).length === callsBeforeLateReadAll, '页签切换后迟到已读响应不得加载通知列表');
   check((await page.locator('#viewRoot').innerText()).includes('切换后公告'), '迟到已读响应不得覆盖公告区域');
+
+  // 19. 清空 binding 后，尚未派发的旧班列表请求不得派发。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await resolvePending(page, idx, teacherListBody('清空前列表', 'DRAFT'));
+  await page.waitForTimeout(80);
+  await page.evaluate(() => window.__clearCalls());
+  await page.evaluate(() => {
+    document.querySelector('[data-action="refresh"]').click();
+    document.querySelector('#eduBindingInput').value = '';
+    document.querySelector('[data-action="apply-binding"]').click();
+  });
+  await page.waitForTimeout(150);
+  check((await pendingCount(page)) === 0, '清空 binding 后排队中的旧列表请求不得派发');
+  check((await page.locator('#viewRoot').innerText()).includes('尚未选择课程—教学班上下文'),
+    '清空 binding 后应立即显示未选择教学班提示');
+
+  // 20. 清空 binding 后，已发出的旧班成功响应不得覆盖提示。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await page.fill('#eduBindingInput', '');
+  await page.click('[data-action="apply-binding"]');
+  await page.waitForTimeout(80);
+  check((await page.locator('#viewRoot').innerText()).includes('尚未选择课程—教学班上下文'),
+    '清空 binding 后应先显示未选择教学班提示');
+  await resolvePending(page, idx, teacherListBody('清空后旧成功', 'DRAFT'));
+  await page.waitForTimeout(100);
+  const clearSuccessText = await page.locator('#viewRoot').innerText();
+  check(clearSuccessText.includes('尚未选择课程—教学班上下文') && !clearSuccessText.includes('清空后旧成功'),
+    '清空 binding 后旧班成功响应不得覆盖提示');
+
+  // 21. 清空 binding 后，已发出的旧班失败响应不得覆盖提示。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  idx = await findPending(page, '/education/teacher/announcements');
+  await page.fill('#eduBindingInput', '');
+  await page.click('[data-action="apply-binding"]');
+  await page.waitForTimeout(80);
+  await rejectPendingServerError(page, idx, '旧班读取失败');
+  await page.waitForTimeout(100);
+  const clearFailureText = await page.locator('#viewRoot').innerText();
+  check(clearFailureText.includes('尚未选择课程—教学班上下文')
+    && !clearFailureText.includes('公告列表读取失败')
+    && !clearFailureText.includes('旧班读取失败'),
+    '清空 binding 后旧班失败响应不得覆盖提示');
+
+  // 22. A 班 → 清空 → B 班：A 班旧响应不得覆盖 B 班，B 班按新 binding 加载。
+  await open(page);
+  await mount(page, 'teacher', 0, 3);
+  await resolveAuth(page, true);
+  await page.waitForTimeout(100);
+  const aBindingIndex = await findPendingByBinding(page, '/education/teacher/announcements', '910000000001');
+  check(aBindingIndex >= 0, 'A 班列表请求应存在');
+  await page.fill('#eduBindingInput', '');
+  await page.click('[data-action="apply-binding"]');
+  await page.waitForTimeout(60);
+  check((await page.locator('#viewRoot').innerText()).includes('尚未选择课程—教学班上下文'),
+    'A 班清空后应先显示未选择教学班提示');
+  await page.fill('#eduBindingInput', '910000000002');
+  await page.click('[data-action="apply-binding"]');
+  await page.waitForTimeout(80);
+  const bBindingIndex = await findPendingByBinding(page, '/education/teacher/announcements', '910000000002');
+  check(bBindingIndex >= 0, '重新选择 B 班后应按新 binding 请求列表');
+  await resolvePending(page, bBindingIndex, teacherListBody('B 班结果', 'DRAFT'));
+  await page.waitForTimeout(100);
+  check((await page.locator('#viewRoot').innerText()).includes('B 班结果'), 'B 班结果应正常渲染');
+  await resolvePending(page, aBindingIndex, teacherListBody('A 班旧结果', 'DRAFT'));
+  await page.waitForTimeout(100);
+  const bindingRaceText = await page.locator('#viewRoot').innerText();
+  check(bindingRaceText.includes('B 班结果') && !bindingRaceText.includes('A 班旧结果'),
+    'A 班旧响应不得覆盖 B 班结果');
 
   check(consoleErrors.length === 0, '测试页不应有 console/page 错误: ' + consoleErrors.join(' | '));
   console.log(JSON.stringify({ passed: passed.length, failures, consoleErrors }, null, 2));
