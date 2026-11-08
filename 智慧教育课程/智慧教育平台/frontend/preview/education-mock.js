@@ -82,7 +82,7 @@
   // ------------------------------------------------------------------
 
   // 草稿公告 ID 不能用 Number 自增：内置 ID 是 18 位十进制字符串，
-  // 超过 Number.MAX_SAFE_INTEGER（2^53）后 +1 不再改变数值，连续创建会拿到同一 ID。
+  // 超过 Number.MAX_SAFE_INTEGER（2^53 - 1）后 +1 不再改变数值，连续创建会拿到同一 ID。
   // 这里用字符串逐位进位，保证越过边界后仍精确递增。
   var announcementSeq = '820000000000000100';
   var noticeSeq = 830000000000000100;
@@ -346,14 +346,175 @@
     };
   }
 
-  function requireBindingId(value, method, path) {
+  var LONG_MAX_DECIMAL = '9223372036854775807';
+  var INT_MAX = 2147483647;
+  var STATUS_VALUES = ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
+  var KIND_VALUES = ['ANNOUNCEMENT', 'PREVIEW', 'ACTIVITY', 'ASSIGNMENT', 'GRADE'];
+
+  /**
+   * 按后端 Long 语义解析正整数 ID，返回规范十进制字符串。
+   *
+   * 不能用 Number 处理整串 ID：超过 2^53 - 1 后 Number 会丢失低位，
+   * 前导零和正号也会在转成数字后失真。这里只去空白、检查正负号/数字，
+   * 去前导零后按字符串比较 Long 上界，全程不把整串 ID 转成 Number。
+   *
+   * @param {string|number} value 原始 ID
+   * @param {string} fieldName 字段名，用于错误信息
+   * @param {string} method 请求方法
+   * @param {string} path 请求路径
+   * @param {string} [blankMessage] 空值错误文案
+   * @returns {string} 去前导零和正号后的十进制 ID
+   */
+  function parsePositiveLongId(value, fieldName, method, path, blankMessage) {
     if (value === undefined || value === null || String(value).trim() === '') {
-      throw apiError(400, 'bindingId 不能为空', method, path);
+      throw apiError(400, blankMessage || (fieldName + ' 不能为空'), method, path);
     }
-    if (!/^\d+$/.test(String(value).trim())) {
-      throw apiError(400, 'bindingId 必须是正整数', method, path);
+    var text = String(value).trim();
+    var negative = false;
+    if (text.charAt(0) === '+' || text.charAt(0) === '-') {
+      negative = text.charAt(0) === '-';
+      text = text.slice(1);
     }
-    return String(value).trim();
+    if (!/^\d+$/.test(text)) {
+      throw apiError(400, fieldName + ' 必须是正整数', method, path);
+    }
+    var normalized = text.replace(/^0+(?=\d)/, '');
+    if (negative || normalized === '0') {
+      throw apiError(400, fieldName + ' 必须是正整数', method, path);
+    }
+    if (normalized.length > LONG_MAX_DECIMAL.length
+      || (normalized.length === LONG_MAX_DECIMAL.length && normalized > LONG_MAX_DECIMAL)) {
+      throw apiError(400, fieldName + ' 必须是正整数', method, path);
+    }
+    return normalized;
+  }
+
+  /**
+   * 可选正整数 ID：省略/undefined/null 返回 null，显式空串/空白返回 400。
+   *
+   * 学生接口用这个区分「不传 bindingId」（本人全部教学班）与「显式传空」
+   * （后端 optionalPositiveId 直接 400）。
+   *
+   * @param {string|number|undefined|null} value 原始 ID
+   * @param {string} fieldName 字段名
+   * @param {string} method 请求方法
+   * @param {string} path 请求路径
+   * @returns {string|null} 规范十进制 ID 或 null
+   */
+  function parseOptionalPositiveLongId(value, fieldName, method, path) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    return parsePositiveLongId(value, fieldName, method, path, fieldName + ' 不能为空字符串');
+  }
+
+  /**
+   * 解码单个路径段并按正 Long 解析，只解码一次。
+   *
+   * Spring 只把路径变量解码一次；重复解码会把 %252B 变成正号，
+   * 与后端行为不一致。解码失败按业务 400 处理。
+   *
+   * @param {string} encoded 路由捕获的原始路径段
+   * @param {string} fieldName 字段名
+   * @param {string} method 请求方法
+   * @param {string} path 请求路径
+   * @returns {string} 规范十进制路径 ID
+   */
+  function parsePathId(encoded, fieldName, method, path) {
+    var decoded;
+    try {
+      decoded = decodeURIComponent(String(encoded));
+    } catch (e) {
+      throw apiError(400, fieldName + ' 格式非法', method, path);
+    }
+    return parsePositiveLongId(decoded, fieldName, method, path);
+  }
+
+  /**
+   * 按 Integer.parseInt 语义解析分页参数。
+   *
+   * 缺失/空串/纯空白使用默认值；小数、指数、十六进制和超出 int 的输入返回 400。
+   * pageNum 范围为 1..Integer.MAX_VALUE，pageSize 为 1..100。
+   *
+   * @param {string|number|undefined|null} value 原始参数
+   * @param {string} fieldName 字段名
+   * @param {number} defaultValue 缺省值
+   * @param {number} min 最小值
+   * @param {number} max 最大值
+   * @param {string} method 请求方法
+   * @param {string} path 请求路径
+   * @returns {number} 解析后的整数
+   */
+  function parseIntegerParam(value, fieldName, defaultValue, min, max, method, path) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return defaultValue;
+    }
+    var text = String(value).trim();
+    if (!/^[+-]?\d+$/.test(text)) {
+      throw apiError(400, fieldName + ' 必须是整数', method, path);
+    }
+    var digits = text.replace(/^[+-]/, '').replace(/^0+(?=\d)/, '');
+    if (digits.length > 10 || (digits.length === 10 && digits > String(INT_MAX))) {
+      throw apiError(400, fieldName + ' 必须是整数', method, path);
+    }
+    var parsed = Number(text);
+    if (parsed < min || parsed > max) {
+      if (max === INT_MAX) {
+        throw apiError(400, fieldName + ' 不能小于 ' + min, method, path);
+      }
+      throw apiError(400, fieldName + ' 必须在 ' + min + ' 到 ' + max + ' 之间', method, path);
+    }
+    return parsed;
+  }
+
+  /** 教师 status：null/空白表示不过滤，允许大小写，非法值 400。 */
+  function parseOptionalStatus(value, method, path) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    var text = String(value).trim();
+    if (text === '') {
+      return null;
+    }
+    var status = text.toUpperCase();
+    if (STATUS_VALUES.indexOf(status) < 0) {
+      throw apiError(400, 'status 必须是 DRAFT、PUBLISHED 或 ARCHIVED', method, path);
+    }
+    return status;
+  }
+
+  /** 学生通知 kind：null 表示不过滤，显式空值 400，允许大小写。 */
+  function parseOptionalKind(value, method, path) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    var text = String(value).trim();
+    if (text === '') {
+      throw apiError(400, 'kind 不能为空字符串', method, path);
+    }
+    var kind = text.toUpperCase();
+    if (KIND_VALUES.indexOf(kind) < 0) {
+      throw apiError(400, 'kind 必须是 ANNOUNCEMENT、PREVIEW、ACTIVITY、ASSIGNMENT 或 GRADE', method, path);
+    }
+    return kind;
+  }
+
+  /** unreadOnly：null 用默认值 false，显式空值 400，true/false 大小写不敏感。 */
+  function parseOptionalBoolean(value, fieldName, defaultValue, method, path) {
+    if (value === undefined || value === null) {
+      return defaultValue;
+    }
+    var text = String(value).trim();
+    if (text === '') {
+      throw apiError(400, fieldName + ' 不能为空字符串', method, path);
+    }
+    if (text.toLowerCase() === 'true') {
+      return true;
+    }
+    if (text.toLowerCase() === 'false') {
+      return false;
+    }
+    throw apiError(400, fieldName + ' 必须是 true 或 false', method, path);
   }
 
   function ensureAuthorizedBinding(bindingId, method, path) {
@@ -366,14 +527,8 @@
   }
 
   function pageParams(query, method, path) {
-    var pageNum = query.pageNum === undefined || query.pageNum === '' ? 1 : Number(query.pageNum);
-    var pageSize = query.pageSize === undefined || query.pageSize === '' ? 10 : Number(query.pageSize);
-    if (!Number.isInteger(pageNum) || pageNum < 1) {
-      throw apiError(400, 'pageNum 不能小于 1', method, path);
-    }
-    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
-      throw apiError(400, 'pageSize 必须在 1 到 100 之间', method, path);
-    }
+    var pageNum = parseIntegerParam(query.pageNum, 'pageNum', 1, 1, INT_MAX, method, path);
+    var pageSize = parseIntegerParam(query.pageSize, 'pageSize', 10, 1, 100, method, path);
     return { pageNum: pageNum, pageSize: pageSize };
   }
 
@@ -382,7 +537,8 @@
     return { total: rows.length, rows: rows.slice(start, start + pageSize) };
   }
 
-  function findAnnouncement(id, method, path) {
+  function findAnnouncement(rawId, method, path) {
+    var id = parsePathId(rawId, 'announcementId', method, path);
     for (var i = 0; i < announcements.length; i++) {
       if (announcements[i].id === id) {
         return announcements[i];
@@ -422,13 +578,10 @@
   // --- 教师公告 ---
 
   route('GET', /^\/education\/teacher\/announcements$/, function (ctx) {
-    var bindingId = requireBindingId(ctx.query.bindingId, ctx.method, ctx.path);
-    ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
+    var bindingId = parsePositiveLongId(ctx.query.bindingId, 'bindingId', ctx.method, ctx.path);
+    var status = parseOptionalStatus(ctx.query.status, ctx.method, ctx.path);
     var page = pageParams(ctx.query, ctx.method, ctx.path);
-    var status = ctx.query.status ? String(ctx.query.status).toUpperCase() : '';
-    if (status && ['DRAFT', 'PUBLISHED', 'ARCHIVED'].indexOf(status) < 0) {
-      throw apiError(400, 'status 必须是 DRAFT、PUBLISHED 或 ARCHIVED', ctx.method, ctx.path);
-    }
+    ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     var rows = announcements
       .filter(function (item) {
         return item.bindingId === bindingId && (!status || item.status === status);
@@ -451,7 +604,7 @@
 
   route('POST', /^\/education\/teacher\/announcements$/, function (ctx) {
     var body = ctx.body || {};
-    var bindingId = requireBindingId(body.bindingId, ctx.method, ctx.path);
+    var bindingId = parsePositiveLongId(body.bindingId, 'bindingId', ctx.method, ctx.path);
     ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     validateDraftFields(body.title, body.body, body.opensAt, body.closesAt, ctx.method, ctx.path);
     var item = {
@@ -520,13 +673,13 @@
   // --- 学生公告（只返回 OPEN） ---
 
   route('GET', /^\/education\/student\/announcements$/, function (ctx) {
-    var page = pageParams(ctx.query, ctx.method, ctx.path);
-    // 与后端一致：只有"完全不传"才表示本人全部班级；空串/纯空白返回 400。
+    // 与后端一致：只有"完全不传"（undefined/null）才表示本人全部班级；
+    // 空串/纯空白是显式空值，requiredId 返回 400。
     var rawBinding = ctx.query.bindingId;
-    if (rawBinding !== undefined && String(rawBinding).trim() === '') {
-      throw apiError(400, 'bindingId 不能为空字符串', ctx.method, ctx.path);
-    }
-    var bindingId = rawBinding ? String(rawBinding).trim() : '';
+    var bindingId = rawBinding === undefined || rawBinding === null
+      ? null
+      : parsePositiveLongId(rawBinding, 'bindingId', ctx.method, ctx.path);
+    var page = pageParams(ctx.query, ctx.method, ctx.path);
     if (bindingId) {
       ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     }
@@ -562,16 +715,13 @@
   }
 
   route('GET', /^\/education\/student\/notices$/, function (ctx) {
+    var bindingId = parseOptionalPositiveLongId(ctx.query.bindingId, 'bindingId', ctx.method, ctx.path);
+    var kind = parseOptionalKind(ctx.query.kind, ctx.method, ctx.path);
+    var unreadOnly = parseOptionalBoolean(ctx.query.unreadOnly, 'unreadOnly', false, ctx.method, ctx.path);
     var page = pageParams(ctx.query, ctx.method, ctx.path);
-    var kind = ctx.query.kind ? String(ctx.query.kind) : '';
-    if (kind && ['ANNOUNCEMENT', 'PREVIEW', 'ACTIVITY', 'ASSIGNMENT', 'GRADE'].indexOf(kind) < 0) {
-      throw apiError(400, 'kind 不在允许的枚举内', ctx.method, ctx.path);
-    }
-    var bindingId = ctx.query.bindingId ? String(ctx.query.bindingId) : '';
     if (bindingId) {
       ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     }
-    var unreadOnly = String(ctx.query.unreadOnly) === 'true';
     var rows = visibleNotices()
       .filter(function (item) {
         return (!kind || item.kind === kind)
@@ -587,7 +737,7 @@
   });
 
   route('GET', /^\/education\/student\/notices\/unread-count$/, function (ctx) {
-    var bindingId = ctx.query.bindingId ? String(ctx.query.bindingId) : '';
+    var bindingId = parseOptionalPositiveLongId(ctx.query.bindingId, 'bindingId', ctx.method, ctx.path);
     if (bindingId) {
       ensureAuthorizedBinding(bindingId, ctx.method, ctx.path);
     }
@@ -598,7 +748,7 @@
   });
 
   route('GET', /^\/education\/student\/notices\/([^/]+)$/, function (ctx) {
-    var id = ctx.params[0];
+    var id = parsePathId(ctx.params[0], 'noticeId', ctx.method, ctx.path);
     for (var i = 0; i < notices.length; i++) {
       if (notices[i].id === id && millis(notices[i].visibleAt) <= Date.now()) {
         return ok(toNoticeRow(notices[i]));
@@ -608,7 +758,7 @@
   });
 
   route('POST', /^\/education\/student\/notices\/([^/]+)\/read$/, function (ctx) {
-    var id = ctx.params[0];
+    var id = parsePathId(ctx.params[0], 'noticeId', ctx.method, ctx.path);
     for (var i = 0; i < notices.length; i++) {
       if (notices[i].id === id && millis(notices[i].visibleAt) <= Date.now()) {
         var item = notices[i];
