@@ -147,10 +147,60 @@ A 班 → 清空 → B 班的乱序用例在修复前后都通过，作为“清
   调用现有 `whenAuthorized()` 的路径验证，`role-home.js` 的 `/getInfo`、`/getRouters`
   行为未在本轮测试范围内。
 
+## 6-02 离线 Mock 隔离（2026-11-08）
+
+### 复现证据（six@93edc57）
+
+新增 `frontend/tests/mock-isolation.js`，未改产品代码时 **12 passed，18 failed，
+0 console/page errors**。失败覆盖：
+
+- 预览 `EduMock.enable()` 写 `zhijiao.mock` 和演示 binding；
+- 预览切换/清空教学班改写真实 sessionStorage；
+- 同标签页转教师运行页丢失原教学班，未发真实列表请求，并显示 Mock 横幅；
+- 教师/学生运行页在旧 `zhijiao.mock=1` 或 `?mock=1` 下仍进入 Mock，核验后无真实请求；
+- 真实 500 被 Mock 成功结果替代，错误处理失效。
+
+### 本轮修改
+
+- `src/api/education/mock.js` 移到 `preview/education-mock.js`，移出打包范围
+  `frontend/src/**`；开关改为页面内存变量，删除 `zhijiao.mock`/`zhijiao.bindingId`
+  读写和 URL 自动开关。
+- `teacher.html`、`student.html` 移除 Mock 脚本引用。运行页带 `?mock=1` 或旧
+  `zhijiao.mock=1` 仍走正常认证与真实请求；真实失败继续显示错误。
+- `view-host.js` 增加 `EduViews.setBindingStore(store)`：预览页用页面内存教学班存储，
+  切换/清空不读写 sessionStorage；运行页不调用，保持原行为。
+- `mock-preview.html` 改用预览脚本，并在挂载前设置内存 binding store；保留教师公告、
+  学生通知、课程公告预览。
+- `http.js` 的 EduMock 分支仅服务预览页；运行页没有 EduMock 全局。
+
+### 验证
+
+- `node --check frontend/preview/education-mock.js`、
+  `node --check frontend/src/views/education/view-host.js`：通过。
+- `frontend/tests/mock-isolation.js`：**30 passed，0 failed，0 console/page errors**。
+- `frontend/tests/announcement-lifecycle.js`：**79 passed，0 failed，0 console/page errors**。
+- 干净打包 `mvn -pl ruoyi-admin -am clean package -DskipTests`：BUILD SUCCESS。
+  JAR 含 `static/teacher.html`、`student.html`、`admin.html`、`login.html` 与
+  `static/src/**` 业务脚本；不含 `mock-preview.html`、`overview-preview.html`、
+  `education-mock.js` 或 `/mock.js`。
+
+### 测试边界
+
+- `mock-isolation.js` 驱动真实 `mock-preview.html`、`teacher.html`、`student.html`，
+  但 `/getInfo`、`/getRouters`、`/logout`、`/education/**` 全部由 Playwright route 夹具返回。
+- 未执行真实登录、真实 HTTP、服务端授权、真实数据库或真实浏览器缓存恢复。
+- Mock 大整数 ID 与参数解析差异未改，见「未关闭」。
+
+### 后续同步注意（#34）
+
+- #34 的 `overview-preview.html` 与共用 Mock 数据后续同步到 six 时需保留；
+  Mock 脚本已从 `frontend/src/api/education/mock.js` 移到
+  `frontend/preview/education-mock.js`，合并时同步更新引用，不删除总览预览数据。
+
 ## 未关闭
 
 - 创建公告仍无服务端幂等键；按钮禁用不构成服务端幂等。
-- Mock 持久化 `zhijiao.mock`/binding、`mock.js` 随 `src/**` 进入生产、Mock ID 生成使用超安全整数 Number。
-- Mock 参数解析与后端 `Long.parseLong`/`Integer.parseInt` 仍有差异（前导零不应一概判错）。
-- 文档残留：`frontend/README.md` 旧“待实现/后端待实现”、`docs/6-02-frontend-integration.md` 503 旧表述、46 项断言声明不可复现。
+- Mock 大整数 ID 仍用 Number 自增（已加 TODO 说明原因与解除条件）；
+  Mock 参数解析与后端 `Long.parseLong`/`Integer.parseInt` 仍有差异，留待独立任务。
+- 文档残留：`frontend/README.md` 旧“待实现/后端待实现”、`docs/6-02-frontend-integration.md` 503 旧表述等历史文案仍待后续清理。
 - `role-home.js` HTTP 401 空正文/HTML 缺口不在本轮修改范围，需第 1 组/负责人处理。

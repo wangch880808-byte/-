@@ -11,6 +11,7 @@
   var TOKEN_KEY = 'zhijiao.login.token';
   var registry = {};
   var activeView = null;
+  var bindingStore = null;
 
   function key(role, groupIndex, itemIndex) {
     return role + ':' + groupIndex + ':' + itemIndex;
@@ -21,6 +22,13 @@
   }
 
   function getBinding() {
+    if (bindingStore) {
+      try {
+        return String(bindingStore.get() || '');
+      } catch (e) {
+        return '';
+      }
+    }
     try {
       return global.sessionStorage.getItem(BINDING_KEY) || '';
     } catch (e) {
@@ -29,6 +37,14 @@
   }
 
   function setBinding(bindingId) {
+    if (bindingStore) {
+      try {
+        bindingStore.set(bindingId || '');
+      } catch (e) {
+        /* 预览存储失败不阻断页面，本次输入仍生效于当前视图 */
+      }
+      return;
+    }
     try {
       if (bindingId) {
         global.sessionStorage.setItem(BINDING_KEY, bindingId);
@@ -38,6 +54,22 @@
     } catch (e) {
       /* 存储不可用时不阻断页面，本次输入仍生效于当前视图 */
     }
+  }
+
+  /**
+   * 设置页面内教学班存储，供离线预览隔离真实会话。
+   *
+   * 预览页把演示教学班放在自己的内存对象里，切换/清空只改该对象，
+   * 不会读写 zhijiao.bindingId。运行页不调用本函数，仍使用 sessionStorage。
+   *
+   * @param {{get:Function,set:Function}|null} store 页面内存储；
+   *   缺少 get/set 或传 null 时恢复 sessionStorage 行为
+   * @returns {void}
+   */
+  function setBindingStore(store) {
+    bindingStore = store && typeof store.get === 'function' && typeof store.set === 'function'
+      ? store
+      : null;
   }
 
   function hasToken() {
@@ -367,6 +399,7 @@
     mount: mount,
     getBinding: getBinding,
     setBinding: setBinding,
+    setBindingStore: setBindingStore,
     whenAuthorized: whenAuthorized,
     createAuthGate: createAuthGate,
     bindingFieldHtml: bindingFieldHtml,
