@@ -26,6 +26,18 @@ function check(condition, message) {
   }
 }
 
+// 6-02 视图的请求要等角色壳核验完成后才派出，断言不能只看挂载标记。
+async function waitForCall(calls, predicate, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 5000);
+  while (Date.now() < deadline) {
+    if (calls.some(predicate)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
 function item(code, value, source, unit, sampleCount) {
   return {
     metricCode: code,
@@ -393,7 +405,12 @@ async function screenshot(page, name) {
   await studentNotice.page.waitForSelector('#viewRoot .edu-seg', { timeout: 5000 });
   check(await studentNotice.page.locator('#viewRoot .ov-card').count() === 0, '学生通知页不应保留总览卡片');
   check((await studentNotice.page.locator('#viewRoot').innerText()).includes('学习通知'), '学生通知页应挂载既有通知视图');
-  check(studentNotice.state.educationCalls.some((p) => p.startsWith('/education/student/notices') && p.includes('bindingId=910000000001')), '学生通知页应继承当前教学班上下文');
+  const inheritedBinding = await waitForCall(
+    studentNotice.state.educationCalls,
+    (p) => p.startsWith('/education/student/notices') && p.includes('bindingId=910000000001')
+  );
+  check(inheritedBinding, '学生通知页应继承当前教学班上下文: '
+    + JSON.stringify(studentNotice.state.educationCalls));
   await screenshot(studentNotice.page, 'stage2-student-notices.png');
   await studentNotice.page.click('[data-tab="announcements"]');
   await studentNotice.page.waitForTimeout(150);
