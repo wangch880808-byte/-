@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.course.mapper.CourseAnnouncementMapper">
+
+    <resultMap type="com.ruoyi.education.course.domain.CourseAnnouncement" id="CourseAnnouncementResult">
+        <id     property="id"                column="id"                  />
+        <result property="bindingId"         column="binding_id"          />
+        <result property="title"             column="title"               />
+        <result property="body"              column="body"                />
+        <result property="status"            column="status"              />
+        <result property="opensAt"           column="opens_at"            />
+        <result property="closesAt"          column="closes_at"           />
+        <result property="publishedByUserId" column="published_by_user_id"/>
+        <result property="createdByUserId"   column="created_by_user_id"  />
+        <result property="createdAt"         column="created_at"          />
+    </resultMap>
+
+    <sql id="selectAnnouncementVo">
+        select id, binding_id, title, body, status, opens_at, closes_at,
+               published_by_user_id, created_by_user_id, created_at
+        from edu_course_announcement
+    </sql>
+
+    <sql id="selectAnnouncementSummaryVo">
+        select id, binding_id, title, status, opens_at, closes_at,
+               published_by_user_id, created_by_user_id, created_at
+        from edu_course_announcement
+    </sql>
+
+    <sql id="selectStudentAnnouncementSummaryVo">
+        select id, binding_id, title, opens_at, closes_at, created_at
+        from edu_course_announcement
+    </sql>
+
+    <select id="selectById" resultMap="CourseAnnouncementResult" flushCache="true">
+        <include refid="selectAnnouncementVo"/>
+        where id = #{id}
+    </select>
+
+    <select id="selectByIdForUpdate" resultMap="CourseAnnouncementResult" flushCache="true">
+        <include refid="selectAnnouncementVo"/>
+        where id = #{id}
+        for update
+    </select>
+
+    <select id="selectByBindingId" resultMap="CourseAnnouncementResult">
+        <include refid="selectAnnouncementVo"/>
+        <where>
+            binding_id = #{bindingId}
+            <if test="status != null">
+                and status = #{status}
+            </if>
+        </where>
+        order by created_at desc, id desc
+    </select>
+
+    <select id="selectVisibleByBindingId" resultMap="CourseAnnouncementResult">
+        <include refid="selectAnnouncementVo"/>
+        where binding_id = #{bindingId}
+          and status = 'PUBLISHED'
+          and opens_at is not null
+          and opens_at &lt;= #{now}
+          and (closes_at is null or closes_at &gt; #{now})
+        order by opens_at desc, id desc
+    </select>
+
+    <select id="selectVisibleById" resultMap="CourseAnnouncementResult">
+        <include refid="selectAnnouncementVo"/>
+        where id = #{id}
+          and status = 'PUBLISHED'
+          and opens_at is not null
+          and opens_at &lt;= #{now}
+          and (closes_at is null or closes_at &gt; #{now})
+    </select>
+
+    <sql id="studentVisibleCondition">
+        <where>
+            binding_id in
+            <foreach collection="bindingIds" item="bindingId" open="(" separator="," close=")">
+                #{bindingId}
+            </foreach>
+            and status = 'PUBLISHED'
+            and opens_at is not null
+            and opens_at &lt;= #{at}
+            and (closes_at is null or closes_at &gt; #{at})
+        </where>
+    </sql>
+
+    <select id="countVisibleByBindingIds" resultType="long">
+        select count(*)
+        from edu_course_announcement
+        <include refid="studentVisibleCondition"/>
+    </select>
+
+    <select id="selectVisibleByBindingIdsPage" resultMap="CourseAnnouncementResult">
+        <include refid="selectStudentAnnouncementSummaryVo"/>
+        <include refid="studentVisibleCondition"/>
+        order by opens_at desc, id desc
+        limit #{limit} offset #{offset}
+    </select>
+
+    <sql id="teacherVisibleCondition">
+        <where>
+            binding_id = #{bindingId}
+            <if test="status != null">
+                and status = #{status}
+            </if>
+            <if test="!canReadAllDrafts">
+                and (status &lt;&gt; 'DRAFT' or created_by_user_id = #{userId})
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectTeacherVisibleByBindingId" resultMap="CourseAnnouncementResult">
+        <include refid="selectAnnouncementVo"/>
+        <include refid="teacherVisibleCondition"/>
+        order by created_at desc, id desc
+    </select>
+
+    <select id="countTeacherVisibleByBindingId" resultType="long">
+        select count(*)
+        from edu_course_announcement
+        <include refid="teacherVisibleCondition"/>
+    </select>
+
+    <select id="selectTeacherVisibleByBindingIdPage" resultMap="CourseAnnouncementResult">
+        <include refid="selectAnnouncementSummaryVo"/>
+        <include refid="teacherVisibleCondition"/>
+        order by created_at desc, id desc
+        limit #{limit} offset #{offset}
+    </select>
+
+    <insert id="insertDraft" parameterType="com.ruoyi.education.course.domain.CourseAnnouncement"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into edu_course_announcement
+            (binding_id, title, body, status, opens_at, closes_at,
+             published_by_user_id, created_by_user_id, created_at)
+        values
+            (#{bindingId}, #{title}, #{body}, 'DRAFT', #{opensAt}, #{closesAt},
+             null, #{createdByUserId}, #{createdAt})
+    </insert>
+
+    <update id="updateDraft" parameterType="com.ruoyi.education.course.domain.CourseAnnouncement">
+        update edu_course_announcement
+        set title = #{title},
+            body = #{body},
+            opens_at = #{opensAt},
+            closes_at = #{closesAt}
+        where id = #{id}
+          and binding_id = #{bindingId}
+          and status = 'DRAFT'
+    </update>
+
+    <update id="publishDraft">
+        update edu_course_announcement
+        set status = 'PUBLISHED',
+            published_by_user_id = #{publishedByUserId},
+            opens_at = coalesce(opens_at, #{now})
+        where id = #{id}
+          and binding_id = #{bindingId}
+          and status = 'DRAFT'
+          and published_by_user_id is null
+    </update>
+
+    <update id="archivePublished">
+        update edu_course_announcement
+        set status = 'ARCHIVED'
+        where id = #{id}
+          and binding_id = #{bindingId}
+          and status = 'PUBLISHED'
+    </update>
+
+</mapper>

@@ -1,0 +1,75 @@
+{
+  "VerifiedAtShanghai": "2026-10-21T13:49:19.1077954+08:00",
+  "WorkspaceRoot": "D:\\智慧教育课程",
+  "ProjectRoot": "D:\\智慧教育课程\\智慧教育平台",
+  "BackupRoot": "D:\\智慧教育课程归档\\整理前完整备份-20261021-134309",
+  "RequiredFilesChecked": 14,
+  "RequiredDirectoriesChecked": 19,
+  "MissingFiles": [],
+  "MissingDirectories": [],
+  "OriginalAndBackupFiles": [
+    {
+      "RelativePath": "功能架构优化方案 .md",
+      "ExpectedSHA256": "AB941BF762F54EA9A4E820A7D55F709BA55680D894746EE5E44846CBB7B5A0B9",
+      "SourceMatches": true,
+      "BackupMatches": true,
+      "SizeMatches": true
+    },
+    {
+      "RelativePath": "智慧教育课程需求分析.docx",
+      "ExpectedSHA256": "995B21A0E14C8CAF39CE4C06E3EF40495FE7EE6C5B8DCAB4040E86765B3B8BE4",
+      "SourceMatches": true,
+      "BackupMatches": true,
+      "SizeMatches": true
+    }
+  ],
+  "OriginalDirectories": [
+    {
+      "RelativePath": "智慧教育平台",
+      "OriginalExists": true,
+      "BackupExists": true
+    }
+  ],
+  "CanonicalArchitectureSHA256": "AB941BF762F54EA9A4E820A7D55F709BA55680D894746EE5E44846CBB7B5A0B9",
+  "CanonicalCopyMatchesOriginal": true,
+  "InventoryCopies": [
+    {
+      "Name": "historical-inventory.csv",
+      "Matches": true
+    },
+    {
+      "Name": "backup-verification.csv",
+      "Matches": true
+    }
+  ],
+  "ForbiddenArtifacts": [],
+  "LegacyDirectoryFound": false,
+  "HistoricalPrototypeFileCount": 0,
+  "HistoricalCodeFileCount": 0,
+  "DeletionExecuted": false,
+  "CleanupCandidateCount": 1,
+  "CleanupCandidate": "D:\\智慧教育课程\\功能架构优化方案 .md",
+  "BuildAndBusinessTests": "Not applicable: framework and business implementation not present",
+  "LocalMarkdownLinksChecked": 31,
+  "BrokenLocalLinks": [],
+  "ProjectFileCount": 15,
+  "ProjectDirectoryCount": 31,
+  "ProjectFiles": [
+    "AGENTS.md",
+    "backend\\README.md",
+    "backend\\ruoyi-education\\README.md",
+    "CONTRIBUTING.md",
+    "docs\\api-contracts.md",
+    "docs\\architecture.md",
+    "docs\\backup-verification.csv",
+    "docs\\development-plan.md",
+    "docs\\historical-inventory.csv",
+    "docs\\migration-report.md",
+    "docs\\workspace-verification.json",
+    "frontend\\README.md",
+    "prototypes\\README.md",
+    "README.md",
+    "sql\\README.md"
+  ],
+  "AllStructuralChecksPassed": true
+}

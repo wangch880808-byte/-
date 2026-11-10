@@ -1,0 +1,1041 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.group3.mapper.Group3Mapper">
+
+    <select id="selectTeacherContexts" resultType="java.util.LinkedHashMap">
+        SELECT b.id AS bindingId,
+               b.course_space_id AS courseSpaceId,
+               cs.title AS courseTitle,
+               cs.summary AS courseSummary,
+               tc.id AS teachingClassId,
+               tc.name AS className,
+               tc.code AS classCode,
+               t.name AS termName,
+               ct.teacher_role AS teacherRole,
+               ct.can_publish AS canPublish
+        FROM edu_class_teacher ct
+        JOIN edu_teaching_class tc ON tc.id = ct.teaching_class_id
+        JOIN edu_term t ON t.id = tc.term_id
+        JOIN edu_course_class_binding b ON b.teaching_class_id = tc.id
+        JOIN edu_course_space cs ON cs.id = b.course_space_id
+        WHERE ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.valid_from &lt;= UTC_TIMESTAMP(3)
+          AND ct.can_publish = 1
+          AND tc.status = 'ACTIVE'
+          AND b.ended_at IS NULL
+        ORDER BY t.starts_on DESC, cs.title, tc.name
+    </select>
+
+    <select id="selectStudentContexts" resultType="java.util.LinkedHashMap">
+        SELECT b.id AS bindingId,
+               b.course_space_id AS courseSpaceId,
+               cs.title AS courseTitle,
+               cs.summary AS courseSummary,
+               tc.id AS teachingClassId,
+               tc.name AS className,
+               tc.code AS classCode,
+               t.name AS termName
+        FROM edu_class_student st
+        JOIN edu_teaching_class tc ON tc.id = st.teaching_class_id
+        JOIN edu_term t ON t.id = tc.term_id
+        JOIN edu_course_class_binding b ON b.teaching_class_id = tc.id
+        JOIN edu_course_space cs ON cs.id = b.course_space_id
+        WHERE st.user_id = #{userId}
+          AND st.left_at IS NULL
+          AND st.joined_at &lt;= UTC_TIMESTAMP(3)
+          AND tc.status = 'ACTIVE'
+          AND b.ended_at IS NULL
+        ORDER BY t.starts_on DESC, cs.title, tc.name
+    </select>
+
+    <select id="selectTeacherBinding" resultType="java.util.LinkedHashMap">
+        SELECT b.id AS bindingId,
+               b.course_space_id AS courseSpaceId,
+               b.teaching_class_id AS teachingClassId,
+               b.organization_id AS organizationId,
+               cs.title AS courseTitle,
+               tc.name AS className,
+               ct.teacher_role AS teacherRole,
+               ct.can_publish AS canPublish
+        FROM edu_course_class_binding b
+        JOIN edu_course_space cs ON cs.id = b.course_space_id
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = tc.id
+        WHERE b.id = #{bindingId}
+          AND ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.valid_from &lt;= UTC_TIMESTAMP(3)
+          AND ct.can_publish = 1
+          AND tc.status = 'ACTIVE'
+          AND b.ended_at IS NULL
+    </select>
+
+    <select id="selectStudentBinding" resultType="java.util.LinkedHashMap">
+        SELECT b.id AS bindingId,
+               b.course_space_id AS courseSpaceId,
+               b.teaching_class_id AS teachingClassId,
+               cs.title AS courseTitle,
+               tc.name AS className,
+               st.id AS enrollmentId
+        FROM edu_course_class_binding b
+        JOIN edu_course_space cs ON cs.id = b.course_space_id
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        JOIN edu_class_student st ON st.teaching_class_id = tc.id
+        WHERE b.id = #{bindingId}
+          AND st.user_id = #{userId}
+          AND st.left_at IS NULL
+          AND st.joined_at &lt;= UTC_TIMESTAMP(3)
+          AND tc.status = 'ACTIVE'
+          AND b.ended_at IS NULL
+    </select>
+
+    <select id="selectBinding" resultType="java.util.LinkedHashMap">
+        SELECT b.id AS bindingId,
+               b.course_space_id AS courseSpaceId,
+               b.teaching_class_id AS teachingClassId,
+               b.organization_id AS organizationId,
+               cs.title AS courseTitle,
+               tc.name AS className
+        FROM edu_course_class_binding b
+        JOIN edu_course_space cs ON cs.id = b.course_space_id
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        WHERE b.id = #{bindingId}
+          AND b.ended_at IS NULL
+          AND tc.status = 'ACTIVE'
+    </select>
+
+    <select id="selectCourseOutline" resultType="java.util.LinkedHashMap">
+        SELECT u.id AS unitId,
+               u.parent_unit_id AS parentUnitId,
+               u.unit_kind AS unitKind,
+               u.title,
+               u.sort_order AS sortOrder
+        FROM edu_course_unit u
+        WHERE u.course_space_id = #{courseSpaceId}
+        ORDER BY u.sort_order, u.id
+    </select>
+
+    <select id="selectKnowledgePoints" resultType="java.util.LinkedHashMap">
+        SELECT kp.id AS knowledgePointId,
+               kp.unit_id AS unitId,
+               kp.code,
+               kp.name
+        FROM edu_knowledge_point kp
+        WHERE kp.course_space_id = #{courseSpaceId}
+        ORDER BY kp.unit_id, kp.name
+    </select>
+
+    <select id="selectTeacherResources" resultType="java.util.LinkedHashMap">
+        SELECT r.id AS resourceId,
+               r.title,
+               r.resource_kind AS resourceKind,
+               r.status AS resourceStatus,
+               rv.id AS versionId,
+               rv.version_no AS versionNo,
+               rv.storage_key AS storageKey,
+               rv.external_uri AS externalUri,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.processing_status AS processingStatus,
+               DATE_FORMAT(rv.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+               (SELECT COUNT(*) FROM edu_resource_page p
+                 WHERE p.resource_version_id = rv.id) AS pageCount,
+               rel.id AS releaseId,
+               DATE_FORMAT(rel.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+               DATE_FORMAT(rel.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+               rel.ended_at AS endedAt
+        FROM edu_resource r
+        LEFT JOIN edu_resource_version rv
+          ON rv.resource_id = r.id
+         AND rv.version_no = (SELECT MAX(v.version_no)
+                                FROM edu_resource_version v
+                               WHERE v.resource_id = r.id)
+        LEFT JOIN edu_resource_class_release rel
+          ON rel.resource_version_id = rv.id
+         AND rel.binding_id = #{bindingId}
+         AND rel.ended_at IS NULL
+        WHERE r.course_space_id = #{courseSpaceId}
+          AND r.status &lt;&gt; 'ARCHIVED'
+        ORDER BY r.updated_at DESC, r.id DESC
+    </select>
+
+    <select id="selectReadyResourceVersions" resultType="java.util.LinkedHashMap">
+        SELECT r.id AS resourceId,
+               r.title,
+               rv.id AS versionId,
+               rv.version_no AS versionNo,
+               rv.mime_type AS mimeType,
+               (SELECT COUNT(*) FROM edu_resource_page p
+                 WHERE p.resource_version_id = rv.id) AS pageCount,
+               DATE_FORMAT(rv.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+        FROM edu_resource r
+        JOIN edu_resource_version rv ON rv.resource_id = r.id
+        JOIN edu_course_class_binding b ON b.course_space_id = r.course_space_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        WHERE b.id = #{bindingId}
+          AND r.course_space_id = #{courseSpaceId}
+          AND b.ended_at IS NULL
+          AND ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.can_publish = 1
+          AND r.status = 'ACTIVE'
+          AND rv.processing_status = 'READY'
+        ORDER BY r.updated_at DESC, r.id DESC, rv.version_no DESC
+    </select>
+
+    <select id="selectResourceVersions" resultType="java.util.LinkedHashMap">
+        SELECT rv.id AS versionId,
+               rv.version_no AS versionNo,
+               rv.storage_key AS storageKey,
+               rv.external_uri AS externalUri,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.processing_status AS processingStatus,
+               DATE_FORMAT(rv.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+               (SELECT COUNT(*) FROM edu_resource_page p
+                 WHERE p.resource_version_id = rv.id) AS pageCount
+        FROM edu_resource_version rv
+        WHERE rv.resource_id = #{resourceId}
+        ORDER BY rv.version_no DESC
+    </select>
+
+    <select id="selectResourcePages" resultType="java.util.LinkedHashMap">
+        SELECT page_no AS pageNo,
+               preview_storage_key AS previewStorageKey,
+               width_px AS widthPx,
+               height_px AS heightPx
+        FROM edu_resource_page
+        WHERE resource_version_id = #{versionId}
+        ORDER BY page_no
+    </select>
+
+    <select id="selectTeacherVersion" resultType="java.util.LinkedHashMap">
+        SELECT rv.id AS versionId,
+               rv.resource_id AS resourceId,
+               rv.resource_kind AS resourceKind,
+               rv.version_no AS versionNo,
+               rv.storage_key AS storageKey,
+               rv.external_uri AS externalUri,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.processing_status AS processingStatus,
+               r.title,
+               r.course_space_id AS courseSpaceId
+        FROM edu_resource_version rv
+        JOIN edu_resource r ON r.id = rv.resource_id
+        JOIN edu_course_class_binding b ON b.course_space_id = r.course_space_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        WHERE rv.id = #{versionId}
+          AND b.id = #{bindingId}
+          AND b.ended_at IS NULL
+          AND ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.can_publish = 1
+    </select>
+
+    <select id="selectStudentVisibleVersion" resultType="java.util.LinkedHashMap">
+        SELECT rv.id AS versionId,
+               rv.resource_id AS resourceId,
+               rv.resource_kind AS resourceKind,
+               rv.version_no AS versionNo,
+               rv.storage_key AS storageKey,
+               rv.external_uri AS externalUri,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.processing_status AS processingStatus,
+               r.title,
+               r.course_space_id AS courseSpaceId,
+               rel.id AS releaseId
+        FROM edu_resource_class_release rel
+        JOIN edu_resource_version rv ON rv.id = rel.resource_version_id
+        JOIN edu_resource r ON r.id = rel.resource_id
+        JOIN edu_course_class_binding b ON b.id = rel.binding_id
+        JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
+        WHERE rel.id = (SELECT MAX(r2.id)
+                          FROM edu_resource_class_release r2
+                         WHERE r2.binding_id = #{bindingId}
+                           AND r2.resource_version_id = rv.id
+                           AND r2.ended_at IS NULL)
+          AND rel.binding_id = #{bindingId}
+          AND rel.resource_version_id = #{versionId}
+          AND rel.ended_at IS NULL
+          AND rel.opens_at &lt;= UTC_TIMESTAMP(3)
+          AND (rel.closes_at IS NULL OR rel.closes_at &gt; UTC_TIMESTAMP(3))
+          AND rv.processing_status = 'READY'
+          AND r.status = 'ACTIVE'
+          AND b.ended_at IS NULL
+          AND st.user_id = #{userId}
+          AND st.left_at IS NULL
+    </select>
+
+    <select id="selectVersionById" resultType="java.util.LinkedHashMap">
+        SELECT rv.id AS versionId,
+               rv.resource_id AS resourceId,
+               rv.resource_kind AS resourceKind,
+               rv.storage_key AS storageKey,
+               rv.external_uri AS externalUri,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.processing_status AS processingStatus,
+               r.course_space_id AS courseSpaceId,
+               r.title
+        FROM edu_resource_version rv
+        JOIN edu_resource r ON r.id = rv.resource_id
+        WHERE rv.id = #{versionId}
+    </select>
+
+    <select id="selectReleaseById" resultType="java.util.LinkedHashMap">
+        SELECT rel.id AS releaseId,
+               rel.binding_id AS bindingId,
+               rel.course_space_id AS courseSpaceId,
+               rel.resource_id AS resourceId,
+               rel.resource_version_id AS resourceVersionId,
+               rel.opens_at AS opensAt,
+               rel.closes_at AS closesAt,
+               rel.ended_at AS endedAt
+        FROM edu_resource_class_release rel
+        WHERE rel.id = #{releaseId}
+    </select>
+
+    <select id="selectActiveRelease" resultType="java.util.LinkedHashMap">
+        SELECT rel.id AS releaseId,
+               rel.resource_version_id AS resourceVersionId,
+               rel.opens_at AS opensAt,
+               rel.closes_at AS closesAt
+        FROM edu_resource_class_release rel
+        WHERE rel.binding_id = #{bindingId}
+          AND rel.resource_id = #{resourceId}
+          AND rel.ended_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="lockBinding" resultType="java.lang.Long">
+        SELECT id FROM edu_course_class_binding WHERE id = #{bindingId} FOR UPDATE
+    </select>
+
+    <select id="lockResource" resultType="java.lang.Long">
+        SELECT id FROM edu_resource WHERE id = #{resourceId} FOR UPDATE
+    </select>
+
+    <select id="lockQuestion" resultType="java.lang.Long">
+        SELECT id FROM edu_question WHERE id = #{questionId} FOR UPDATE
+    </select>
+
+    <select id="lockLesson" resultType="java.lang.Long">
+        SELECT id FROM edu_lesson WHERE id = #{lessonId} FOR UPDATE
+    </select>
+
+    <select id="selectNextResourceVersion" resultType="int">
+        SELECT COALESCE(MAX(version_no), 0) + 1
+        FROM edu_resource_version
+        WHERE resource_id = #{resourceId}
+    </select>
+
+    <select id="selectNextQuestionVersion" resultType="int">
+        SELECT COALESCE(MAX(version_no), 0) + 1
+        FROM edu_question_version
+        WHERE question_id = #{questionId}
+    </select>
+
+    <insert id="insertResource" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_resource
+            (course_space_id, title, resource_kind, status, created_by_user_id)
+        VALUES
+            (#{courseSpaceId}, #{title}, #{resourceKind}, 'ACTIVE', #{userId})
+    </insert>
+
+    <insert id="insertResourceVersion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_resource_version
+            (resource_id, resource_kind, version_no, storage_key, external_uri,
+             sha256, mime_type, byte_size, processing_status, created_by_user_id)
+        VALUES
+            (#{resourceId}, #{resourceKind}, #{versionNo}, #{storageKey}, #{externalUri},
+             #{sha256}, #{mimeType}, #{byteSize}, #{processingStatus}, #{userId})
+    </insert>
+
+    <update id="updateResourceVersionStatus" parameterType="map">
+        UPDATE edu_resource_version
+           SET processing_status = #{processingStatus}
+         WHERE id = #{versionId}
+    </update>
+
+    <insert id="insertResourcePage" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_resource_page
+            (resource_version_id, resource_kind, page_no, preview_storage_key, width_px, height_px)
+        VALUES
+            (#{versionId}, 'FILE', #{pageNo}, #{previewStorageKey}, #{widthPx}, #{heightPx})
+    </insert>
+
+    <delete id="clearResourcePages">
+        DELETE FROM edu_resource_page WHERE resource_version_id = #{versionId}
+    </delete>
+
+    <update id="endRelease" parameterType="map">
+        UPDATE edu_resource_class_release
+           SET ended_at = #{endedAt},
+               end_kind = #{endKind},
+               ended_by_user_id = #{userId},
+               end_reason = #{reason}
+         WHERE id = #{releaseId}
+           AND ended_at IS NULL
+    </update>
+
+    <insert id="insertRelease" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_resource_class_release
+            (binding_id, course_space_id, resource_id, resource_version_id,
+             released_by_user_id, released_at, opens_at, closes_at)
+        VALUES
+            (#{bindingId}, #{courseSpaceId}, #{resourceId}, #{resourceVersionId},
+             #{userId}, UTC_TIMESTAMP(3), #{opensAt}, #{closesAt})
+    </insert>
+
+    <update id="revokeRelease" parameterType="map">
+        UPDATE edu_resource_class_release
+           SET ended_at = UTC_TIMESTAMP(3),
+               end_kind = 'REVOKED',
+               ended_by_user_id = #{userId},
+               end_reason = #{reason}
+         WHERE id = #{releaseId}
+           AND binding_id = #{bindingId}
+           AND ended_at IS NULL
+    </update>
+
+    <!-- 移除环节：软删除（归档）真实业务对象。所有更新都带 bindingId + 教师授权，
+         已归档对象再次删除返回 0 行，由服务层转成明确的冲突提示。 -->
+    <update id="archiveResource" parameterType="map">
+        UPDATE edu_resource r
+        JOIN edu_course_class_binding b ON b.course_space_id = r.course_space_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+           SET r.status = 'ARCHIVED'
+         WHERE r.id = #{resourceId}
+           AND b.id = #{bindingId}
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+           AND r.status &lt;&gt; 'ARCHIVED'
+    </update>
+
+    <update id="endReleasesForResource" parameterType="map">
+        UPDATE edu_resource_class_release
+           SET ended_at = UTC_TIMESTAMP(3),
+               end_kind = 'REVOKED',
+               ended_by_user_id = #{userId},
+               end_reason = '教师移除环节'
+         WHERE resource_id = #{resourceId}
+           AND binding_id = #{bindingId}
+           AND ended_at IS NULL
+    </update>
+
+    <update id="archiveAssignment" parameterType="map">
+        UPDATE edu_assignment a
+        JOIN edu_course_class_binding b ON b.id = a.binding_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+           SET a.status = 'ARCHIVED'
+         WHERE a.id = #{assignmentId}
+           AND a.binding_id = #{bindingId}
+           AND a.assignment_kind = 'PREVIEW'
+           AND a.status IN ('PUBLISHED', 'CLOSED')
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+    </update>
+
+    <update id="archivePlan" parameterType="map">
+        UPDATE edu_lesson_plan p
+        JOIN edu_course_class_binding b ON b.id = p.binding_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+           SET p.status = 'ARCHIVED'
+         WHERE p.id = #{planId}
+           AND p.binding_id = #{bindingId}
+           AND p.status &lt;&gt; 'ARCHIVED'
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+    </update>
+
+    <!-- 环节原地编辑：只更新开放窗口与名称。更新都带 bindingId + 教师发布权限，
+         且只作用于未撤回、未归档的记录；学生提交与资源版本不受影响。 -->
+    <update id="updateReleaseWindow" parameterType="map">
+        UPDATE edu_resource_class_release rel
+        JOIN edu_resource r ON r.id = rel.resource_id
+        JOIN edu_course_class_binding b ON b.id = rel.binding_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        <set>
+            rel.opens_at = #{opensAt},
+            rel.closes_at = #{closesAt,jdbcType=TIMESTAMP},
+            <if test="title != null">r.title = #{title},</if>
+        </set>
+         WHERE rel.resource_id = #{resourceId}
+           AND rel.binding_id = #{bindingId}
+           AND rel.ended_at IS NULL
+           AND r.status &lt;&gt; 'ARCHIVED'
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+    </update>
+
+    <update id="updateAssignmentWindow" parameterType="map">
+        UPDATE edu_assignment a
+        JOIN edu_course_class_binding b ON b.id = a.binding_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        <set>
+            a.opens_at = #{opensAt},
+            a.closes_at = #{closesAt},
+            <choose>
+                <when test="answerOpensAt != null">
+                    a.answer_opens_at = #{answerOpensAt},
+                </when>
+                <otherwise>
+                    a.answer_opens_at = CASE
+                        WHEN a.answer_opens_at IS NOT NULL AND a.answer_opens_at &lt; #{closesAt}
+                        THEN #{closesAt} ELSE a.answer_opens_at END,
+                </otherwise>
+            </choose>
+            <if test="title != null">a.title = #{title},</if>
+            <if test="instructions != null">a.instructions = #{instructions},</if>
+        </set>
+         WHERE a.id = #{assignmentId}
+           AND a.binding_id = #{bindingId}
+           AND a.assignment_kind = 'PREVIEW'
+           AND a.status IN ('PUBLISHED', 'CLOSED')
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+    </update>
+
+    <update id="updatePlanContent" parameterType="map">
+        UPDATE edu_lesson_plan p
+        JOIN edu_course_class_binding b ON b.id = p.binding_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        <set>
+            <if test="title != null">p.title = #{title},</if>
+            <if test="privateNotes != null">p.private_notes = #{privateNotes},</if>
+        </set>
+         WHERE p.id = #{planId}
+           AND p.binding_id = #{bindingId}
+           AND p.status &lt;&gt; 'ARCHIVED'
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+    </update>
+
+    <select id="selectStudentMaterials" resultType="java.util.LinkedHashMap">
+        SELECT r.id AS resourceId,
+               r.title,
+               rv.id AS versionId,
+               rv.version_no AS versionNo,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rel.id AS releaseId,
+               DATE_FORMAT(rel.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+               DATE_FORMAT(rel.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+               (SELECT COUNT(*) FROM edu_resource_page p
+                 WHERE p.resource_version_id = rv.id) AS pageCount
+        FROM edu_resource_class_release rel
+        JOIN edu_resource r ON r.id = rel.resource_id
+        JOIN edu_resource_version rv ON rv.id = rel.resource_version_id
+        JOIN edu_course_class_binding b ON b.id = rel.binding_id
+        JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
+        WHERE rel.binding_id = #{bindingId}
+          AND rel.ended_at IS NULL
+          AND rel.opens_at &lt;= UTC_TIMESTAMP(3)
+          AND (rel.closes_at IS NULL OR rel.closes_at &gt; UTC_TIMESTAMP(3))
+          AND rv.processing_status = 'READY'
+          AND r.status = 'ACTIVE'
+          AND b.ended_at IS NULL
+          AND st.user_id = #{userId}
+          AND st.left_at IS NULL
+        ORDER BY rel.opens_at DESC, rel.id DESC
+    </select>
+
+    <select id="selectQuestions" resultType="java.util.LinkedHashMap">
+        SELECT q.id AS questionId,
+               q.title,
+               q.status,
+               qv.id AS versionId,
+               qv.version_no AS versionNo,
+               qv.question_kind AS questionKind,
+               qv.stem,
+               qv.options_json AS optionsJson,
+               qv.answer_json AS answerJson,
+               qv.explanation,
+               qv.max_score AS maxScore,
+               DATE_FORMAT(qv.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+               (SELECT GROUP_CONCAT(kp.name ORDER BY kp.name SEPARATOR '、')
+                  FROM edu_question_knowledge_point qkp
+                  JOIN edu_knowledge_point kp ON kp.id = qkp.knowledge_point_id
+                 WHERE qkp.question_id = q.id) AS knowledgePoints
+        FROM edu_question q
+        JOIN edu_question_version qv
+          ON qv.question_id = q.id
+         AND qv.version_no = (SELECT MAX(v.version_no)
+                                FROM edu_question_version v
+                               WHERE v.question_id = q.id)
+        WHERE q.course_space_id = #{courseSpaceId}
+          AND q.status &lt;&gt; 'ARCHIVED'
+        ORDER BY q.created_at DESC, q.id DESC
+    </select>
+
+    <select id="selectQuestionVersions" resultType="java.util.LinkedHashMap">
+        SELECT q.id AS questionId,
+               q.title,
+               qv.id AS versionId,
+               qv.version_no AS versionNo,
+               qv.question_kind AS questionKind,
+               qv.stem,
+               qv.max_score AS maxScore
+        FROM edu_question q
+        JOIN edu_question_version qv ON qv.question_id = q.id
+        JOIN edu_course_class_binding b ON b.course_space_id = q.course_space_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        WHERE b.id = #{bindingId}
+          AND q.course_space_id = #{courseSpaceId}
+          AND b.ended_at IS NULL
+          AND ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.can_publish = 1
+          AND q.status = 'ACTIVE'
+        ORDER BY q.created_at DESC, q.id DESC, qv.version_no DESC
+    </select>
+
+    <select id="selectQuestionVersion" resultType="java.util.LinkedHashMap">
+        SELECT q.id AS questionId,
+               q.course_space_id AS courseSpaceId,
+               q.title,
+               qv.id AS versionId,
+               qv.version_no AS versionNo,
+               qv.question_kind AS questionKind,
+               qv.stem,
+               qv.options_json AS optionsJson,
+               qv.answer_json AS answerJson,
+               qv.explanation,
+               qv.max_score AS maxScore
+        FROM edu_question_version qv
+        JOIN edu_question q ON q.id = qv.question_id
+        JOIN edu_course_class_binding b ON b.course_space_id = q.course_space_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        WHERE qv.id = #{versionId}
+          AND b.id = #{bindingId}
+          AND b.ended_at IS NULL
+          AND ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.can_publish = 1
+    </select>
+
+    <insert id="insertQuestion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_question
+            (course_space_id, title, status, created_by_user_id)
+        VALUES
+            (#{courseSpaceId}, #{title}, 'ACTIVE', #{userId})
+    </insert>
+
+    <insert id="insertQuestionVersion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_question_version
+            (question_id, version_no, question_kind, stem, options_json,
+             answer_json, explanation, rubric_json, max_score, created_by_user_id)
+        VALUES
+            (#{questionId}, #{versionNo}, #{questionKind}, #{stem}, #{optionsJson},
+             #{answerJson}, #{explanation}, NULL, #{maxScore}, #{userId})
+    </insert>
+
+    <insert id="linkQuestionKnowledgePoint">
+        INSERT IGNORE INTO edu_question_knowledge_point
+            (question_id, course_space_id, knowledge_point_id)
+        VALUES
+            (#{questionId}, #{courseSpaceId}, #{knowledgePointId})
+    </insert>
+
+    <update id="updateQuestionStatus">
+        UPDATE edu_question q
+        JOIN edu_course_class_binding b ON b.course_space_id = q.course_space_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+           SET q.status = #{status}
+         WHERE q.id = #{questionId}
+           AND b.id = #{bindingId}
+           AND b.ended_at IS NULL
+           AND ct.user_id = #{userId}
+           AND ct.valid_to IS NULL
+           AND ct.can_publish = 1
+    </update>
+
+    <select id="selectLessons" resultType="java.util.LinkedHashMap">
+        SELECT l.id AS lessonId,
+               l.title,
+               l.unit_id AS unitId,
+               DATE_FORMAT(l.scheduled_at, '%Y-%m-%dT%H:%i:%s.000Z') AS scheduledAt,
+               l.status
+        FROM edu_lesson l
+        WHERE l.binding_id = #{bindingId}
+          AND l.status &lt;&gt; 'ARCHIVED'
+        ORDER BY l.scheduled_at, l.id
+    </select>
+
+    <select id="selectLesson" resultType="java.util.LinkedHashMap">
+        SELECT l.id AS lessonId,
+               l.binding_id AS bindingId,
+               l.course_space_id AS courseSpaceId,
+               l.unit_id AS unitId,
+               l.title
+        FROM edu_lesson l
+        WHERE l.id = #{lessonId}
+          AND l.binding_id = #{bindingId}
+          AND l.status &lt;&gt; 'ARCHIVED'
+    </select>
+
+    <select id="selectPlans" resultType="java.util.LinkedHashMap">
+        SELECT p.id AS planId,
+               p.lesson_id AS lessonId,
+               l.title AS lessonTitle,
+               p.version_no AS versionNo,
+               p.title,
+               p.private_notes AS privateNotes,
+               p.status,
+               DATE_FORMAT(p.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+        FROM edu_lesson_plan p
+        JOIN edu_lesson l ON l.id = p.lesson_id AND l.binding_id = p.binding_id
+        JOIN edu_course_class_binding b ON b.id = p.binding_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+        WHERE p.binding_id = #{bindingId}
+          AND p.status &lt;&gt; 'ARCHIVED'
+          AND ct.user_id = #{userId}
+          AND ct.valid_to IS NULL
+          AND ct.can_publish = 1
+          AND b.ended_at IS NULL
+        ORDER BY p.lesson_id, p.version_no DESC
+    </select>
+
+    <select id="selectPlanMaterials" resultType="java.util.LinkedHashMap">
+        SELECT pm.id AS planMaterialId,
+               pm.resource_id AS resourceId,
+               pm.resource_version_id AS resourceVersionId,
+               pm.sort_order AS sortOrder,
+               pm.private_notes AS privateNotes,
+               r.title,
+               rv.version_no AS versionNo,
+               rv.processing_status AS processingStatus,
+               (SELECT COUNT(*) FROM edu_resource_page rp
+                 WHERE rp.resource_version_id = rv.id) AS pageCount
+        FROM edu_plan_material pm
+        JOIN edu_resource r ON r.id = pm.resource_id
+        JOIN edu_resource_version rv ON rv.id = pm.resource_version_id
+        WHERE pm.plan_id = #{planId}
+        ORDER BY pm.sort_order
+    </select>
+
+    <select id="selectPlanTemplates" resultType="java.util.LinkedHashMap">
+        SELECT id AS templateId,
+               template_kind AS templateKind,
+               title,
+               question_id AS questionId,
+               question_version_id AS questionVersionId,
+               duration_seconds AS durationSeconds,
+               status
+        FROM edu_activity_template
+        WHERE plan_id = #{planId}
+        ORDER BY id
+    </select>
+
+    <select id="selectNextPlanVersion" resultType="int">
+        SELECT COALESCE(MAX(version_no), 0) + 1
+        FROM edu_lesson_plan
+        WHERE lesson_id = #{lessonId}
+    </select>
+
+    <insert id="insertLessonPlan" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_lesson_plan
+            (lesson_id, binding_id, version_no, title, private_notes,
+             status, created_by_user_id)
+        VALUES
+            (#{lessonId}, #{bindingId}, #{versionNo}, #{title}, #{privateNotes},
+             #{status}, #{userId})
+    </insert>
+
+    <insert id="insertPlanMaterial" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_plan_material
+            (plan_id, binding_id, course_space_id, resource_id,
+             resource_version_id, sort_order, private_notes)
+        VALUES
+            (#{planId}, #{bindingId}, #{courseSpaceId}, #{resourceId},
+             #{resourceVersionId}, #{sortOrder}, #{privateNotes})
+    </insert>
+
+    <insert id="insertActivityTemplate" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_activity_template
+            (plan_id, binding_id, course_space_id, template_kind, title,
+             question_id, question_version_id, duration_seconds, status, created_by_user_id)
+        VALUES
+            (#{planId}, #{bindingId}, #{courseSpaceId}, #{templateKind}, #{title},
+             #{questionId}, #{questionVersionId}, #{durationSeconds}, #{status}, #{userId})
+    </insert>
+
+    <select id="selectTeacherPreviewTasks" resultType="java.util.LinkedHashMap">
+        SELECT a.id AS assignmentId,
+               a.lesson_id AS lessonId,
+               a.title,
+               a.instructions,
+               a.status,
+               DATE_FORMAT(a.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+               DATE_FORMAT(a.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+               DATE_FORMAT(a.answer_opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS answerOpensAt,
+               ai.id AS assignmentItemId,
+               ai.question_id AS questionId,
+               ai.question_version_id AS questionVersionId,
+               qv.stem,
+               qv.question_kind AS questionKind,
+               (SELECT COUNT(*) FROM edu_assignment_target t
+                 WHERE t.assignment_id = a.id AND t.target_status = 'REQUIRED') AS targetCount,
+               (SELECT COUNT(DISTINCT s.id)
+                  FROM edu_assignment_submission s
+                  JOIN edu_assignment_target t2 ON t2.id = s.target_id
+                 WHERE t2.assignment_id = a.id) AS submissionCount
+        FROM edu_assignment a
+        LEFT JOIN edu_assignment_item ai ON ai.assignment_id = a.id
+        LEFT JOIN edu_question_version qv ON qv.id = ai.question_version_id
+        WHERE a.binding_id = #{bindingId}
+          AND a.assignment_kind = 'PREVIEW'
+          AND a.status &lt;&gt; 'ARCHIVED'
+        ORDER BY a.opens_at DESC, a.id DESC
+    </select>
+
+    <select id="selectStudentPreviewTasks" resultType="java.util.LinkedHashMap">
+        SELECT a.id AS assignmentId,
+               a.binding_id AS bindingId,
+               a.title,
+               a.instructions,
+               a.status,
+               DATE_FORMAT(a.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+               DATE_FORMAT(a.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+               DATE_FORMAT(a.answer_opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS answerOpensAt,
+               ai.id AS assignmentItemId,
+               ai.question_id AS questionId,
+               ai.question_version_id AS questionVersionId,
+               qv.stem,
+               qv.question_kind AS questionKind,
+               qv.options_json AS optionsJson,
+               qv.max_score AS maxScore,
+               s.id AS submissionId,
+               sv.version_no AS submittedVersion,
+               DATE_FORMAT(sv.submitted_at, '%Y-%m-%dT%H:%i:%s.000Z') AS submittedAt
+        FROM edu_assignment a
+        JOIN edu_assignment_target t ON t.assignment_id = a.id
+        LEFT JOIN edu_assignment_item ai ON ai.assignment_id = a.id
+        LEFT JOIN edu_question_version qv ON qv.id = ai.question_version_id
+        LEFT JOIN edu_assignment_submission s ON s.target_id = t.id
+        LEFT JOIN edu_submission_version sv
+          ON sv.submission_id = s.id AND sv.superseded_at IS NULL
+        JOIN edu_course_class_binding b ON b.id = a.binding_id
+        JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
+        WHERE a.binding_id = #{bindingId}
+          AND a.assignment_kind = 'PREVIEW'
+          AND a.status &lt;&gt; 'ARCHIVED'
+          AND t.student_user_id = #{userId}
+          AND t.target_status = 'REQUIRED'
+          AND b.ended_at IS NULL
+          AND st.user_id = #{userId}
+          AND st.left_at IS NULL
+        ORDER BY a.opens_at DESC, a.id DESC
+    </select>
+
+    <select id="selectStudentPreviewTask" resultType="java.util.LinkedHashMap">
+        SELECT a.id AS assignmentId,
+               a.binding_id AS bindingId,
+               a.title,
+               a.instructions,
+               a.status,
+               a.opens_at AS opensAtRaw,
+               a.closes_at AS closesAtRaw,
+               a.answer_opens_at AS answerOpensAtRaw,
+               DATE_FORMAT(a.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+               DATE_FORMAT(a.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+               DATE_FORMAT(a.answer_opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS answerOpensAt,
+               t.id AS targetId,
+               t.target_status AS targetStatus
+        FROM edu_assignment a
+        JOIN edu_assignment_target t ON t.assignment_id = a.id
+        JOIN edu_course_class_binding b ON b.id = a.binding_id
+        JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
+        WHERE a.id = #{assignmentId}
+          AND a.binding_id = #{bindingId}
+          AND a.assignment_kind = 'PREVIEW'
+          AND a.status &lt;&gt; 'ARCHIVED'
+          AND t.student_user_id = #{userId}
+          AND t.target_status = 'REQUIRED'
+          AND b.ended_at IS NULL
+          AND st.user_id = #{userId}
+          AND st.left_at IS NULL
+    </select>
+
+    <select id="selectStudentPreviewItems" resultType="java.util.LinkedHashMap">
+        SELECT ai.id AS assignmentItemId,
+               ai.prompt,
+               ai.question_id AS questionId,
+               ai.question_version_id AS questionVersionId,
+               ai.max_score AS maxScore,
+               qv.question_kind AS questionKind,
+               qv.options_json AS optionsJson,
+               <choose>
+                   <when test="includeAnswer">
+                       qv.answer_json AS answerJson,
+                       qv.explanation,
+                   </when>
+                   <otherwise>
+                       NULL AS answerJson,
+                       NULL AS explanation,
+                   </otherwise>
+               </choose>
+               1 AS answerVisible
+        FROM edu_assignment_item ai
+        LEFT JOIN edu_question_version qv ON qv.id = ai.question_version_id
+        WHERE ai.assignment_id = #{assignmentId}
+        ORDER BY ai.sort_order
+    </select>
+
+    <select id="selectStudentTarget" resultType="java.util.LinkedHashMap">
+        SELECT t.id AS targetId,
+               t.assignment_id AS assignmentId,
+               t.student_user_id AS studentUserId,
+               a.binding_id AS bindingId,
+               a.teaching_class_id AS teachingClassId,
+               a.course_space_id AS courseSpaceId,
+               a.status,
+               a.opens_at AS opensAt,
+               a.closes_at AS closesAt
+        FROM edu_assignment_target t
+        JOIN edu_assignment a ON a.id = t.assignment_id
+        WHERE t.assignment_id = #{assignmentId}
+          AND t.student_user_id = #{userId}
+          AND t.target_status = 'REQUIRED'
+    </select>
+
+    <select id="selectStudentTargetForUpdate" resultType="java.util.LinkedHashMap">
+        SELECT t.id AS targetId,
+               t.assignment_id AS assignmentId,
+               t.student_user_id AS studentUserId,
+               a.binding_id AS bindingId,
+               a.teaching_class_id AS teachingClassId,
+               a.course_space_id AS courseSpaceId,
+               a.status,
+               a.opens_at AS opensAt,
+               a.closes_at AS closesAt
+        FROM edu_assignment_target t
+        JOIN edu_assignment a ON a.id = t.assignment_id
+        WHERE t.assignment_id = #{assignmentId}
+          AND t.student_user_id = #{userId}
+          AND t.target_status = 'REQUIRED'
+        FOR UPDATE
+    </select>
+
+    <select id="selectSubmissionByTarget" resultType="java.util.LinkedHashMap">
+        SELECT s.id AS submissionId,
+               sv.id AS submissionVersionId,
+               sv.version_no AS versionNo,
+               DATE_FORMAT(sv.submitted_at, '%Y-%m-%dT%H:%i:%s.000Z') AS submittedAt,
+               sv.is_late AS late
+        FROM edu_assignment_submission s
+        JOIN edu_submission_version sv
+          ON sv.submission_id = s.id AND sv.superseded_at IS NULL
+        WHERE s.target_id = #{targetId}
+        ORDER BY sv.version_no DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectSubmissionIdByTarget" resultType="java.lang.Long">
+        SELECT id
+        FROM edu_assignment_submission
+        WHERE target_id = #{targetId}
+        LIMIT 1
+    </select>
+
+    <select id="selectNextSubmissionVersion" resultType="int">
+        SELECT COALESCE(MAX(version_no), 0) + 1
+        FROM edu_submission_version
+        WHERE submission_id = #{submissionId}
+    </select>
+
+    <insert id="insertAssignment" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_assignment
+            (binding_id, teaching_class_id, course_space_id, lesson_id, session_id,
+             assignment_kind, title, instructions, opens_at, closes_at,
+             max_submissions, late_allowed, answer_opens_at, status,
+             published_at, published_by_user_id, created_by_user_id)
+        VALUES
+            (#{bindingId}, #{teachingClassId}, #{courseSpaceId}, #{lessonId}, NULL,
+             'PREVIEW', #{title}, #{instructions}, #{opensAt}, #{closesAt},
+             1, 0, #{answerOpensAt}, 'PUBLISHED', UTC_TIMESTAMP(3), #{userId}, #{userId})
+    </insert>
+
+    <insert id="insertAssignmentItem" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_assignment_item
+            (assignment_id, course_space_id, sort_order, item_kind, prompt,
+             question_id, question_version_id, max_score)
+        VALUES
+            (#{assignmentId}, #{courseSpaceId}, #{sortOrder}, #{itemKind}, #{prompt},
+             #{questionId}, #{questionVersionId}, #{maxScore})
+    </insert>
+
+    <insert id="insertAssignmentTargets" parameterType="map">
+        INSERT INTO edu_assignment_target
+            (assignment_id, teaching_class_id, student_user_id, enrollment_id,
+             target_status, captured_at)
+        SELECT #{assignmentId}, st.teaching_class_id, st.user_id, st.id,
+               'REQUIRED', UTC_TIMESTAMP(3)
+        FROM edu_class_student st
+        WHERE st.teaching_class_id = #{teachingClassId}
+          AND st.left_at IS NULL
+    </insert>
+
+    <insert id="insertSubmission" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT IGNORE INTO edu_assignment_submission
+            (assignment_id, target_id)
+        VALUES
+            (#{assignmentId}, #{targetId})
+    </insert>
+
+    <insert id="insertSubmissionVersion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_submission_version
+            (submission_id, assignment_id, version_no, submitted_at, is_late)
+        VALUES
+            (#{submissionId}, #{assignmentId}, #{versionNo}, UTC_TIMESTAMP(3), #{late})
+    </insert>
+
+    <insert id="insertSubmissionAnswer" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_submission_answer
+            (submission_version_id, assignment_id, assignment_item_id,
+             answer_json, attachment_storage_key)
+        VALUES
+            (#{submissionVersionId}, #{assignmentId}, #{assignmentItemId},
+             #{answerJson}, NULL)
+    </insert>
+
+    <insert id="insertLearningEvent" parameterType="map">
+        INSERT IGNORE INTO edu_learning_event
+            (binding_id, student_user_id, event_kind, source_kind, source_id,
+             source_version_id, client_event_key, occurred_at, metadata_json)
+        VALUES
+            (#{bindingId}, #{studentUserId}, 'PREVIEW_COMPLETE', 'ASSIGNMENT',
+             #{assignmentId}, #{submissionVersionId}, #{clientEventKey},
+             UTC_TIMESTAMP(3), #{metadataJson})
+    </insert>
+
+    <select id="selectTargetCount" resultType="int">
+        SELECT COUNT(*) FROM edu_assignment_target
+        WHERE assignment_id = #{assignmentId}
+          AND target_status = 'REQUIRED'
+    </select>
+
+    <select id="selectSubmissionCount" resultType="int">
+        SELECT COUNT(DISTINCT s.id)
+        FROM edu_assignment_submission s
+        JOIN edu_assignment_target t ON t.id = s.target_id
+        WHERE t.assignment_id = #{assignmentId}
+    </select>
+</mapper>
