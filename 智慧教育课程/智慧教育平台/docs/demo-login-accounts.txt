@@ -1,0 +1,23 @@
+智慧教育平台三端联调账号
+环境：本机 zhijiao_m0
+登录页面：http://127.0.0.1:8080/login.html
+
+管理员端
+账号：admin
+密码：admin123
+
+教师端
+账号：teacher
+密码：teacher123
+教学数据 user_id：930000000001
+
+学生端
+账号：student
+密码：student123
+教学数据 user_id：930000000101
+
+其余演示学生账号：student2、student3、student4
+密码均为：student123
+对应 user_id：930000000102、930000000103、930000000104
+
+以上账号用于联调；教师、学生的 user_id 已关联教学班演示数据。
