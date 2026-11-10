@@ -3,9 +3,9 @@
 后端统一位于本目录。已接入 RuoYi-Vue `springboot3` 分支的若依 3.9.2（Spring Boot 3.5.16、Java 17 编译目标），包含六个基础模块和已接入构建的 `ruoyi-education`。登录页及三端原型导航运行页由 `ruoyi-admin` 同源提供；教学业务 HTTP 接口仍未实现，`ruoyi-education` 当前已有 6-02 公告领域的 Entity、Mapper 读写、状态规则和教师公告 Service。下表中“规划职责”描述后续教学业务的分工。
 
 ## 在 D 盘运行登录页
+「打开智慧教育平台」并点 ▶（工程内已配置 `.idea/runConfigurations/打开智慧教育平台.xml`），或直接点 [最新登录页](http://127.0.0.1:8081/login.html?v=20261110d)。该地址带当前前端构建号，不会命中 IDEA 内置浏览器里改动前的旧缓存。**若本文件显示的还是旧链接，先执行 `File → Reload All from Disk`**，让 IDEA 从磁盘重载；前端源码就在工程 `frontend/` 目录，无需另行同步。
 
-> **在 IDEA 里直接打开最新页面**：工具栏运行配置下拉选「打开智慧教育平台」并点 ▶（工程内已配置 `.idea/runConfigurations/打开智慧教育平台.xml`），或直接点 [最新登录页](http://127.0.0.1:8081/login.html?v=20261110d)。该地址带当前前端构建号，不会命中 IDEA 内置浏览器里改动前的旧缓存。**若本文件显示的还是旧链接，先执行 `File → Reload All from Disk`**，让 IDEA 从磁盘重载；前端源码就在工程 `frontend/` 目录，无需另行同步。
-
+> **在 IDEA 里直接打开最新页面**：工具栏运行配置下拉选
 本机联调库 `zhijiao_m0` 同时包含 V3.0 M0 教育业务表、若依 `sys_*`/`QRTZ_*` 基础表和演示账号；`zhijiao_login_dev` 是此前的独立登录测试库，当前启动配置已改用 `zhijiao_m0`。Redis 需在 `localhost:6379` 运行。`backend/.env` 为本机私有配置，已被 Git 忽略；换机器时复制 [.env.example](.env.example) 为 `.env`，填写数据库连接与随机令牌密钥。若依上游 SQL 位于 [sql/upstream/ruoyi](../sql/upstream/ruoyi/)；脚本含 `DROP TABLE`，只能用于新建的空测试库，不能对现有演示库重复执行。
 
 在 PowerShell 中执行：
