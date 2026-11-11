@@ -27,6 +27,7 @@ public final class Group3Requests
             List<String> options,
             JsonNode answer,
             String explanation,
+            String scoringRubric,
             BigDecimal maxScore,
             List<Long> knowledgePointIds)
     {
@@ -39,6 +40,7 @@ public final class Group3Requests
             List<String> options,
             JsonNode answer,
             String explanation,
+            String scoringRubric,
             BigDecimal maxScore,
             List<Long> knowledgePointIds)
     {

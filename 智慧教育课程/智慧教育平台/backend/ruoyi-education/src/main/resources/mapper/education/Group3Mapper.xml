@@ -362,6 +362,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
          WHERE id = #{versionId}
     </update>
 
+    <update id="updateResource" parameterType="map">
+        UPDATE edu_resource
+        <if test="title != null">SET title = #{title}</if>
+        WHERE id = #{resourceId}
+          AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <update id="updateResourceStatus" parameterType="map">
+        UPDATE edu_resource
+        SET status = #{status}
+        WHERE id = #{resourceId}
+          AND course_space_id = #{courseSpaceId}
+    </update>
+
     <insert id="insertResourcePage" parameterType="map" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO edu_resource_page
             (resource_version_id, resource_kind, page_no, preview_storage_key, width_px, height_px)
@@ -519,7 +533,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
              answer_json, explanation, rubric_json, max_score, created_by_user_id)
         VALUES
             (#{questionId}, #{versionNo}, #{questionKind}, #{stem}, #{optionsJson},
-             #{answerJson}, #{explanation}, NULL, #{maxScore}, #{userId})
+             #{answerJson}, #{explanation}, #{rubricJson}, #{maxScore}, #{userId})
     </insert>
 
     <insert id="linkQuestionKnowledgePoint">
@@ -908,5 +922,142 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         FROM edu_assignment_submission s
         JOIN edu_assignment_target t ON t.id = s.target_id
         WHERE t.assignment_id = #{assignmentId}
+    </select>
+
+    <!-- === 章节/知识点 CRUD（第三组补充） === -->
+
+    <insert id="insertUnit" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_course_unit
+            (course_space_id, parent_unit_id, unit_kind, title, sort_order)
+        VALUES
+            (#{courseSpaceId}, #{parentUnitId}, #{unitKind}, #{title}, #{sortOrder})
+    </insert>
+
+    <update id="updateUnit" parameterType="map">
+        UPDATE edu_course_unit
+        SET title = #{title},
+            sort_order = #{sortOrder},
+            parent_unit_id = #{parentUnitId}
+        WHERE id = #{unitId}
+          AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <delete id="deleteUnit">
+        DELETE FROM edu_course_unit
+        WHERE id = #{unitId}
+          AND course_space_id = #{courseSpaceId}
+    </delete>
+
+    <delete id="deleteKnowledgePointsByUnit">
+        DELETE FROM edu_knowledge_point
+        WHERE unit_id = #{unitId}
+          AND course_space_id = #{courseSpaceId}
+    </delete>
+
+    <select id="selectMaxUnitSort" resultType="int">
+        SELECT COALESCE(MAX(sort_order), 0)
+        FROM edu_course_unit
+        WHERE course_space_id = #{courseSpaceId}
+          <if test="parentUnitId != null">AND parent_unit_id = #{parentUnitId}</if>
+          <if test="parentUnitId == null">AND parent_unit_id IS NULL</if>
+    </select>
+
+    <update id="updateUnitSort" parameterType="map">
+        UPDATE edu_course_unit
+        SET sort_order = #{sortOrder}
+        WHERE id = #{unitId}
+          AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <insert id="insertKnowledgePoint" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_knowledge_point
+            (course_space_id, unit_id, code, name)
+        VALUES
+            (#{courseSpaceId}, #{unitId}, #{code}, #{name})
+    </insert>
+
+    <update id="updateKnowledgePoint" parameterType="map">
+        UPDATE edu_knowledge_point
+        SET code = #{code},
+            name = #{name},
+            unit_id = #{unitId}
+        WHERE id = #{pointId}
+          AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <!-- === 软归档：预习任务 & 备课包（删除环节契约） === -->
+
+    <update id="updateAssignmentStatus" parameterType="map">
+        UPDATE edu_assignment
+           SET status = #{status}
+         WHERE id = #{assignmentId}
+           AND binding_id = #{bindingId}
+    </update>
+
+    <update id="updateLessonPlanStatus" parameterType="map">
+        UPDATE edu_lesson_plan
+           SET status = #{status}
+         WHERE id = #{planId}
+           AND binding_id = #{bindingId}
+    </update>
+
+    <delete id="deleteKnowledgePoint">
+        DELETE FROM edu_knowledge_point
+        WHERE id = #{pointId}
+          AND course_space_id = #{courseSpaceId}
+    </delete>
+
+    <!-- === 教学班详情（第三组补充） === -->
+
+    <select id="selectActiveStudentCount" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_class_student
+        WHERE teaching_class_id = #{teachingClassId}
+          AND left_at IS NULL
+    </select>
+
+    <select id="selectClassTeachers" resultType="java.util.LinkedHashMap">
+        SELECT ct.id,
+               ct.user_id AS userId,
+               ct.teacher_role AS teacherRole,
+               ct.can_publish AS canPublish,
+               ct.can_grade AS canGrade,
+               ct.can_export AS canExport,
+               su.user_name AS userName,
+               su.nick_name AS nickName
+        FROM edu_class_teacher ct
+        LEFT JOIN sys_user su ON su.user_id = ct.user_id
+        WHERE ct.teaching_class_id = #{teachingClassId}
+          AND ct.valid_to IS NULL
+        ORDER BY ct.teacher_role, ct.id
+    </select>
+
+    <select id="selectClassroomDetail" resultType="java.util.LinkedHashMap">
+        SELECT b.id AS bindingId,
+               b.course_space_id AS courseSpaceId,
+               b.teaching_class_id AS teachingClassId,
+               cs.title AS courseTitle,
+               cs.summary AS courseSummary,
+               cs.status AS courseStatus,
+               tc.name AS className,
+               tc.code AS classCode,
+               tc.class_kind AS classKind,
+               tc.status AS classStatus,
+               t.id AS termId,
+               t.name AS termName,
+               t.starts_on AS termStartsOn,
+               t.ends_on AS termEndsOn,
+               ct.teacher_role AS teacherRole,
+               ct.can_publish AS canPublish
+        FROM edu_course_class_binding b
+        JOIN edu_course_space cs ON cs.id = b.course_space_id
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        JOIN edu_term t ON t.id = tc.term_id
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = tc.id
+            AND ct.user_id = #{userId}
+            AND ct.valid_to IS NULL
+            AND ct.valid_from &lt;= UTC_TIMESTAMP(3)
+        WHERE b.id = #{bindingId}
+          AND b.ended_at IS NULL
     </select>
 </mapper>

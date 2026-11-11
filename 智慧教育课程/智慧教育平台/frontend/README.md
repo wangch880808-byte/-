@@ -1,46 +1,27 @@
-# 前端架构规划
+> 第一、二组对接版：优先阅读根目录 `运行说明.md` 和 `docs/group12-integration.md`。本轮仅构建检查，未启动联调。
 
-本目录是前端工程工作区。当前 `login.html`、`login.js` 以及 `admin.html`、`teacher.html`、`student.html` 由后端同源提供，使用若依真实认证接口；运行方式见 [后端说明](../backend/README.md)。三端页面以 [`prototypes/console-navigation-v1`](../prototypes/console-navigation-v1/) 的原型为基础，保留原有导航和页签交互，并增加登录态、角色校验及退出登录。原型目录的文件保持不变。页面中的菜单是静态设计稿导航，尚未关联若依授权菜单或教学业务接口；内容区仍待实现。尚未接入若依 Vue 前端、创建依赖清单或选择 Vue 版本。
+# 知教·智慧教育课程平台前端
 
-## 三端页面和公共能力
+本工程基于若依官方 [RuoYi-Vue3](https://github.com/yangzongzhuan/RuoYi-Vue3)，版本 3.9.2，上游提交 838965c5a18d2c61b73ec30c6e288057aaa08b63。
 
-```text
-frontend/
-├── README.md
-├── login.html、login.js、logo.png
-├── admin.html、teacher.html、student.html
-├── role-home.js
-└── src/
-    ├── views/education/
-    │   ├── teacher/
-    │   ├── student/
-    │   └── admin/
-    ├── api/education/
-    └── components/education/
-```
+使用 Vue 3、Element Plus、Pinia、Vue Router、Vite。保留上游 LICENSE。
 
-| 路径 | 规划职责 |
-|---|---|
-| src/views/education/teacher | 教学工作台、课程空间、备课预习、课堂控制台、作业批改、学情反馈 |
-| src/views/education/student | 学习待办、在修课程、预习、同步课堂、作业提交、错题补学及答疑 |
-| src/views/education/admin | 组织人员、正式课程和教学班、授权、资源治理、教学运行与系统配置入口 |
-| src/api/education | 按 course/resource/prepare/classroom/activity/assignment/learning/analysis/ai 组织业务请求；同一接口由各端复用 |
-| src/components/education | 课程/班级上下文选择、资源预览、题目作答、任务状态、课堂公共展示等确有复用价值的组件 |
+## 本地开发
 
-不提前生成这些页面或 API 文件；具体文件扩展名、状态管理方式、路由组织和组件命名以最终若依前端版本为准。
+安装 Node.js 20.19+ 与 pnpm。进入本目录执行 `pnpm install --frozen-lockfile`，然后 `pnpm dev`。
 
-## 一套基础设施
+访问 http://127.0.0.1:5173/，API 默认代理到 http://127.0.0.1:8080；可通过 VITE_API_TARGET 环境变量调整。
 
-当前联调页调用若依认证、用户信息和动态菜单接口。选中管理员、教师或学生入口后，页面将 `role` 传给 `/login`；服务端在发令牌前核对账号角色，页面进入对应角色页时再次核验令牌和角色。原型导航目前只负责展示，不表示账号已经获得相应业务权限；未来正式前端工程应复用若依的 Token 生命周期、请求客户端、错误处理、布局与权限能力。三端是同一工程下的角色页面工作区，不是三个独立应用；不建立三套登录、课程、权限或请求基础设施。
+## 构建
 
-业务 API 按领域组织，角色差异通过明确的操作权限、后端数据裁剪和少量角色专属交互表达。管理员页复用既有系统管理入口，教学班和课程空间归教育业务，不复制账号和角色管理页面。
+执行 `pnpm build`，产物为 dist/。随后从项目根目录执行 `mvn -f backend/pom.xml -pl ruoyi-admin -am clean package`，后端会打包前端产物，入口为 http://127.0.0.1:8080/vue/。
 
-## 课堂体验边界
+仅保留这一套正式前端。原 Vue 登录页、布局与业务组件已迁入本工程；静态 HTML 版退出运行。旧 .html 入口将跳转到 Vue 登录页。
 
-- 教师控制台同屏容纳 PPT、活动入口和私有反馈，避免签到/答题/讲课反复跳页。
-- 投影画面作为公开展示模式，复用受控展示组件；不新增第四套登录或权限体系，不接收备注、未公布答案和学生成绩明细。
-- 学生课堂以手机访问和任务完成为主，断线后获取服务端最新快照，恢复页码、活动状态和本人提交结果。
-- 一个统一课程/教学班上下文贯穿业务；切换上下文时清理旧订阅与过期数据，不能只替换标题。
-- 前端控制可见性改善操作体验，服务端仍必须校验每个资源、请求和实时通道的数据范围。
+## 业务接入
 
-接入后再决定实时传输方式、响应适配和路由配置，保持 [接口约定](../docs/api-contracts.md) 与实际若依能力一致。
+系统管理沿用原界面与业务组件，身份和请求接入若依公共模块，保留用户/角色 Excel 导入导出。管理员七组菜单保留，登录后默认收起；33 个未实施菜单仍为空白。
+
+教师、学生使用同一框架，课程上下文位于 src/education/context.js。业务页通过 window.EduVue.registerPage 注册，必须提供 roles、permission、serviceRoute，服务端路由与权限同时满足才允许显示。需要课程/班级的页面声明 requiresContext: 'course' 或 'class'。
+
+当前界面：src/layout/education/AppLayout.vue；原管理页面：src/views/education/admin/；样式：src/assets/styles/education.css。旧页面 API 调用通过 src/api/education/client.js 适配统一若依 Axios；src/education/session.js 读取官方 Pinia user/permission，不再维护第二套身份令牌。

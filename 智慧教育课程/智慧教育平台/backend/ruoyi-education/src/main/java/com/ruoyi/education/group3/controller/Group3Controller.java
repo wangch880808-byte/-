@@ -11,6 +11,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,10 +24,12 @@ import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.core.domain.R;
 import com.ruoyi.education.group3.contract.PreviewTaskProvider;
 import com.ruoyi.education.group3.contract.PublishedResourceProvider;
+import com.ruoyi.education.group3.mapper.Group3Mapper;
 import com.ruoyi.education.group3.service.Group3AccessService;
 import com.ruoyi.education.group3.service.Group3PrepareService;
 import com.ruoyi.education.group3.service.Group3ResourceService;
 import com.ruoyi.education.group3.support.Group3Requests;
+import com.ruoyi.education.group3.support.Group3Security;
 
 @RestController
 @RequestMapping("/education/group3")
@@ -35,6 +38,7 @@ public class Group3Controller
     private final Group3AccessService accessService;
     private final Group3ResourceService resourceService;
     private final Group3PrepareService prepareService;
+    private final Group3Mapper mapper;
     private final PublishedResourceProvider publishedResourceProvider;
     private final PreviewTaskProvider previewTaskProvider;
 
@@ -42,12 +46,14 @@ public class Group3Controller
             Group3AccessService accessService,
             Group3ResourceService resourceService,
             Group3PrepareService prepareService,
+            Group3Mapper mapper,
             PublishedResourceProvider publishedResourceProvider,
             PreviewTaskProvider previewTaskProvider)
     {
         this.accessService = accessService;
         this.resourceService = resourceService;
         this.prepareService = prepareService;
+        this.mapper = mapper;
         this.publishedResourceProvider = publishedResourceProvider;
         this.previewTaskProvider = previewTaskProvider;
     }
@@ -150,6 +156,43 @@ public class Group3Controller
     {
         return R.ok(resourceService.revoke(releaseId, bindingId,
                 body == null ? null : body.get("reason")), "资料已撤回");
+    }
+
+    @PatchMapping("/resources/{resourceId}")
+    public R<Map<String, Object>> updateResource(
+            @PathVariable Long resourceId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("resourceId", resourceId);
+        row.put("courseSpaceId", courseSpaceId);
+        if (body.get("title") != null) row.put("title", body.get("title").toString().trim());
+        mapper.updateResource(row);
+        return R.ok(row, "资料已更新");
+    }
+
+    @PatchMapping("/resources/{resourceId}/status")
+    public R<Map<String, Object>> archiveResource(
+            @PathVariable Long resourceId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String status = (String) body.get("status");
+        if (!"DRAFT".equals(status) && !"ACTIVE".equals(status) && !"ARCHIVED".equals(status))
+        {
+            return R.fail("status 必须是 DRAFT / ACTIVE / ARCHIVED");
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("resourceId", resourceId);
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("status", status);
+        mapper.updateResourceStatus(row);
+        return R.ok(row, "资料状态已更新");
     }
 
     @GetMapping("/questions")
@@ -261,5 +304,252 @@ public class Group3Controller
         result.put("module", "group3-resource-prepare");
         result.put("binding", accessService.requireAnyBinding(bindingId));
         return R.ok(result);
+    }
+
+    /* === 课程大纲：章/节 === */
+
+    @PostMapping("/outline/units")
+    public R<Map<String, Object>> createUnit(@RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String unitKind = (String) body.get("unitKind");
+        String title = (String) body.get("title");
+        if (title == null || title.isBlank())
+        {
+            return R.fail("标题不能为空");
+        }
+        if (!"CHAPTER".equals(unitKind) && !"SECTION".equals(unitKind))
+        {
+            return R.fail("unitKind 必须是 CHAPTER 或 SECTION");
+        }
+        Long parentUnitId = body.get("parentUnitId") == null ? null
+                : Long.valueOf(body.get("parentUnitId").toString());
+        Integer maxSort = mapper.selectMaxUnitSort(courseSpaceId, parentUnitId);
+        Integer sortOrder = Integer.valueOf(body.get("sortOrder") == null
+                ? Integer.toString(maxSort + 1)
+                : body.get("sortOrder").toString());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("parentUnitId", parentUnitId);
+        row.put("unitKind", unitKind);
+        row.put("title", title.trim());
+        row.put("sortOrder", sortOrder);
+        mapper.insertUnit(row);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", row.get("id"));
+        result.put("courseSpaceId", courseSpaceId);
+        return R.ok(result, unitKind.equals("CHAPTER") ? "章节已创建" : "小节已创建");
+    }
+
+    @PatchMapping("/outline/units/{unitId}")
+    public R<Map<String, Object>> updateUnit(
+            @PathVariable Long unitId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("unitId", unitId);
+        row.put("courseSpaceId", courseSpaceId);
+        if (body.get("title") != null) row.put("title", body.get("title").toString().trim());
+        if (body.containsKey("parentUnitId"))
+        {
+            Object p = body.get("parentUnitId");
+            row.put("parentUnitId", p == null ? null : Long.valueOf(p.toString()));
+        }
+        if (body.get("sortOrder") != null) row.put("sortOrder",
+                Integer.valueOf(body.get("sortOrder").toString()));
+        mapper.updateUnit(row);
+        return R.ok(row, "章节已更新");
+    }
+
+    @DeleteMapping("/outline/units/{unitId}")
+    public R<Map<String, Object>> deleteUnit(
+            @PathVariable Long unitId,
+            @RequestParam Long bindingId)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        // 先删子知识点，再删单元
+        mapper.deleteKnowledgePointsByUnit(unitId, courseSpaceId);
+        // 如果是章，把其子节点（小节）也一并删除
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("parentUnitId", unitId);
+        row.put("courseSpaceId", courseSpaceId);
+        List<Map<String, Object>> children = mapper.selectCourseOutline(courseSpaceId);
+        // selectCourseOutline 返回所有单元，这里靠后续 deleteUnit 级联
+        for (Map<String, Object> child : children)
+        {
+            if (String.valueOf(child.get("parentUnitId")).equals(String.valueOf(unitId)))
+            {
+                mapper.deleteKnowledgePointsByUnit(Group3AccessService.asLong(child.get("unitId")), courseSpaceId);
+                mapper.deleteUnit(Group3AccessService.asLong(child.get("unitId")), courseSpaceId);
+            }
+        }
+        mapper.deleteUnit(unitId, courseSpaceId);
+        Map<String, Object> deleted = new LinkedHashMap<>();
+        deleted.put("unitId", unitId);
+        return R.ok(deleted, "章节及子项已删除");
+    }
+
+    @PatchMapping("/outline/units/{unitId}/sort")
+    public R<Map<String, Object>> reorderUnit(
+            @PathVariable Long unitId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Integer sortOrder = Integer.valueOf(body.get("sortOrder").toString());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("unitId", unitId);
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("sortOrder", sortOrder);
+        mapper.updateUnitSort(row);
+        return R.ok(row, "排序已更新");
+    }
+
+    /* === 课程大纲：知识点 === */
+
+    @PostMapping("/outline/knowledge-points")
+    public R<Map<String, Object>> createKnowledgePoint(@RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String code = (String) body.get("code");
+        String name = (String) body.get("name");
+        if (code == null || code.isBlank())
+        {
+            return R.fail("知识点编码不能为空");
+        }
+        if (name == null || name.isBlank())
+        {
+            return R.fail("知识点名称不能为空");
+        }
+        Long unitId = body.get("unitId") == null ? null : Long.valueOf(body.get("unitId").toString());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("unitId", unitId);
+        row.put("code", code.trim());
+        row.put("name", name.trim());
+        mapper.insertKnowledgePoint(row);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", row.get("id"));
+        result.put("courseSpaceId", courseSpaceId);
+        return R.ok(result, "知识点已创建");
+    }
+
+    @PatchMapping("/outline/knowledge-points/{pointId}")
+    public R<Map<String, Object>> updateKnowledgePoint(
+            @PathVariable Long pointId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("pointId", pointId);
+        row.put("courseSpaceId", courseSpaceId);
+        if (body.get("code") != null) row.put("code", body.get("code").toString().trim());
+        if (body.get("name") != null) row.put("name", body.get("name").toString().trim());
+        if (body.containsKey("unitId"))
+        {
+            Object u = body.get("unitId");
+            row.put("unitId", u == null ? null : Long.valueOf(u.toString()));
+        }
+        mapper.updateKnowledgePoint(row);
+        return R.ok(row, "知识点已更新");
+    }
+
+    @DeleteMapping("/outline/knowledge-points/{pointId}")
+    public R<Map<String, Object>> deleteKnowledgePoint(
+            @PathVariable Long pointId,
+            @RequestParam Long bindingId)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        mapper.deleteKnowledgePoint(pointId, courseSpaceId);
+        Map<String, Object> removed = new LinkedHashMap<>();
+        removed.put("pointId", pointId);
+        return R.ok(removed, "知识点已删除");
+    }
+
+    /* === 教学班详情 === */
+
+    @GetMapping("/classrooms")
+    public R<Map<String, Object>> classroomDetail(@RequestParam Long bindingId)
+    {
+        Long userId = Group3Security.currentUserId();
+        Map<String, Object> detail = mapper.selectClassroomDetail(bindingId, userId);
+        if (detail == null || detail.isEmpty())
+        {
+            return R.fail(404, "教学班不存在或无权限");
+        }
+        Long teachingClassId = Group3AccessService.asLong(detail.get("teachingClassId"));
+        int studentCount = mapper.selectActiveStudentCount(teachingClassId);
+        List<Map<String, Object>> teachers = mapper.selectClassTeachers(teachingClassId);
+        Map<String, Object> result = new LinkedHashMap<>(detail);
+        result.put("studentCount", studentCount);
+        result.put("teachers", teachers);
+        // 开放范围：表无此字段，暂以 classKind + term 推断，前端展示用
+        String openScope = "正式教学班";
+        if ("TRIAL".equalsIgnoreCase(String.valueOf(detail.get("classKind"))))
+        {
+            openScope = "试听教学班";
+        }
+        result.put("openScope", openScope);
+        return R.ok(result);
+    }
+
+    /* === 删除环节（软归档） === */
+
+    @PostMapping("/stages/remove")
+    public R<Map<String, Object>> removeStage(@RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        String kind = (String) body.get("kind");
+        Number id = (Number) body.get("id");
+        if (id == null)
+        {
+            return R.fail("id 不能为空");
+        }
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Long targetId = id.longValue();
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("status", "ARCHIVED");
+
+        switch (kind == null ? "" : kind.toUpperCase())
+        {
+            case "QUIZ":
+                row.put("assignmentId", targetId);
+                row.put("bindingId", bindingId);
+                mapper.updateAssignmentStatus(row);
+                break;
+            case "PLAN":
+                row.put("planId", targetId);
+                row.put("bindingId", bindingId);
+                mapper.updateLessonPlanStatus(row);
+                break;
+            case "MATERIAL":
+            case "DRAFT":
+                row.put("resourceId", targetId);
+                row.put("courseSpaceId", courseSpaceId);
+                mapper.updateResourceStatus(row);
+                break;
+            default:
+                return R.fail("kind 必须是 QUIZ / PLAN / MATERIAL / DRAFT");
+        }
+
+        Map<String, Object> removed = new LinkedHashMap<>();
+        removed.put("kind", kind);
+        removed.put("id", targetId);
+        removed.put("bindingId", bindingId);
+        return R.ok(removed, "环节已归档");
     }
 }

@@ -15,7 +15,9 @@ import com.ruoyi.common.constant.HttpStatus;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.exception.DemoModeException;
+import com.ruoyi.common.exception.ForbiddenException;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.exception.user.UserException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.html.EscapeUtil;
 
@@ -91,6 +93,29 @@ public class GlobalExceptionHandler
     }
 
     /**
+     * 对象级越权（统一 403）
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    public AjaxResult handleForbiddenException(ForbiddenException e, HttpServletRequest request)
+    {
+        String requestURI = request.getRequestURI();
+        log.error("请求地址'{}',无权访问'{}'", requestURI, e.getMessage());
+        return AjaxResult.error(HttpStatus.FORBIDDEN, e.getMessage());
+    }
+
+    /**
+     * 登录业务异常（验证码错误/失效、密码错误、用户不存在、IP 黑名单等）。
+     * 这些是可直接展示给用户的业务提示，不进入 500 脱敏分支。
+     */
+    @ExceptionHandler(UserException.class)
+    public AjaxResult handleUserException(UserException e, HttpServletRequest request)
+    {
+        String requestURI = request.getRequestURI();
+        log.error("请求地址'{}',登录业务异常'{}'", requestURI, e.getMessage());
+        return AjaxResult.error(e.getMessage());
+    }
+
+    /**
      * 拦截未知的运行时异常
      */
     @ExceptionHandler(RuntimeException.class)
@@ -98,7 +123,7 @@ public class GlobalExceptionHandler
     {
         String requestURI = request.getRequestURI();
         log.error("请求地址'{}',发生未知异常.", requestURI, e);
-        return AjaxResult.error(e.getMessage());
+        return AjaxResult.error("系统繁忙，请稍后再试");
     }
 
     /**
@@ -109,7 +134,7 @@ public class GlobalExceptionHandler
     {
         String requestURI = request.getRequestURI();
         log.error("请求地址'{}',发生系统异常.", requestURI, e);
-        return AjaxResult.error(e.getMessage());
+        return AjaxResult.error("系统繁忙，请稍后再试");
     }
 
     /**

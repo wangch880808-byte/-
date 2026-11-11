@@ -68,6 +68,8 @@ public interface SysUserMapper
      */
     public int updateUser(SysUser user);
 
+    public int updateUserProfile(SysUser user);
+
     /**
      * 修改用户头像
      * 
@@ -104,6 +106,9 @@ public interface SysUserMapper
      * @return 结果
      */
     public int resetUserPwd(@Param("userId") Long userId, @Param("password") String password);
+
+    public int resetUserPwdIfCurrent(@Param("userId") Long userId, @Param("currentPassword") String currentPassword,
+            @Param("password") String password);
 
     /**
      * 通过用户ID删除用户

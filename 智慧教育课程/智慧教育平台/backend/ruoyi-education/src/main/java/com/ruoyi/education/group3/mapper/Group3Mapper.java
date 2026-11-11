@@ -81,6 +81,10 @@ public interface Group3Mapper
 
     int clearResourcePages(@Param("versionId") Long versionId);
 
+    int updateResource(Map<String, Object> row);
+
+    int updateResourceStatus(Map<String, Object> row);
+
     int endRelease(Map<String, Object> row);
 
     int insertRelease(Map<String, Object> row);
@@ -188,4 +192,34 @@ public interface Group3Mapper
     int selectTargetCount(@Param("assignmentId") Long assignmentId);
 
     int selectSubmissionCount(@Param("assignmentId") Long assignmentId);
+
+    int insertUnit(Map<String, Object> row);
+
+    int updateUnit(Map<String, Object> row);
+
+    int deleteUnit(@Param("unitId") Long unitId, @Param("courseSpaceId") Long courseSpaceId);
+
+    int deleteKnowledgePointsByUnit(@Param("unitId") Long unitId, @Param("courseSpaceId") Long courseSpaceId);
+
+    int selectMaxUnitSort(@Param("courseSpaceId") Long courseSpaceId, @Param("parentUnitId") Long parentUnitId);
+
+    int updateUnitSort(Map<String, Object> row);
+
+    int insertKnowledgePoint(Map<String, Object> row);
+
+    int updateKnowledgePoint(Map<String, Object> row);
+
+    int deleteKnowledgePoint(@Param("pointId") Long pointId, @Param("courseSpaceId") Long courseSpaceId);
+
+    int selectActiveStudentCount(@Param("teachingClassId") Long teachingClassId);
+
+    List<Map<String, Object>> selectClassTeachers(@Param("teachingClassId") Long teachingClassId);
+
+    Map<String, Object> selectClassroomDetail(@Param("bindingId") Long bindingId, @Param("userId") Long userId);
+
+    /** 软归档预习任务 */
+    int updateAssignmentStatus(Map<String, Object> row);
+
+    /** 软归档备课包 */
+    int updateLessonPlanStatus(Map<String, Object> row);
 }

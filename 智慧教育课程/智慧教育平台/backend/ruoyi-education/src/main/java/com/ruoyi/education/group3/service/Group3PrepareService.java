@@ -77,7 +77,8 @@ public class Group3PrepareService implements PreviewTaskProvider
         Long questionId = Group3AccessService.asLong(question.get("id"));
         Map<String, Object> version = insertQuestionVersion(
                 questionId, courseSpaceId, 1, request.questionKind(), request.stem(),
-                request.options(), request.answer(), request.explanation(), request.maxScore());
+                request.options(), request.answer(), request.explanation(),
+                request.scoringRubric(), request.maxScore());
         linkKnowledgePoints(questionId, courseSpaceId, request.knowledgePointIds());
         version.put("questionId", questionId);
         version.put("title", title);
@@ -103,7 +104,8 @@ public class Group3PrepareService implements PreviewTaskProvider
         int versionNo = mapper.selectNextQuestionVersion(questionId);
         Map<String, Object> version = insertQuestionVersion(
                 questionId, courseSpaceId, versionNo, request.questionKind(), request.stem(),
-                request.options(), request.answer(), request.explanation(), request.maxScore());
+                request.options(), request.answer(), request.explanation(),
+                request.scoringRubric(), request.maxScore());
         linkKnowledgePoints(questionId, courseSpaceId, request.knowledgePointIds());
         version.put("questionId", questionId);
         version.put("title", existing.get("title"));
@@ -527,6 +529,7 @@ public class Group3PrepareService implements PreviewTaskProvider
             List<String> options,
             JsonNode answer,
             String explanation,
+            String scoringRubric,
             BigDecimal maxScore)
     {
         String normalizedKind = questionKind == null ? null : questionKind.toUpperCase();
@@ -538,6 +541,7 @@ public class Group3PrepareService implements PreviewTaskProvider
         row.put("optionsJson", toJson(options));
         row.put("answerJson", toJson(answer));
         row.put("explanation", explanation == null ? "" : explanation.trim());
+        row.put("rubricJson", serializeScoringRubric(scoringRubric, normalizedKind));
         row.put("maxScore", maxScore);
         row.put("userId", Group3Security.currentUserId());
         mapper.insertQuestionVersion(row);
@@ -548,6 +552,29 @@ public class Group3PrepareService implements PreviewTaskProvider
         row.put("answer", answer);
         row.put("answerVisible", true);
         return row;
+    }
+
+    private String serializeScoringRubric(String scoringRubric, String normalizedKind)
+    {
+        if (scoringRubric == null || scoringRubric.isBlank())
+        {
+            return null;
+        }
+        // 只有简答题才存评分标准，其他题型忽略
+        if (!"SHORT_TEXT".equals(normalizedKind))
+        {
+            return null;
+        }
+        try
+        {
+            return objectMapper.writeValueAsString(java.util.Map.of(
+                    "rubric", scoringRubric.trim(),
+                    "updatedAt", java.time.Instant.now().toString()));
+        }
+        catch (Exception ignore)
+        {
+            return null;
+        }
     }
 
     private void validateQuestion(

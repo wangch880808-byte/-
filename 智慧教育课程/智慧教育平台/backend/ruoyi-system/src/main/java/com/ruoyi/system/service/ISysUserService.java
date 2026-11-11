@@ -189,6 +189,8 @@ public interface ISysUserService
      */
     public int resetUserPwd(Long userId, String password);
 
+    public int resetUserPwdIfCurrent(Long userId, String currentPassword, String password);
+
     /**
      * 通过用户ID删除用户
      * 

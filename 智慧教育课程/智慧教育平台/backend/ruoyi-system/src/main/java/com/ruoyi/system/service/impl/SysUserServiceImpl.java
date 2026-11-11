@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import com.ruoyi.common.annotation.DataScope;
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.constant.UserConstants;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
@@ -227,7 +228,7 @@ public class SysUserServiceImpl implements ISysUserService
     {
         if (StringUtils.isNotNull(user.getUserId()) && user.isAdmin())
         {
-            throw new ServiceException("不允许操作超级管理员用户");
+            throw new com.ruoyi.common.exception.ForbiddenException("不允许操作超级管理员用户");
         }
     }
 
@@ -246,7 +247,7 @@ public class SysUserServiceImpl implements ISysUserService
             List<SysUser> users = SpringUtils.getAopProxy(this).selectUserList(user);
             if (StringUtils.isEmpty(users))
             {
-                throw new ServiceException("没有权限访问用户数据！");
+                throw new com.ruoyi.common.exception.ForbiddenException("没有权限访问用户数据！");
             }
         }
     }
@@ -292,6 +293,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Transactional
     public int updateUser(SysUser user)
     {
+        checkSelfMutation(user.getUserId());
         Long userId = user.getUserId();
         // 删除用户与角色关联
         userRoleMapper.deleteUserRoleByUserId(userId);
@@ -314,6 +316,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Transactional
     public void insertUserAuth(Long userId, Long[] roleIds)
     {
+        checkSelfMutation(userId);
         userRoleMapper.deleteUserRoleByUserId(userId);
         insertUserRole(userId, roleIds);
     }
@@ -327,6 +330,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Override
     public int updateUserStatus(SysUser user)
     {
+        checkSelfMutation(user.getUserId());
         return userMapper.updateUserStatus(user.getUserId(), user.getStatus());
     }
 
@@ -339,7 +343,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Override
     public int updateUserProfile(SysUser user)
     {
-        return userMapper.updateUser(user);
+        return userMapper.updateUserProfile(user);
     }
 
     /**
@@ -377,6 +381,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Override
     public int resetPwd(SysUser user)
     {
+        checkSelfMutation(user.getUserId());
         return userMapper.resetUserPwd(user.getUserId(), user.getPassword());
     }
 
@@ -391,6 +396,12 @@ public class SysUserServiceImpl implements ISysUserService
     public int resetUserPwd(Long userId, String password)
     {
         return userMapper.resetUserPwd(userId, password);
+    }
+
+    @Override
+    public int resetUserPwdIfCurrent(Long userId, String currentPassword, String password)
+    {
+        return userMapper.resetUserPwdIfCurrent(userId, currentPassword, password);
     }
 
     /**
@@ -434,6 +445,7 @@ public class SysUserServiceImpl implements ISysUserService
      */
     public void insertUserRole(Long userId, Long[] roleIds)
     {
+        checkGrantAdminRole(roleIds);
         if (StringUtils.isNotEmpty(roleIds))
         {
             // 新增用户与角色管理
@@ -446,6 +458,37 @@ public class SysUserServiceImpl implements ISysUserService
                 list.add(ur);
             }
             userRoleMapper.batchUserRole(list);
+        }
+    }
+
+    /**
+     * 提权防护：非超管不得将超级管理员角色（role_key=admin）授予任何账号。
+     * 覆盖新增用户、编辑用户、授权角色与导入等全部入口。
+     */
+    private void checkGrantAdminRole(Long[] roleIds)
+    {
+        if (SecurityUtils.isAdmin() || StringUtils.isEmpty(roleIds))
+        {
+            return;
+        }
+        for (Long roleId : roleIds)
+        {
+            SysRole role = roleMapper.selectRoleById(roleId);
+            if (role != null && (role.isAdmin() || Constants.SUPER_ADMIN.equals(role.getRoleKey())))
+            {
+                throw new com.ruoyi.common.exception.ForbiddenException("不允许授予超级管理员角色");
+            }
+        }
+    }
+
+    /**
+     * 提权防护：非超管不得修改自己的状态、角色或部门（个人资料请走个人中心接口）。
+     */
+    private void checkSelfMutation(Long userId)
+    {
+        if (!SecurityUtils.isAdmin() && StringUtils.isNotNull(userId) && userId.equals(SecurityUtils.getUserId()))
+        {
+            throw new com.ruoyi.common.exception.ForbiddenException("不允许修改自己的状态、角色或部门");
         }
     }
 
@@ -553,7 +596,7 @@ public class SysUserServiceImpl implements ISysUserService
         }
         if (failureNum > 0)
         {
-            failureMsg.insert(0, "很抱歉，导入失败！共 " + failureNum + " 条数据格式不正确，错误如下：");
+            failureMsg.insert(0, "本次成功导入 " + successNum + " 条，失败 " + failureNum + " 条，错误如下：");
             throw new ServiceException(failureMsg.toString());
         }
         else
