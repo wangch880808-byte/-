@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="a2298b82-b1b5-401e-bd35-9bd44c5a9459" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/ruoyi-admin/src/main/resources/application.yml" beforeDir="false" afterPath="$PROJECT_DIR$/ruoyi-admin/src/main/resources/application.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/controller/Group3Controller.java" beforeDir="false" afterPath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/controller/Group3Controller.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/mapper/Group3Mapper.java" beforeDir="false" afterPath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/mapper/Group3Mapper.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/service/Group3PrepareService.java" beforeDir="false" afterPath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/service/Group3PrepareService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/support/Group3Requests.java" beforeDir="false" afterPath="$PROJECT_DIR$/ruoyi-education/src/main/java/com/ruoyi/education/group3/support/Group3Requests.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ruoyi-education/src/main/resources/mapper/education/Group3Mapper.xml" beforeDir="false" afterPath="$PROJECT_DIR$/ruoyi-education/src/main/resources/mapper/education/Group3Mapper.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../frontend/group3.css" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/group3.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../frontend/group3.js" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/group3.js" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../../.." />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;hzt1254&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/wangch880808-byte/-.git&quot;,
+    &quot;accountId&quot;: &quot;cf5ef517-9364-413c-aa8e-9c9a6313bab3&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="3LXrrN2ezDOfNAH5byGodbmuBB6" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;feature/group3-resource-prepare 上的 #27&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/Huangzhitong/zhijiao-group3/智慧教育课程/智慧教育平台/backend&quot;,
+    &quot;应用程序.RuoYiApplication.executor&quot;: &quot;Run&quot;
+  }
+}</component>
+  <component name="RunManager">
+    <configuration name="RuoYiApplication" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="com.ruoyi.RuoYiApplication" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.ruoyi.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="JetRunConfigurationType">
+      <module name="backend" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="KotlinStandaloneScriptRunConfigurationType">
+      <module name="backend" />
+      <option name="filePath" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="应用程序.RuoYiApplication" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="默认任务">
+      <changelist id="a2298b82-b1b5-401e-bd35-9bd44c5a9459" name="更改" comment="" />
+      <created>1793611452054</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1793611452054</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="RECENT_FILTERS">
+      <map>
+        <entry key="User">
+          <value>
+            <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="*" />
+                </option>
+              </RecentGroup>
+            </list>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

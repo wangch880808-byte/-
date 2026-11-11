@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduOutlineMapper">
+  <select id="unit" resultType="java.util.Map">
+    SELECT id, parent_unit_id AS parentUnitId, unit_kind AS unitKind, title, sort_order AS sortOrder,
+      (SELECT COUNT(*) FROM edu_course_unit c WHERE c.course_space_id=#{courseId} AND c.parent_unit_id=#{id}) AS childCount
+    FROM edu_course_unit WHERE course_space_id=#{courseId} AND id=#{id}
+  </select>
+  <select id="point" resultType="java.util.Map">
+    SELECT id, unit_id AS unitId, code, name FROM edu_knowledge_point WHERE course_space_id=#{courseId} AND id=#{id}
+  </select>
+  <sql id="contentTable"><choose><when test="point">edu_knowledge_point</when><otherwise>edu_course_unit</otherwise></choose></sql>
+  <sql id="attachmentScope">
+    course_space_id = #{courseId}
+    <choose><when test="point">AND point_id = #{id}</when><otherwise>AND unit_id = #{id}</otherwise></choose>
+  </sql>
+  <resultMap id="attachmentData" type="java.util.Map">
+    <result property="fileName" column="file_name" />
+    <result property="fileData" column="file_data" javaType="[B" jdbcType="BLOB" />
+  </resultMap>
+  <select id="content" resultType="java.util.Map">
+    SELECT id, COALESCE(content_text, '') AS contentText FROM <include refid="contentTable" />
+    WHERE course_space_id = #{courseId} AND id = #{id}
+  </select>
+  <update id="saveContent">
+    UPDATE <include refid="contentTable" /> SET content_text = #{content}
+    WHERE course_space_id = #{courseId} AND id = #{id}
+  </update>
+  <select id="listAttachments" resultType="java.util.Map">
+    SELECT id, file_name AS fileName, file_size AS fileSize FROM edu_outline_attachment
+    WHERE <include refid="attachmentScope" /> ORDER BY id
+  </select>
+  <select id="attachment" resultMap="attachmentData">
+    SELECT file_name, file_data FROM edu_outline_attachment
+    WHERE <include refid="attachmentScope" /> AND id = #{fileId}
+  </select>
+  <insert id="insertAttachment">
+    INSERT INTO edu_outline_attachment(course_space_id, unit_id, point_id, file_name, file_size, file_data)
+    VALUES(#{courseId}, #{unitId,jdbcType=BIGINT}, #{pointId,jdbcType=BIGINT}, #{fileName}, #{fileSize}, #{fileData,jdbcType=BLOB})
+  </insert>
+  <delete id="deleteAttachment">
+    DELETE FROM edu_outline_attachment WHERE <include refid="attachmentScope" /> AND id = #{fileId}
+  </delete>
+  <insert id="insertUnit">
+    INSERT INTO edu_course_unit(course_space_id,parent_unit_id,unit_kind,title,sort_order)
+    VALUES(#{courseId},#{parentUnitId},#{unitKind},#{title},#{sortOrder})
+  </insert>
+  <update id="updateUnit">
+    UPDATE edu_course_unit SET parent_unit_id=#{parentUnitId},unit_kind=#{unitKind},title=#{title},sort_order=#{sortOrder}
+    WHERE course_space_id=#{courseId} AND id=#{id}
+  </update>
+  <delete id="deleteUnit">DELETE FROM edu_course_unit WHERE course_space_id=#{courseId} AND id=#{id}</delete>
+  <insert id="insertPoint">
+    INSERT INTO edu_knowledge_point(course_space_id,unit_id,code,name) VALUES(#{courseId},#{unitId},#{code},#{name})
+  </insert>
+  <update id="updatePoint">
+    UPDATE edu_knowledge_point SET unit_id=#{unitId},code=#{code},name=#{name} WHERE course_space_id=#{courseId} AND id=#{id}
+  </update>
+  <delete id="deletePoint">DELETE FROM edu_knowledge_point WHERE course_space_id=#{courseId} AND id=#{id}</delete>
+</mapper>
