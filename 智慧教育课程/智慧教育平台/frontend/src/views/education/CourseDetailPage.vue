@@ -6,7 +6,7 @@ import {session} from '@/education/session'
 const Teacher=defineAsyncComponent(()=>import('./teacher/CourseDetail.vue'))
 const Student=defineAsyncComponent(()=>import('./student/CourseDetail.vue'))
 const route=useRoute(),router=useRouter()
-watch(()=>context.current?.courseSpaceId,id=>{if(id&&String(route.params.courseId)!==id)router.replace({path:'/'+session.role+'/courses/'+id,query:{courseSpaceId:id,...(context.current?.classId?{classId:context.current.classId,bindingId:context.current.bindingId}:{})}})})
+watch(()=>context.current?.courseSpaceId,id=>{if(id&&String(route.params.courseId)!==id)router.replace({path:'/'+session.role+'/courses/'+id,query:{courseSpaceId:id,...(context.current?.classId?{classId:context.current.classId,bindingId:context.current.bindingId}:{}),...(route.query.tab?{tab:route.query.tab}:{})}})})
 const current=computed(()=>session.role==='teacher'?Teacher:Student)
 </script>
 <template><component :is="current" :key="route.params.courseId" /></template>

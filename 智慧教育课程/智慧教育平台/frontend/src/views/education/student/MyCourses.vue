@@ -11,7 +11,7 @@
         />
       </el-col>
       <el-col :span="14" style="text-align: right">
-        <span class="edu-hint">只显示你所在教学班已绑定的课程</span>
+        <span class="edu-hint">{{ currentClassText }}</span>
       </el-col>
     </el-row>
 
@@ -25,8 +25,8 @@
     />
 
     <div v-loading="loading">
-      <el-row v-if="list.length" :gutter="16">
-        <el-col v-for="row in list" :key="row.id" :xs="24" :sm="12" :md="8" :lg="6" class="edu-col">
+      <el-row v-if="visibleList.length" :gutter="16">
+        <el-col v-for="row in visibleList" :key="row.id" :xs="24" :sm="12" :md="8" :lg="6" class="edu-col">
           <el-card shadow="hover" class="edu-course-card" @click="openDetail(row)">
             <div class="edu-cover" :style="coverStyle(row.id)">
               <span class="edu-cover-badge">{{ row.semesterName || '本学期' }}</span>
@@ -44,8 +44,8 @@
         </el-col>
       </el-row>
 
-      <el-empty v-else-if="!loading" description="暂时没有在修课程">
-        <p class="edu-empty-hint">课程由教师发布并绑定到你所在的教学班后才会出现。若刚被加入班级，请联系任课教师确认课程已发布。</p>
+      <el-empty v-else-if="!loading" :description="currentClassId ? '当前班级暂时没有在修课程' : '暂时没有在修课程'">
+        <p class="edu-empty-hint">{{ currentClassId ? '可在顶部切换其他班级查看。' : '课程由教师发布并绑定到你所在的教学班后才会出现。若刚被加入班级，请联系任课教师确认课程已发布。' }}</p>
       </el-empty>
     </div>
 
@@ -60,10 +60,11 @@
 </template>
 
 <script setup name="EduStudentCourseList">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listCourse } from '@/api/education/course'
 import { eduErrorText } from '@/api/education/http'
+import { context, contexts } from '@/education/workspace'
 
 const router = useRouter()
 
@@ -72,6 +73,21 @@ const errorText = ref('')
 const list = ref([])
 const total = ref(0)
 const queryParams = reactive({ pageNum: 1, pageSize: 12, keyword: '' })
+
+// 顶部选定班级后，只展示绑定在该班级下的课程。
+const currentClassId = computed(() => context.current?.classId || '')
+const currentClassText = computed(() => context.current?.className
+  ? '当前班级：' + context.current.className
+  : '只显示你所在教学班已绑定的课程')
+const classCourseIds = computed(() => {
+  if (!currentClassId.value) return null
+  return new Set(context.courses
+    .filter(course => course.classes.some(item => item.classId === currentClassId.value))
+    .map(course => String(course.courseSpaceId)))
+})
+const visibleList = computed(() => classCourseIds.value
+  ? list.value.filter(row => classCourseIds.value.has(String(row.id)))
+  : list.value)
 
 function coverStyle(id) {
   const hue = (Number(id) * 47) % 360
@@ -101,8 +117,19 @@ function handleQuery() {
   getList()
 }
 
-function openDetail(row) {
-  router.push({ path: '/student/courses/' + row.id })
+async function openDetail(row) {
+  const course = context.courses.find(item => String(item.courseSpaceId) === String(row.id))
+  const sameCourse = context.current && String(context.current.courseSpaceId) === String(row.id)
+  // 未选班级时，若该课程只有自己所在的一个班级，直接带入该班级。
+  if (!sameCourse && course?.classes.length === 1) {
+    const target = course.classes[0]
+    await contexts.select(course.courseSpaceId, target.classId, target.bindingId)
+  }
+  const current = context.current
+  const query = current && String(current.courseSpaceId) === String(row.id) && current.classId
+    ? { courseSpaceId: current.courseSpaceId, classId: current.classId, ...(current.bindingId ? { bindingId: current.bindingId } : {}) }
+    : {}
+  router.push({ path: '/student/courses/' + row.id, query })
 }
 
 onMounted(getList)

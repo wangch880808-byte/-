@@ -82,7 +82,10 @@ export function createContextController({ state, request, storage, onChange = ()
       }
       if (signal.aborted || run !== version) return null
       state.pending = null; transition(next)
-      state.status = 'ready'; state.message = next.classId ? '已验证当前教学班' : '请选择教学班'
+      state.status = 'ready'
+      state.message = next.classId
+        ? (identity.role === 'student' ? '已验证当前班级' : '已验证当前教学班')
+        : (identity.role === 'student' ? '请选择班级' : '请选择教学班')
       return state.current
     } catch (error) {
       if (signal.aborted || run !== version) return null

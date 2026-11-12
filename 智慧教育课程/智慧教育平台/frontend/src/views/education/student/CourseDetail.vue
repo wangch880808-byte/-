@@ -31,43 +31,41 @@
         </div>
       </el-card>
 
-      <el-tabs v-model="activeTab" class="edu-tabs">
-        <el-tab-pane label="课程概览" name="outline">
+      <section v-if="activeTab === 'outline'" class="edu-section">
           <course-outline :course="course" readonly />
-        </el-tab-pane>
-        <el-tab-pane label="课程资料" name="material" lazy>
+      </section>
+      <section v-else-if="activeTab === 'material'" class="edu-section">
           <student-materials v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
           <el-card v-else shadow="never">
             <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
           </el-card>
-        </el-tab-pane>
-        <el-tab-pane label="课前学习" name="prepare" lazy>
+      </section>
+      <section v-else-if="activeTab === 'prepare'" class="edu-section">
           <student-prestudy v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
           <el-card v-else shadow="never">
             <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
           </el-card>
-        </el-tab-pane>
-        <el-tab-pane label="同步课堂" name="classroom">
+      </section>
+      <section v-else-if="activeTab === 'classroom'" class="edu-section">
           <el-card shadow="never">
             <el-empty :description="placeholder('classroom')" :image-size="80" />
           </el-card>
-        </el-tab-pane>
-        <el-tab-pane label="课后学习" name="homework">
+      </section>
+      <section v-else-if="activeTab === 'homework'" class="edu-section">
           <el-card shadow="never">
             <el-empty :description="placeholder('homework')" :image-size="80" />
           </el-card>
-        </el-tab-pane>
-        <el-tab-pane label="我的学情" name="stat">
+      </section>
+      <section v-else-if="activeTab === 'stat'" class="edu-section">
           <el-card shadow="never">
             <el-empty :description="placeholder('stat')" :image-size="80" />
           </el-card>
-        </el-tab-pane>
-        <el-tab-pane label="AI学习助手" name="ai">
+      </section>
+      <section v-else class="edu-section">
           <el-card shadow="never">
             <el-empty :description="placeholder('ai')" :image-size="80" />
           </el-card>
-        </el-tab-pane>
-      </el-tabs>
+      </section>
     </template>
   </div>
 </template>
@@ -92,7 +90,11 @@ const fatal = ref(false)
 const fatalText = ref('')
 const fatalTitle = ref('无法打开课程')
 const course = ref({})
-const activeTab = ref('outline')
+const SECTIONS = ['outline', 'material', 'prepare', 'classroom', 'homework', 'stat', 'ai']
+const activeTab = computed(() => {
+  const tab = String(route.query.tab || 'outline')
+  return SECTIONS.includes(tab) ? tab : 'outline'
+})
 
 const bindingId = computed(() => {
   const selected = context.current

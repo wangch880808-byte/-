@@ -6,6 +6,7 @@ import { api, cancelRequests } from '@/api/education/client.js'
 import { pages } from '@/education/ui-pages.js'
 import useUserStore from '@/store/modules/user'
 import { adminMenuItems, buildAdminGroups } from '@/education/ui-menu.js'
+import { courseSections, workbenchSections, workbenchTitle } from '@/education/course-menu.js'
 import { context, contexts, prepareContext, resetView, suspendWorkspace, workspace } from '@/education/workspace.js'
 const route = useRoute()
 const router = useRouter()
@@ -19,7 +20,34 @@ const coursePage = computed(() => authorized.value.find(page => page.id === 'cou
 const currentPage = computed(() => route.meta.page)
 const selectedMenu = computed(() => session.role === 'admin'
   ? adminMenuItems.find(item => route.path === '/admin/' + item.path) : null)
-const title = computed(() => selectedMenu.value?.title || currentPage.value?.title || (route.name === 'unavailable' ? '功能未开放' : '工作台'))
+const title = computed(() => sectionTitle.value || selectedMenu.value?.title || currentPage.value?.title || (route.name === 'unavailable' ? '功能未开放' : '工作台'))
+const navLevel = computed(() => {
+  if (route.name === 'home') return 'workbench'
+  if (route.name === 'courses') return 'courses'
+  if (route.name === 'course-detail') return 'course'
+  return ''
+})
+const activeSection = computed(() => String(route.query.section || 'overview'))
+const activeTab = computed(() => String(route.query.tab || 'outline'))
+const workbenchItems = computed(() => workbenchSections[session.role] || [])
+const courseItems = computed(() => courseSections[session.role] || [])
+const sectionTitle = computed(() => {
+  if (navLevel.value === 'workbench') return workbenchItems.value.find(item => item.key === activeSection.value)?.title
+  if (navLevel.value === 'courses') return session.role === 'teacher' ? '教学课程' : '我的课程'
+  if (navLevel.value === 'course') return courseItems.value.find(item => item.key === activeTab.value)?.title
+  return ''
+})
+function contextQuery(extra) {
+  const query = { ...extra }
+  for (const key of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[key]) query[key] = context.current[key]
+  return query
+}
+function sectionTarget(key) {
+  return { path: '/' + session.role, query: contextQuery({ section: key }) }
+}
+function tabTarget(key) {
+  return { path: '/' + session.role + '/courses/' + route.params.courseId, query: contextQuery({ tab: key }) }
+}
 const collapsedGroups = ref(session.role === 'admin' ? [...new Set(adminMenuItems.map(item => item.group))] : [])
 function toggleGroup(title) {
   collapsedGroups.value = collapsedGroups.value.includes(title)
@@ -27,6 +55,15 @@ function toggleGroup(title) {
 }
 const selection = computed(() => context.pending || context.current)
 const selectedCourse = computed(() => context.courses.find(item => item.courseSpaceId === selection.value?.courseSpaceId))
+// 学生端按「自己的班级」进入，教师端按「教学课程 → 教学班」进入。
+const studentClassValue = computed(() => selection.value?.courseSpaceId && selection.value?.classId
+  ? selection.value.courseSpaceId + ':' + selection.value.classId : '')
+function selectStudentClass(value) {
+  if (!value) { contexts.select('', null); return }
+  const [courseSpaceId, classId] = value.split(':')
+  const target = context.courses.find(item => item.courseSpaceId === courseSpaceId)?.classes.find(item => item.classId === classId)
+  contexts.select(courseSpaceId, classId, target?.bindingId)
+}
 const contextMissing = computed(() => currentPage.value?.requiresContext &&
   (!context.current || (currentPage.value.requiresContext === 'class' && !context.current.classId)))
 function pathOf(page) { return '/' + session.role + '/' + page.path }
@@ -35,19 +72,32 @@ function withContext(path) {
   for (const key of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[key]) params.set(key, context.current[key])
   return path + (params.size ? '?' + params : '')
 }
-watch(() => [route.path, session.ready], () => {
+// 同一路由下的工作台分区或课程分区靠 query 区分，页签标识必须带上分区，否则只会有「课程概览」一个页签。
+const tabSection = computed(() => {
+  if (navLevel.value === 'workbench') return { section: activeSection.value }
+  if (navLevel.value === 'course') return { tab: activeTab.value }
+  return {}
+})
+const tabKey = computed(() => route.path + '?' + new URLSearchParams(tabSection.value))
+function tabTo(tab) {
+  return { path: tab.path, query: contextQuery(tab.query || {}) }
+}
+watch(() => [route.path, tabKey.value, session.ready], () => {
   if (!session.ready) return
   workspace.tabs = workspace.tabs.filter(tab => !tab.page || canOpen(tab.page))
   if (route.name === 'unavailable') return
-  const path = route.path
-  if (!workspace.tabs.some(tab => tab.path === path)) {
-    workspace.tabs.push({ path, title: title.value, page: currentPage.value })
+  if (!workspace.tabs.some(tab => tab.key === tabKey.value)) {
+    workspace.tabs.push({ key: tabKey.value, path: route.path, query: tabSection.value, title: title.value, page: currentPage.value })
     if (workspace.tabs.length > 8) workspace.tabs.shift()
   }
 }, { immediate: true })
 async function closeTab(tab) {
-  workspace.tabs = workspace.tabs.filter(item => item.path !== tab.path)
-  if (route.path === tab.path) await router.push(withContext(workspace.tabs.at(-1)?.path || '/' + session.role))
+  const wasActive = tab.key === tabKey.value
+  workspace.tabs = workspace.tabs.filter(item => item.key !== tab.key)
+  if (wasActive) {
+    const last = workspace.tabs.at(-1)
+    await router.push(last ? tabTo(last) : withContext('/' + session.role))
+  }
 }
 async function retry() {
   resetView()
@@ -124,10 +174,24 @@ onUnmounted(() => {
       <button v-if="navOpen" class="nav-scrim" type="button" aria-label="收起导航" @click="navOpen = false"></button>
       <aside class="app-sidebar" :class="{ open: navOpen }">
         <template v-if="session.role !== 'admin'">
-          <router-link class="menu-item" :class="{ active: route.name === 'home' }"
-            :to="withContext('/' + session.role)" @click="navOpen = false">工作台</router-link>
-          <router-link v-if="coursePage" class="menu-item" :class="{ active: route.name === 'courses' || route.name === 'course-detail' }"
-            :to="withContext(pathOf(coursePage))" @click="navOpen = false">我的课程</router-link>
+          <router-link class="menu-item menu-level1" :class="{ active: navLevel === 'workbench' }"
+            :to="withContext('/' + session.role)" @click="navOpen = false">{{ workbenchTitle(session.role) }}</router-link>
+          <div v-if="navLevel === 'workbench'" class="menu-sub">
+            <router-link v-for="item in workbenchItems" :key="item.key" class="menu-item menu-level2"
+              :class="{ active: activeSection === item.key }" :to="sectionTarget(item.key)" @click="navOpen = false">{{ item.title }}</router-link>
+          </div>
+          <template v-if="coursePage">
+            <router-link class="menu-item menu-level1" :class="{ active: navLevel === 'courses' || navLevel === 'course' }"
+              :to="withContext(pathOf(coursePage))" @click="navOpen = false">{{ session.role === 'teacher' ? '教学课程' : '我的课程' }}</router-link>
+            <div v-if="navLevel === 'courses'" class="menu-sub">
+              <router-link class="menu-item menu-level2 active" :to="withContext(pathOf(coursePage))"
+                @click="navOpen = false">{{ session.role === 'teacher' ? '课程列表 / 创建课程' : '在修课程列表' }}</router-link>
+            </div>
+            <div v-if="navLevel === 'course'" class="menu-sub">
+              <router-link v-for="item in courseItems" :key="item.key" class="menu-item menu-level2"
+                :class="{ active: activeTab === item.key }" :to="tabTarget(item.key)" @click="navOpen = false">{{ item.title }}</router-link>
+            </div>
+          </template>
         </template>
         <div v-for="group in groups" :key="group.title" class="menu-group" :class="{ collapsed: collapsedGroups.includes(group.title) }">
           <button class="menu-title menu-group-toggle" type="button" :aria-expanded="!collapsedGroups.includes(group.title)"
@@ -143,24 +207,32 @@ onUnmounted(() => {
       </aside>
       <main class="app-main">
         <div class="breadcrumb">{{ selectedMenu?.group || roleLabels[session.role] }} / {{ title }}</div>
-        <div v-if="session.ready && session.role !== 'admin'" class="workspace-context">
-          <span v-if="context.term">{{ context.term.termName || context.term.termCode }}</span>
-          <select class="ui-select" aria-label="当前课程" :value="selection?.courseSpaceId || ''" @change="contexts.select($event.target.value, null)">
-            <option value="">选择课程</option><option v-for="course in context.courses" :key="course.courseSpaceId" :value="course.courseSpaceId">{{ course.title }}</option>
-          </select>
-          <select v-if="session.role === 'teacher'" class="ui-select" aria-label="当前教学班" :disabled="!selectedCourse" :value="selection?.classId || ''"
-            @change="contexts.select(selectedCourse.courseSpaceId, $event.target.value)">
-            <option value="">选择教学班</option><option v-for="item in selectedCourse?.classes || []" :key="item.classId" :value="item.classId">{{ item.className }}</option>
-          </select>
-          <span role="status" class="hint">{{ context.message }}</span>
-          <button class="ui-btn" type="button" :disabled="context.status === 'loading'" @click="prepareContext(true)">刷新课程</button>
-        </div>
         <nav v-if="session.ready" class="workspace-tabs" aria-label="已打开的页签">
-          <span v-for="tab in workspace.tabs" :key="tab.path" :class="{ selected: route.path === tab.path }">
-            <router-link :to="withContext(tab.path)">{{ tab.title }}</router-link>
+          <span v-for="tab in workspace.tabs" :key="tab.key" :class="{ selected: tab.key === tabKey }">
+            <router-link :to="tabTo(tab)">{{ tab.title }}</router-link>
             <button type="button" :aria-label="'关闭' + tab.title" @click="closeTab(tab)">×</button>
           </span>
         </nav>
+        <div v-if="session.ready && session.role !== 'admin'" class="workspace-context">
+          <span v-if="context.term">{{ context.term.termName || context.term.termCode }}</span>
+          <select v-if="session.role === 'student'" class="ui-select" aria-label="当前班级" :value="studentClassValue" @change="selectStudentClass($event.target.value)">
+            <option value="">选择班级</option>
+            <optgroup v-for="course in context.courses" :key="course.courseSpaceId" :label="course.title">
+              <option v-for="item in course.classes" :key="item.classId" :value="course.courseSpaceId + ':' + item.classId">{{ item.className }}</option>
+            </optgroup>
+          </select>
+          <template v-else>
+            <select class="ui-select" aria-label="当前教学课程" :value="selection?.courseSpaceId || ''" @change="contexts.select($event.target.value, null)">
+              <option value="">选择教学课程</option><option v-for="course in context.courses" :key="course.courseSpaceId" :value="course.courseSpaceId">{{ course.title }}</option>
+            </select>
+            <select class="ui-select" aria-label="当前教学班" :disabled="!selectedCourse" :value="selection?.classId || ''"
+              @change="contexts.select(selectedCourse.courseSpaceId, $event.target.value)">
+              <option value="">选择教学班</option><option v-for="item in selectedCourse?.classes || []" :key="item.classId" :value="item.classId">{{ item.className }}</option>
+            </select>
+          </template>
+          <span role="status" class="hint">{{ context.message }}</span>
+          <button class="ui-btn" type="button" :disabled="context.status === 'loading'" @click="prepareContext(true)">刷新课程</button>
+        </div>
         <div v-if="!session.ready || workspace.pending" class="panel state" role="status">正在核验登录与权限…</div>
         <div v-else-if="workspace.blocked" class="panel state" role="alert">
           <p>{{ workspace.blocked }}</p><button class="ui-btn" type="button" @click="retry">重新核验</button>
@@ -175,4 +247,8 @@ onUnmounted(() => {
 <style scoped>
 .profile-entry { display: inline-flex; align-items: center; gap: 8px; color: inherit; border-radius: 6px; padding: 2px 4px; }
 .profile-entry:hover, .profile-entry.router-link-active { color: var(--primary-dark); background: #f0f5ff; }
+/* 教师端 / 学生端两级菜单：一级平铺，二级在当前一级下展开。 */
+.menu-level1 { padding-left: 16px; font-weight: 600; color: #333; }
+.menu-sub { padding-bottom: 6px; }
+.menu-level2 { padding-left: 34px; }
 </style>

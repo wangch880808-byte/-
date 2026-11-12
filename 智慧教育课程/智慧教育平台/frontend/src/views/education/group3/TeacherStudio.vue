@@ -130,7 +130,7 @@
             </el-table-column>
             <el-table-column label="操作" width="230" fixed="right">
               <template #default="{ row }">
-                <template v-if="row.rowType === 'resource'">
+                <div v-if="row.rowType === 'resource'" class="row-actions">
                   <el-button link type="primary" @click="openRenameResource(row.resource)">修改</el-button>
                   <el-button link type="primary" @click="handleDownload(row.resource.versionId, row.resource.bindingId || bindingId)">
                     下载
@@ -150,7 +150,7 @@
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
-                </template>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -2297,6 +2297,19 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 操作列的「修改 / 下载 / 更多」统一为一行并垂直居中。 */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+.row-actions :deep(.el-dropdown) {
+  display: inline-flex;
+  align-items: center;
+}
 .studio-head {
   display: flex;
   align-items: flex-start;
