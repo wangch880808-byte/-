@@ -22,6 +22,7 @@ import com.ruoyi.common.core.domain.entity.SysDept;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.service.ISysDeptService;
+import com.ruoyi.framework.web.service.TokenService;
 
 /**
  * 部门信息
@@ -34,6 +35,9 @@ public class SysDeptController extends BaseController
 {
     @Autowired
     private ISysDeptService deptService;
+
+    @Autowired
+    private TokenService tokenService;
 
     /**
      * 获取部门列表
@@ -108,7 +112,9 @@ public class SysDeptController extends BaseController
             return error("该部门包含未停用的子部门！");
         }
         dept.setUpdateBy(getUsername());
-        return toAjax(deptService.updateDept(dept));
+        int rows = deptService.updateDept(dept);
+        if (rows > 0) tokenService.invalidateNonAdminSessions();
+        return toAjax(rows);
     }
 
     /**

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduContextMapper">
+ <sql id="validTeacher">ct.user_id=#{userId} AND ct.valid_from&lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to&gt;NOW(3))</sql>
+ <sql id="validStudent">st.user_id=#{userId} AND st.joined_at&lt;=NOW(3) AND (st.left_at IS NULL OR st.left_at&gt;NOW(3))</sql>
+ <select id="courses" resultType="java.util.Map">
+  SELECT c.id AS courseSpaceId,c.title,c.status FROM edu_course_space c WHERE c.deleted_at IS NULL AND c.status!='ARCHIVED'
+  <choose>
+   <when test="role=='teacher'">AND c.owner_user_id=#{userId}</when>
+   <otherwise>
+    AND c.status='ACTIVE' AND EXISTS(SELECT 1 FROM edu_course_class_binding b JOIN edu_teaching_class tc ON tc.id=b.teaching_class_id
+     JOIN edu_class_student st ON st.teaching_class_id=tc.id WHERE b.course_space_id=c.id AND b.ended_at IS NULL AND b.published_at&lt;=NOW(3)
+     AND tc.status='ACTIVE' AND <include refid="validStudent"/>)
+   </otherwise>
+  </choose>
+  ORDER BY c.updated_at DESC,c.id DESC
+ </select>
+ <select id="classes" resultType="java.util.Map">
+  SELECT tc.id AS classId,tc.name AS className,tc.term_id AS termId,b.id AS bindingId,b.course_space_id AS courseSpaceId
+  <choose><when test="role=='teacher'">,ct.can_publish AS canPublish,ct.can_grade AS canGrade,ct.can_export AS canExport</when><otherwise>,0 AS canPublish,0 AS canGrade,0 AS canExport</otherwise></choose>
+  FROM edu_course_class_binding b JOIN edu_teaching_class tc ON tc.id=b.teaching_class_id JOIN edu_course_space c ON c.id=b.course_space_id
+  <choose><when test="role=='teacher'">JOIN edu_class_teacher ct ON ct.teaching_class_id=tc.id</when><otherwise>JOIN edu_class_student st ON st.teaching_class_id=tc.id</otherwise></choose>
+  WHERE b.course_space_id=#{courseId} AND b.ended_at IS NULL AND b.published_at&lt;=NOW(3) AND tc.status='ACTIVE' AND c.deleted_at IS NULL AND c.status!='ARCHIVED'
+  <choose><when test="role=='teacher'">AND c.owner_user_id=#{userId} AND <include refid="validTeacher"/></when><otherwise>AND c.status='ACTIVE' AND <include refid="validStudent"/></otherwise></choose>
+  ORDER BY tc.id,b.id
+ </select>
+</mapper>

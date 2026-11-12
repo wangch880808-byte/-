@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduClassStudentMapper">
+
+    <resultMap id="ClassStudentResult" type="com.ruoyi.education.domain.EduClassStudent">
+        <id     property="id"                column="id"/>
+        <result property="teachingClassId"   column="teaching_class_id"/>
+        <result property="userId"           column="user_id"/>
+        <result property="joinedAt"         column="joined_at"/>
+        <result property="leftAt"           column="left_at"/>
+        <result property="recordedByUserId" column="recorded_by_user_id"/>
+    </resultMap>
+
+    <!-- 查某个班当前所有在班学生 -->
+    <select id="selectByClassId" resultMap="ClassStudentResult">
+        SELECT id, teaching_class_id, user_id, joined_at, left_at, recorded_by_user_id
+        FROM edu_class_student
+        WHERE teaching_class_id = #{classId} AND left_at IS NULL
+        ORDER BY id DESC
+    </select>
+
+    <!-- 查某个学生在某个班的有效在班记录 -->
+    <select id="selectActive" resultMap="ClassStudentResult">
+        SELECT id, teaching_class_id, user_id, joined_at, left_at, recorded_by_user_id
+        FROM edu_class_student
+        WHERE teaching_class_id = #{classId} AND user_id = #{userId} AND joined_at &lt;=NOW(3) AND (left_at IS NULL OR left_at &gt;NOW(3))
+    </select>
+
+    <!-- 学生入班 -->
+    <insert id="insert" parameterType="com.ruoyi.education.domain.EduClassStudent"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_class_student(teaching_class_id, user_id, joined_at, recorded_by_user_id)
+        VALUES (#{teachingClassId}, #{userId}, NOW(3), #{recordedByUserId})
+    </insert>
+
+    <!-- 学生退班 -->
+    <update id="leave">
+        UPDATE edu_class_student
+        SET left_at = NOW(3), left_by_user_id = #{leftByUserId}, leave_reason = #{reason}
+        WHERE teaching_class_id = #{classId} AND user_id = #{userId} AND left_at IS NULL
+    </update>
+</mapper>

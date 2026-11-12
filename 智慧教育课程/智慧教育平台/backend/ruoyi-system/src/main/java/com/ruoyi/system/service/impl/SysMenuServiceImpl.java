@@ -52,6 +52,18 @@ public class SysMenuServiceImpl implements ISysMenuService
     @Autowired
     private SysRoleMenuMapper roleMenuMapper;
 
+    /** Built-in administrator grants are read from active persisted roles. */
+    private boolean hasFullMenuAccess(Long userId)
+    {
+        if (SecurityUtils.isAdmin(userId))
+        {
+            return true;
+        }
+        List<SysRole> roles = roleMapper.selectRolePermissionByUserId(userId);
+        return roles != null && roles.stream().anyMatch(role -> role != null
+                && role.isAdmin() && UserConstants.ROLE_NORMAL.equals(role.getStatus()));
+    }
+
     /**
      * 根据用户查询系统菜单列表
      * 
@@ -75,7 +87,7 @@ public class SysMenuServiceImpl implements ISysMenuService
     {
         List<SysMenu> menuList = null;
         // 管理员显示所有菜单信息
-        if (SecurityUtils.isAdmin(userId))
+        if (hasFullMenuAccess(userId))
         {
             menuList = menuMapper.selectMenuList(menu);
         }
@@ -139,7 +151,7 @@ public class SysMenuServiceImpl implements ISysMenuService
     public List<SysMenu> selectMenuTreeByUserId(Long userId)
     {
         List<SysMenu> menus = null;
-        if (SecurityUtils.isAdmin(userId))
+        if (hasFullMenuAccess(userId))
         {
             menus = menuMapper.selectMenuTreeAll();
         }

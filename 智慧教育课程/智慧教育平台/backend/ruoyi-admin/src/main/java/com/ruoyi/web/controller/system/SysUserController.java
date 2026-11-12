@@ -1,6 +1,7 @@
 package com.ruoyi.web.controller.system;
 
 import java.util.List;
+import com.ruoyi.web.core.util.ExcelImportSupport;
 import java.util.stream.Collectors;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.ArrayUtils;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.Log;
+import com.ruoyi.common.constant.UserConstants;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.entity.SysDept;
@@ -27,6 +29,7 @@ import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
+import com.ruoyi.framework.web.service.TokenService;
 import com.ruoyi.system.service.ISysDeptService;
 import com.ruoyi.system.service.ISysPostService;
 import com.ruoyi.system.service.ISysRoleService;
@@ -52,6 +55,9 @@ public class SysUserController extends BaseController
 
     @Autowired
     private ISysPostService postService;
+
+    @Autowired
+    private TokenService tokenService;
 
     /**
      * 获取用户列表
@@ -80,13 +86,16 @@ public class SysUserController extends BaseController
     @PostMapping("/importData")
     public AjaxResult importData(MultipartFile file, boolean updateSupport) throws Exception
     {
+        ExcelImportSupport.checkFile(file);
         ExcelUtil<SysUser> util = new ExcelUtil<SysUser>(SysUser.class);
         List<SysUser> userList = util.importExcel(file.getInputStream());
+        if (userList.size() > 1000) throw new com.ruoyi.common.exception.ServiceException("每次最多导入1000个用户", 400);
         String operName = getUsername();
         String message = userService.importUser(userList, updateSupport, operName);
         return success(message);
     }
 
+    @PreAuthorize("@ss.hasPermi('system:user:import')")
     @PostMapping("/importTemplate")
     public void importTemplate(HttpServletResponse response)
     {
@@ -111,7 +120,7 @@ public class SysUserController extends BaseController
             ajax.put("roleIds", sysUser.getRoles().stream().map(SysRole::getRoleId).collect(Collectors.toList()));
         }
         List<SysRole> roles = roleService.selectRoleAll();
-        ajax.put("roles", SecurityUtils.isAdmin(userId) ? roles : roles.stream().filter(r -> !r.isAdmin()).collect(Collectors.toList()));
+        ajax.put("roles", SecurityUtils.isAdmin() ? roles : roles.stream().filter(r -> !r.isAdmin() && !"admin".equals(r.getRoleKey())).collect(Collectors.toList()));
         ajax.put("posts", postService.selectPostAll());
         return ajax;
     }
@@ -168,7 +177,13 @@ public class SysUserController extends BaseController
             return error("修改用户'" + user.getUserName() + "'失败，邮箱账号已存在");
         }
         user.setUpdateBy(getUsername());
-        return toAjax(userService.updateUser(user));
+        int rows = userService.updateUser(user);
+        // 账号资料、角色或部门被管理员变更后，旧令牌立即失效
+        if (rows > 0)
+        {
+            tokenService.deleteByUserId(user.getUserId());
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -183,7 +198,16 @@ public class SysUserController extends BaseController
         {
             return error("当前用户不能删除");
         }
-        return toAjax(userService.deleteUserByIds(userIds));
+        int rows = userService.deleteUserByIds(userIds);
+        // 删除账号后旧令牌立即失效
+        if (rows > 0)
+        {
+            for (Long userId : userIds)
+            {
+                tokenService.deleteByUserId(userId);
+            }
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -198,7 +222,13 @@ public class SysUserController extends BaseController
         userService.checkUserDataScope(user.getUserId());
         user.setPassword(SecurityUtils.encryptPassword(user.getPassword()));
         user.setUpdateBy(getUsername());
-        return toAjax(userService.resetPwd(user));
+        int rows = userService.resetPwd(user);
+        // 重置密码后旧令牌立即失效
+        if (rows > 0)
+        {
+            tokenService.deleteByUserId(user.getUserId());
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -212,7 +242,13 @@ public class SysUserController extends BaseController
         userService.checkUserAllowed(user);
         userService.checkUserDataScope(user.getUserId());
         user.setUpdateBy(getUsername());
-        return toAjax(userService.updateUserStatus(user));
+        int rows = userService.updateUserStatus(user);
+        // 停用账号后旧令牌立即失效
+        if (rows > 0 && UserConstants.USER_DISABLE.equals(user.getStatus()))
+        {
+            tokenService.deleteByUserId(user.getUserId());
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -222,11 +258,12 @@ public class SysUserController extends BaseController
     @GetMapping("/authRole/{userId}")
     public AjaxResult authRole(@PathVariable("userId") Long userId)
     {
+        userService.checkUserDataScope(userId);
         AjaxResult ajax = AjaxResult.success();
         SysUser user = userService.selectUserById(userId);
         List<SysRole> roles = roleService.selectRolesByUserId(userId);
         ajax.put("user", user);
-        ajax.put("roles", SecurityUtils.isAdmin(userId) ? roles : roles.stream().filter(r -> !r.isAdmin()).collect(Collectors.toList()));
+        ajax.put("roles", SecurityUtils.isAdmin() ? roles : roles.stream().filter(r -> !r.isAdmin() && !"admin".equals(r.getRoleKey())).collect(Collectors.toList()));
         return ajax;
     }
 
@@ -241,6 +278,8 @@ public class SysUserController extends BaseController
         userService.checkUserDataScope(userId);
         roleService.checkRoleDataScope(roleIds);
         userService.insertUserAuth(userId, roleIds);
+        // 授权变更后旧令牌立即失效，重新登录后按新角色生效
+        tokenService.deleteByUserId(userId);
         return success();
     }
 

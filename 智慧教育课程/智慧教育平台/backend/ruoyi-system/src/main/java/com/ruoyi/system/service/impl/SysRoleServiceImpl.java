@@ -184,7 +184,7 @@ public class SysRoleServiceImpl implements ISysRoleService
     {
         if (StringUtils.isNotNull(role.getRoleId()) && role.isAdmin())
         {
-            throw new ServiceException("不允许操作超级管理员角色");
+            throw new com.ruoyi.common.exception.ForbiddenException("不允许操作超级管理员角色");
         }
     }
 
@@ -196,17 +196,20 @@ public class SysRoleServiceImpl implements ISysRoleService
     @Override
     public void checkRoleDataScope(Long... roleIds)
     {
-        if (!SecurityUtils.isAdmin())
+        // 超管拥有全部数据权限；入参为空（如新增用户未指定角色）时直接放行，
+        // 避免对 null 数组遍历导致 NPE。
+        if (SecurityUtils.isAdmin() || StringUtils.isEmpty(roleIds))
         {
-            for (Long roleId : roleIds)
+            return;
+        }
+        for (Long roleId : roleIds)
+        {
+            SysRole role = new SysRole();
+            role.setRoleId(roleId);
+            List<SysRole> roles = SpringUtils.getAopProxy(this).selectRoleList(role);
+            if (StringUtils.isEmpty(roles))
             {
-                SysRole role = new SysRole();
-                role.setRoleId(roleId);
-                List<SysRole> roles = SpringUtils.getAopProxy(this).selectRoleList(role);
-                if (StringUtils.isEmpty(roles))
-                {
-                    throw new ServiceException("没有权限访问角色数据！");
-                }
+                throw new com.ruoyi.common.exception.ForbiddenException("没有权限访问角色数据！");
             }
         }
     }

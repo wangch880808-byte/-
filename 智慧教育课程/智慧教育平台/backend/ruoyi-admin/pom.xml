@@ -75,17 +75,9 @@
                 <directory>src/main/resources</directory>
             </resource>
             <resource>
-                <directory>${project.basedir}/../../frontend</directory>
-                <targetPath>static</targetPath>
-                <includes>
-                    <include>login.html</include>
-                    <include>login.js</include>
-                    <include>admin.html</include>
-                    <include>teacher.html</include>
-                    <include>student.html</include>
-                    <include>role-home.js</include>
-                    <include>logo.png</include>
-                </includes>
+                <directory>${project.basedir}/../../frontend/dist</directory>
+                <targetPath>static/vue</targetPath>
+                <includes><include>**/*</include></includes>
             </resource>
         </resources>
         <plugins>

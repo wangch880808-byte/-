@@ -239,6 +239,17 @@ public class TokenService
      */
     public void refreshPermissionByRoleId(Long roleId, SysPermissionService permissionService)
     {
+        // 只重算 permissions 会继续使用旧 roles/status/dataScope。撤销会话，
+        // 使下一次请求重新认证，不能让旧角色对象覆盖已经收紧的权限。
+        invalidateRoleSessions(roleId);
+    }
+
+    public void invalidateRoleSessions(Long roleId)
+    {
+        if (roleId == null)
+        {
+            return;
+        }
         // 扫描所有在线 token
         String pattern = CacheConstants.LOGIN_TOKEN_KEY + "*";
         Collection<String> keys = redisCache.keys(pattern);
@@ -261,10 +272,57 @@ public class TokenService
             {
                 continue;
             }
-            // 刷新权限缓存
-            loginUser.setPermissions(permissionService.getMenuPermission(loginUser.getUser()));
-            refreshToken(loginUser);
-            log.info("角色[{}]权限变更，已刷新在线用户[{}]的权限缓存", roleId, loginUser.getUsername());
+            redisCache.deleteObject(key);
+        }
+    }
+
+    /** 菜单或组织范围改变时，所有普通用户必须重新认证。 */
+    public void invalidateNonAdminSessions()
+    {
+        Collection<String> keys = redisCache.keys(CacheConstants.LOGIN_TOKEN_KEY + "*");
+        if (keys == null) return;
+        for (String key : keys)
+        {
+            LoginUser user = redisCache.getCacheObject(key);
+            if (user != null && user.getUser() != null && !user.getUser().isAdmin())
+            {
+                redisCache.deleteObject(key);
+            }
+        }
+    }
+
+    /**
+     * 强制失效指定用户的全部在线令牌。
+     *
+     * 用户被停用、删除、重置密码或角色被调整后，应立即调用，避免旧令牌在
+     * 有效期（默认 30 分钟）内继续访问。
+     *
+     * @param userId 用户ID
+     */
+    public void deleteByUserId(Long userId)
+    {
+        if (userId == null)
+        {
+            return;
+        }
+        String pattern = CacheConstants.LOGIN_TOKEN_KEY + "*";
+        Collection<String> keys = redisCache.keys(pattern);
+        if (keys == null || keys.isEmpty())
+        {
+            return;
+        }
+        for (String key : keys)
+        {
+            LoginUser loginUser = redisCache.getCacheObject(key);
+            if (loginUser == null || loginUser.getUser() == null)
+            {
+                continue;
+            }
+            if (userId.equals(loginUser.getUserId()))
+            {
+                redisCache.deleteObject(key);
+                log.info("用户[{}]令牌已强制失效", loginUser.getUsername());
+            }
         }
     }
 }
