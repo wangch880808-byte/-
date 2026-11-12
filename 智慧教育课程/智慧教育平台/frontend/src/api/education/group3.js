@@ -212,3 +212,83 @@ export function listClassrooms(bindingId) {
 export function removeStage(data) {
   return request({ url: '/education/group3/stages/remove', method: 'post', data })
 }
+
+/* ---------- 题库批量导入导出 ---------- */
+
+/** 导出题库为 Excel（返回 Blob） */
+export function exportQuestionsExcel(bindingId) {
+  return request({
+    url: '/education/group3/questions/export',
+    method: 'get',
+    params: { bindingId },
+    responseType: 'blob'
+  })
+}
+
+/** 上传 Excel 并解析预览（multipart：file） */
+export function previewQuestionImport(bindingId, data) {
+  return request({
+    url: '/education/group3/questions/import/preview',
+    method: 'post',
+    params: { bindingId },
+    data
+  })
+}
+
+/** 按预览结果落库（body：bindingId、questions） */
+export function importQuestions(data) {
+  return request({ url: '/education/group3/questions/import', method: 'post', data })
+}
+
+/* ---------- 资料 ZIP 批量导入导出 ---------- */
+
+/** 导出全部资料为 ZIP（返回 Blob） */
+export function exportResourcesZip(bindingId) {
+  return request({
+    url: '/education/group3/resources/export',
+    method: 'get',
+    params: { bindingId },
+    responseType: 'blob'
+  })
+}
+
+/** 上传 ZIP 压缩包并导入资料（multipart：file） */
+export function importResourcesZip(bindingId, data) {
+  return request({
+    url: '/education/group3/resources/import',
+    method: 'post',
+    params: { bindingId },
+    data
+  })
+}
+
+/* ---------- 资料 / 题库文件夹 ---------- */
+
+/** 查询文件夹列表，kind 取 RESOURCE / QUESTION */
+export function listFolders(bindingId, kind) {
+  return request({ url: '/education/group3/folders', method: 'get', params: { bindingId, kind } })
+}
+
+/** 新建文件夹（body：bindingId、kind、name、visibility） */
+export function createFolder(data) {
+  return request({ url: '/education/group3/folders', method: 'post', data })
+}
+
+/** 修改文件夹名称与可见性 */
+export function updateFolder(folderId, data) {
+  return request({ url: `/education/group3/folders/${folderId}`, method: 'patch', data })
+}
+
+/** 删除文件夹，kind 取 RESOURCE / QUESTION */
+export function deleteFolder(folderId, bindingId, kind) {
+  return request({
+    url: `/education/group3/folders/${folderId}`,
+    method: 'delete',
+    params: { bindingId, kind }
+  })
+}
+
+/** 批量移动到文件夹（body：bindingId、kind、folderId、ids） */
+export function moveToFolder(data) {
+  return request({ url: '/education/group3/folders/move', method: 'post', data })
+}

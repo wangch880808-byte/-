@@ -75,6 +75,7 @@ public class Group3ResourceService implements PublishedResourceProvider
         Group3FileStorageService.StoredUpload stored = storage.store(file, courseSpaceId);
         Map<String, Object> resource = new LinkedHashMap<>();
         resource.put("courseSpaceId", courseSpaceId);
+        resource.put("folderId", null);
         resource.put("title", cleanTitle);
         resource.put("resourceKind", "FILE");
         resource.put("userId", Group3Security.currentUserId());
@@ -82,6 +83,26 @@ public class Group3ResourceService implements PublishedResourceProvider
         Long resourceId = Group3AccessService.asLong(resource.get("id"));
 
         return createFileVersion(resourceId, courseSpaceId, bindingId, stored, unitId);
+    }
+
+    /** 压缩包导入：按字节写入文件并创建资料与首个版本。 */
+    @Transactional
+    public Map<String, Object> importFile(
+            Long bindingId, String title, String originalName, byte[] content)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Group3FileStorageService.StoredUpload stored =
+                storage.store(content, originalName, courseSpaceId);
+        Map<String, Object> resource = new LinkedHashMap<>();
+        resource.put("courseSpaceId", courseSpaceId);
+        resource.put("folderId", null);
+        resource.put("title", cleanTitle(title, originalName));
+        resource.put("resourceKind", "FILE");
+        resource.put("userId", Group3Security.currentUserId());
+        mapper.insertResource(resource);
+        Long resourceId = Group3AccessService.asLong(resource.get("id"));
+        return createFileVersionWithNo(resourceId, courseSpaceId, bindingId, stored, 1);
     }
 
     @Transactional

@@ -131,6 +131,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectTeacherResources" resultType="java.util.LinkedHashMap">
         SELECT r.id AS resourceId,
                r.title,
+               r.folder_id AS folderId,
                r.resource_kind AS resourceKind,
                r.status AS resourceStatus,
                rv.id AS versionId,
@@ -342,9 +343,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <insert id="insertResource" parameterType="map" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO edu_resource
-            (course_space_id, title, resource_kind, status, created_by_user_id)
+            (course_space_id, folder_id, title, resource_kind, status, created_by_user_id)
         VALUES
-            (#{courseSpaceId}, #{title}, #{resourceKind}, 'ACTIVE', #{userId})
+            (#{courseSpaceId}, #{folderId}, #{title}, #{resourceKind}, 'ACTIVE', #{userId})
     </insert>
 
     <insert id="insertResourceVersion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
@@ -449,6 +450,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectQuestions" resultType="java.util.LinkedHashMap">
         SELECT q.id AS questionId,
                q.title,
+               q.folder_id AS folderId,
                q.status,
                qv.id AS versionId,
                qv.version_no AS versionNo,
@@ -522,9 +524,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <insert id="insertQuestion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO edu_question
-            (course_space_id, title, status, created_by_user_id)
+            (course_space_id, folder_id, title, status, created_by_user_id)
         VALUES
-            (#{courseSpaceId}, #{title}, 'ACTIVE', #{userId})
+            (#{courseSpaceId}, #{folderId}, #{title}, 'ACTIVE', #{userId})
     </insert>
 
     <insert id="insertQuestionVersion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
@@ -1060,4 +1062,88 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         WHERE b.id = #{bindingId}
           AND b.ended_at IS NULL
     </select>
+
+    <!-- ========== 资料 / 题库文件夹 ========== -->
+
+    <select id="selectResourceFolders" resultType="java.util.LinkedHashMap">
+        SELECT f.id,
+               f.name,
+               f.visibility,
+               DATE_FORMAT(f.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+        FROM edu_resource_folder f
+        WHERE f.course_space_id = #{courseSpaceId}
+        ORDER BY f.id
+    </select>
+
+    <select id="selectQuestionFolders" resultType="java.util.LinkedHashMap">
+        SELECT f.id,
+               f.name,
+               f.visibility,
+               DATE_FORMAT(f.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+        FROM edu_question_folder f
+        WHERE f.course_space_id = #{courseSpaceId}
+        ORDER BY f.id
+    </select>
+
+    <insert id="insertResourceFolder" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_resource_folder
+            (course_space_id, name, visibility, created_by_user_id)
+        VALUES
+            (#{courseSpaceId}, #{name}, #{visibility}, #{userId})
+    </insert>
+
+    <insert id="insertQuestionFolder" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_question_folder
+            (course_space_id, name, visibility, created_by_user_id)
+        VALUES
+            (#{courseSpaceId}, #{name}, #{visibility}, #{userId})
+    </insert>
+
+    <update id="updateResourceFolder" parameterType="map">
+        UPDATE edu_resource_folder
+           SET name = #{name},
+               visibility = #{visibility}
+         WHERE id = #{folderId}
+           AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <update id="updateQuestionFolder" parameterType="map">
+        UPDATE edu_question_folder
+           SET name = #{name},
+               visibility = #{visibility}
+         WHERE id = #{folderId}
+           AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <delete id="deleteResourceFolder">
+        DELETE FROM edu_resource_folder
+         WHERE id = #{folderId}
+           AND course_space_id = #{courseSpaceId}
+    </delete>
+
+    <delete id="deleteQuestionFolder">
+        DELETE FROM edu_question_folder
+         WHERE id = #{folderId}
+           AND course_space_id = #{courseSpaceId}
+    </delete>
+
+    <update id="moveResourcesToFolder">
+        UPDATE edu_resource
+           SET folder_id = #{folderId}
+         WHERE course_space_id = #{courseSpaceId}
+           AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <update id="moveQuestionsToFolder">
+        UPDATE edu_question
+           SET folder_id = #{folderId}
+         WHERE course_space_id = #{courseSpaceId}
+           AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
 </mapper>

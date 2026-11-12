@@ -1102,9 +1102,25 @@ CREATE TABLE edu_course_class_binding (
     CONSTRAINT chk_edu_binding_dates CHECK (ended_at IS NULL OR ended_at > published_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE edu_resource_folder (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    name VARCHAR(60) NOT NULL,
+    visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
+    created_by_user_id BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_edu_resource_folder_space (course_space_id, id),
+    CONSTRAINT fk_edu_resource_folder_space FOREIGN KEY (course_space_id)
+        REFERENCES edu_course_space (id),
+    CONSTRAINT chk_edu_resource_folder_visibility
+        CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'PARTIAL'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE edu_resource (
     id BIGINT NOT NULL AUTO_INCREMENT,
     course_space_id BIGINT NOT NULL,
+    folder_id BIGINT NULL,
     title VARCHAR(200) NOT NULL,
     resource_kind VARCHAR(16) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
@@ -1115,8 +1131,11 @@ CREATE TABLE edu_resource (
     UNIQUE KEY uq_edu_resource_id_space (id, course_space_id),
     UNIQUE KEY uq_edu_resource_id_kind (id, resource_kind),
     KEY idx_edu_resource_space_status (course_space_id, status, id),
+    KEY idx_edu_resource_folder (course_space_id, folder_id),
     CONSTRAINT fk_edu_resource_space FOREIGN KEY (course_space_id)
         REFERENCES edu_course_space (id),
+    CONSTRAINT fk_edu_resource_folder FOREIGN KEY (folder_id)
+        REFERENCES edu_resource_folder (id) ON DELETE SET NULL,
     CONSTRAINT chk_edu_resource_kind CHECK (resource_kind IN ('FILE', 'LINK')),
     CONSTRAINT chk_edu_resource_status CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -1241,9 +1260,25 @@ CREATE TABLE edu_resource_page (
     CONSTRAINT chk_edu_resource_page_key CHECK (CHAR_LENGTH(TRIM(preview_storage_key)) > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE edu_question_folder (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    name VARCHAR(60) NOT NULL,
+    visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
+    created_by_user_id BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_edu_question_folder_space (course_space_id, id),
+    CONSTRAINT fk_edu_question_folder_space FOREIGN KEY (course_space_id)
+        REFERENCES edu_course_space (id),
+    CONSTRAINT chk_edu_question_folder_visibility
+        CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'PARTIAL'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE edu_question (
     id BIGINT NOT NULL AUTO_INCREMENT,
     course_space_id BIGINT NOT NULL,
+    folder_id BIGINT NULL,
     title VARCHAR(200) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
     created_by_user_id BIGINT NOT NULL,
@@ -1251,8 +1286,11 @@ CREATE TABLE edu_question (
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_question_id_space (id, course_space_id),
     KEY idx_edu_question_space_status (course_space_id, status),
+    KEY idx_edu_question_folder (course_space_id, folder_id),
     CONSTRAINT fk_edu_question_space FOREIGN KEY (course_space_id)
         REFERENCES edu_course_space (id),
+    CONSTRAINT fk_edu_question_folder FOREIGN KEY (folder_id)
+        REFERENCES edu_question_folder (id) ON DELETE SET NULL,
     CONSTRAINT chk_edu_question_status CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

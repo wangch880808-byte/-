@@ -36,7 +36,15 @@
               </template>
             </el-dropdown>
             <el-button @click="createResourceFolder">新建文件夹</el-button>
+            <el-button :loading="resourceImporting" @click="triggerResourceImport">导入</el-button>
             <el-button @click="exportResources">导出</el-button>
+            <input
+              ref="resourceZipInputRef"
+              type="file"
+              accept=".zip"
+              style="display: none"
+              @change="onResourceZipSelected"
+            />
             <div class="spacer"></div>
             <el-input v-model="resourceSearch" placeholder="搜索" clearable style="width: 220px" />
           </div>
@@ -244,7 +252,7 @@
                     {{ folderVisibilityLabel(row.folder.visibility) }}
                   </el-tag>
                   <div class="cell-meta">
-                    共 {{ (row.folder.questionIds || []).length }} 题 · {{ row.folder.visibility === 'PRIVATE' ? '私密' : '公开' }}
+                    共 {{ questionFolderCount(row.folder) }} 题 · {{ row.folder.visibility === 'PRIVATE' ? '私密' : '公开' }}
                   </div>
                 </div>
                 <div v-else class="file-title">
@@ -443,6 +451,62 @@
       <template #footer>
         <el-button @click="folderDialogOpen = false">取 消</el-button>
         <el-button type="primary" @click="submitFolder">确 定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="questionImportOpen" title="题库模板导入" width="980px" top="7vh" append-to-body>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px">
+        <el-button type="primary" @click="triggerQuestionImportFile">选择 Excel 文件</el-button>
+        <span class="cell-meta">{{ questionImportFileName || '请选择按“导出全部”生成的 .xlsx 文件' }}</span>
+        <input
+          ref="questionImportInputRef"
+          type="file"
+          accept=".xlsx,.xls"
+          style="display: none"
+          @change="onQuestionImportFileSelected"
+        />
+        <div style="flex: 1"></div>
+        <span v-if="questionImportRows.length" class="cell-meta">
+          可导入 {{ questionImportValidRows.length }} 题
+          <span v-if="questionImportInvalidCount">，{{ questionImportInvalidCount }} 题需修正</span>
+        </span>
+      </div>
+      <el-table
+        v-loading="questionImportLoading"
+        :data="questionImportRows"
+        border
+        max-height="460"
+        empty-text="请选择要导入的 Excel 文件"
+      >
+        <el-table-column prop="rowNo" label="行号" width="70" align="center" />
+        <el-table-column prop="title" label="题目名称" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="questionKindLabel" label="题型" width="90" />
+        <el-table-column prop="maxScore" label="满分" width="80" align="center" />
+        <el-table-column prop="stem" label="题干" min-width="240" show-overflow-tooltip />
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.valid ? 'success' : 'danger'" size="small">
+              {{ row.valid ? '可导入' : '需修正' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="问题" min-width="200">
+          <template #default="{ row }">
+            <span v-if="row.valid" class="cell-meta">-</span>
+            <span v-else style="color: #f56c6c">{{ (row.errors || []).join('；') }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="questionImportOpen = false">取 消</el-button>
+        <el-button
+          type="primary"
+          :loading="questionImportSaving"
+          :disabled="!questionImportValidRows.length"
+          @click="submitQuestionImport"
+        >
+          导入 {{ questionImportValidRows.length }} 题
+        </el-button>
       </template>
     </el-dialog>
 
@@ -805,7 +869,15 @@ import {
   createKnowledgePoint,
   updateKnowledgePoint,
   deleteKnowledgePoint,
-  listClassrooms
+  listClassrooms,
+  exportQuestionsExcel,
+  previewQuestionImport,
+  importQuestions,
+  exportResourcesZip,
+  importResourcesZip,
+  listFolders,
+  createFolder,
+  moveToFolder
 } from '@/api/education/group3'
 import { useGroup3Binding } from './useGroup3Binding'
 import Group3ContextBar from './Group3ContextBar.vue'
@@ -894,7 +966,17 @@ const currentQuestionFolderId = ref(null)
 const showQuestionDetail = ref(true)
 const questionBindingFilter = ref('')
 const externalQuestions = ref([])
+const externalQuestionFolders = ref([])
 const externalQuestionsLoading = ref(false)
+
+const questionImportOpen = ref(false)
+const questionImportLoading = ref(false)
+const questionImportSaving = ref(false)
+const questionImportRows = ref([])
+const questionImportFileName = ref('')
+const questionImportInputRef = ref(null)
+const resourceImporting = ref(false)
+const resourceZipInputRef = ref(null)
 
 const questionOpen = ref(false)
 const questionSaving = ref(false)
@@ -938,19 +1020,15 @@ const classroom = ref(null)
 const resourceList = computed(() => overview.value?.resources || [])
 const knowledgePoints = computed(() => overview.value?.knowledgePoints || [])
 
-const questionFilterItem = computed(
-  () => list.value.find(item => String(item.bindingId) === String(questionBindingFilter.value)) || null
-)
 const questionReadonly = computed(
   () => !!questionBindingFilter.value && String(questionBindingFilter.value) !== String(bindingId.value)
 )
 const questionCourseOptions = computed(() =>
   list.value.filter(item => String(item.bindingId) !== String(bindingId.value))
 )
-const viewedQuestionFolders = computed(() => {
-  if (!questionReadonly.value) return questionFolders.value
-  return readQuestionFolders(questionFilterItem.value?.courseSpaceId || questionBindingFilter.value)
-})
+const viewedQuestionFolders = computed(() =>
+  questionReadonly.value ? externalQuestionFolders.value : questionFolders.value
+)
 
 const questionList = computed(() => {
   const source = questionReadonly.value ? externalQuestions.value : overview.value?.questions || []
@@ -970,9 +1048,7 @@ const visibleResources = computed(() => {
   const keyword = resourceSearch.value.trim().toLowerCase()
   let rows = resourceList.value
   if (activeFolder.value) {
-    rows = activeFolder.value.demo
-      ? rows
-      : rows.filter(item => (activeFolder.value.resourceIds || []).map(String).includes(String(item.resourceId)))
+    rows = rows.filter(item => String(item.folderId || '') === String(activeFolder.value.id))
   }
   if (keyword) rows = rows.filter(item => String(item.title || '').toLowerCase().includes(keyword))
   return rows
@@ -1022,8 +1098,7 @@ const unitOptions = computed(() => {
 const filteredQuestions = computed(() => {
   let rows = questionList.value
   if (activeQuestionFolder.value) {
-    const ids = (activeQuestionFolder.value.questionIds || []).map(String)
-    rows = rows.filter(question => ids.includes(String(question.questionId)))
+    rows = rows.filter(question => String(question.folderId || '') === String(activeQuestionFolder.value.id))
   }
   if (questionKind.value) rows = rows.filter(question => question.questionKind === questionKind.value)
   if (questionPoint.value) rows = rows.filter(question => String(question.knowledgePoints || '').includes(questionPoint.value))
@@ -1264,14 +1339,6 @@ function formatAnswer(answer, kind) {
   return JSON.stringify(answer)
 }
 
-function saveCsv(filename, lines) {
-  const csv = lines
-    .map(line => line.map(value => `"${String(value).replace(/"/g, '""')}"`).join(','))
-    .join('\r\n')
-  saveAs(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), filename)
-  ElMessage.success('已导出 ' + filename)
-}
-
 function handleActionError(e, fallback = '操作失败') {
   if (e === 'cancel' || e === 'close') return
   ElMessage.error(e?.message || fallback)
@@ -1300,6 +1367,7 @@ function resetStudioState() {
   questionPoint.value = ''
   questionBindingFilter.value = ''
   externalQuestions.value = []
+  externalQuestionFolders.value = []
   currentQuestionFolderId.value = null
   outlineSearch.value = ''
   collapsedChapters.value = []
@@ -1308,6 +1376,7 @@ function resetStudioState() {
 async function loadFilterQuestions() {
   if (!questionReadonly.value) {
     externalQuestions.value = []
+    externalQuestionFolders.value = []
     return
   }
   externalQuestionsLoading.value = true
@@ -1315,8 +1384,10 @@ async function loadFilterQuestions() {
   try {
     const res = await listQuestions(questionBindingFilter.value)
     externalQuestions.value = Array.isArray(res.data) ? res.data : []
+    await loadExternalQuestionFolders(questionBindingFilter.value)
   } catch (e) {
     externalQuestions.value = []
+    externalQuestionFolders.value = []
     ElMessage.error(e?.message || '题库加载失败')
   } finally {
     externalQuestionsLoading.value = false
@@ -1334,8 +1405,7 @@ async function loadOverview() {
   try {
     const res = await getOverview(bindingId.value)
     overview.value = res.data || {}
-    syncFolders()
-    syncQuestionFolders()
+    await Promise.all([loadResourceFolders(), loadQuestionFolders()])
   } catch (e) {
     overview.value = null
     ElMessage.error(e?.message || '课程总览加载失败')
@@ -1344,75 +1414,62 @@ async function loadOverview() {
   }
 }
 
-/* ---------- 文件夹（localStorage） ---------- */
+/* ---------- 文件夹（持久化到课程资料库） ---------- */
 
-function storageKey(prefix, keyId) {
-  return `${prefix}.${keyId || current.value?.courseSpaceId || bindingId.value}`
+function normalizeFolder(folder) {
+  return {
+    id: String(folder.id),
+    name: folder.name,
+    visibility: folder.visibility || 'PUBLIC',
+    createdAt: folder.createdAt
+  }
 }
 
-function readFolders() {
+async function loadResourceFolders() {
+  if (!bindingId.value) {
+    folders.value = []
+    return
+  }
   try {
-    const stored = JSON.parse(localStorage.getItem(storageKey('zhijiao.group3.folders')) || '[]')
-    return Array.isArray(stored) ? stored.filter(folder => folder && folder.id && folder.name) : []
+    const res = await listFolders(bindingId.value, 'RESOURCE')
+    folders.value = (Array.isArray(res.data) ? res.data : []).map(normalizeFolder)
   } catch (e) {
-    return []
+    folders.value = []
   }
 }
 
-function writeFolders(rows) {
-  localStorage.setItem(storageKey('zhijiao.group3.folders'), JSON.stringify(rows))
-}
-
-function readQuestionFolders(keyId) {
+async function loadQuestionFolders() {
+  if (!bindingId.value) {
+    questionFolders.value = []
+    return
+  }
   try {
-    const stored = JSON.parse(localStorage.getItem(storageKey('zhijiao.group3.questionFolders', keyId)) || '[]')
-    return Array.isArray(stored) ? stored.filter(folder => folder && folder.id && folder.name) : []
+    const res = await listFolders(bindingId.value, 'QUESTION')
+    questionFolders.value = (Array.isArray(res.data) ? res.data : []).map(normalizeFolder)
   } catch (e) {
-    return []
+    questionFolders.value = []
   }
 }
 
-function writeQuestionFolders(rows) {
-  localStorage.setItem(storageKey('zhijiao.group3.questionFolders'), JSON.stringify(rows))
-}
-
-function ensureDemoFolder(rows) {
-  const resourceIds = resourceList.value.map(item => String(item.resourceId))
-  if (!rows.length) {
-    const demo = {
-      id: 'demo-folder',
-      name: '演示文件夹',
-      demo: true,
-      visibility: 'PUBLIC',
-      resourceIds,
-      createdAt: new Date().toISOString()
-    }
-    writeFolders([demo])
-    return [demo]
+async function loadExternalQuestionFolders(keyBindingId) {
+  if (!keyBindingId) {
+    externalQuestionFolders.value = []
+    return
   }
-  const demo = rows.find(folder => folder.demo)
-  if (demo) {
-    const currentIds = Array.isArray(demo.resourceIds) ? demo.resourceIds.map(String) : []
-    if (JSON.stringify(currentIds) !== JSON.stringify(resourceIds)) {
-      demo.resourceIds = resourceIds
-      writeFolders(rows)
-    }
+  try {
+    const res = await listFolders(keyBindingId, 'QUESTION')
+    externalQuestionFolders.value = (Array.isArray(res.data) ? res.data : []).map(normalizeFolder)
+  } catch (e) {
+    externalQuestionFolders.value = []
   }
-  return rows
-}
-
-function syncFolders() {
-  folders.value = ensureDemoFolder(readFolders())
-}
-
-function syncQuestionFolders() {
-  questionFolders.value = readQuestionFolders()
 }
 
 function folderCount(folder) {
-  if (folder.demo) return resourceList.value.length
-  const ids = new Set(resourceList.value.map(item => String(item.resourceId)))
-  return (folder.resourceIds || []).map(String).filter(id => ids.has(id)).length
+  return resourceList.value.filter(item => String(item.folderId || '') === String(folder.id)).length
+}
+
+function questionFolderCount(folder) {
+  return questionList.value.filter(item => String(item.folderId || '') === String(folder.id)).length
 }
 
 function enterFolder(id) {
@@ -1434,41 +1491,32 @@ function openFolderDialog(type) {
   folderDialogOpen.value = true
 }
 
-function submitFolder() {
+async function submitFolder() {
   const name = folderForm.name.trim()
   if (!name) {
     ElMessage.warning('文件夹名称不能为空')
     return
   }
-  const base = {
-    name,
-    visibility: folderForm.visibility,
-    createdAt: new Date().toISOString()
-  }
-  if (folderDialogType.value === 'resource') {
-    const rows = readFolders()
-    rows.push({
-      ...base,
-      id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      demo: false,
-      resourceIds: []
+  const resourceFolder = folderDialogType.value === 'resource'
+  try {
+    await createFolder({
+      bindingId: Number(bindingId.value),
+      kind: resourceFolder ? 'RESOURCE' : 'QUESTION',
+      name,
+      visibility: folderForm.visibility
     })
-    writeFolders(rows)
-    folders.value = ensureDemoFolder(rows)
-    currentFolderId.value = null
-  } else {
-    const rows = readQuestionFolders()
-    rows.push({
-      ...base,
-      id: `question-folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      questionIds: []
-    })
-    writeQuestionFolders(rows)
-    questionFolders.value = rows
-    currentQuestionFolderId.value = null
+    if (resourceFolder) {
+      await loadResourceFolders()
+      currentFolderId.value = null
+    } else {
+      await loadQuestionFolders()
+      currentQuestionFolderId.value = null
+    }
+    folderDialogOpen.value = false
+    ElMessage.success('文件夹已创建')
+  } catch (e) {
+    handleActionError(e, '文件夹创建失败')
   }
-  folderDialogOpen.value = false
-  ElMessage.success('文件夹已创建')
 }
 
 function folderVisibilityLabel(visibility) {
@@ -1528,40 +1576,33 @@ function batchDelete() {
       const failed = results.filter(item => item.status === 'rejected').length
       if (failed) ElMessage.warning(`批量删除完成：成功 ${results.length - failed} 项，失败 ${failed} 项`)
       else ElMessage.success(`已删除 ${results.length} 项资料`)
-      const removed = rows.map(row => String(row.resource.resourceId))
-      const folderRows = readFolders()
-      folderRows.forEach(folder => {
-        folder.resourceIds = (folder.resourceIds || []).filter(id => !removed.includes(String(id)))
-      })
-      writeFolders(folderRows)
       clearResourceSelection()
       loadOverview()
     })
     .catch(e => handleActionError(e))
 }
 
-function moveSelectedToFolder(targetId) {
+async function moveSelectedToFolder(targetId) {
   const rows = selectedRows.value.slice()
   if (!rows.length) return
-  const folderRows = readFolders()
-  const target = targetId ? folderRows.find(folder => folder.id === targetId && !folder.demo) : null
+  const target = targetId ? folders.value.find(folder => folder.id === String(targetId)) : null
   if (targetId && !target) {
     ElMessage.error('目标文件夹不存在')
     return
   }
-  const moved = rows.map(row => String(row.resource.resourceId))
-  folderRows.forEach(folder => {
-    if (folder.demo) return
-    folder.resourceIds = (folder.resourceIds || []).filter(id => !moved.includes(String(id)))
-  })
-  if (target) {
-    const existing = (target.resourceIds || []).map(String)
-    target.resourceIds = [...new Set([...existing, ...moved])]
+  try {
+    await moveToFolder({
+      bindingId: Number(bindingId.value),
+      kind: 'RESOURCE',
+      folderId: target ? Number(target.id) : null,
+      ids: rows.map(row => Number(row.resource.resourceId))
+    })
+    clearResourceSelection()
+    await loadOverview()
+    ElMessage.success(`已将 ${rows.length} 项资料移动到“${target ? target.name : '全部文件'}”`)
+  } catch (e) {
+    handleActionError(e, '移动失败')
   }
-  writeFolders(folderRows)
-  folders.value = ensureDemoFolder(folderRows)
-  clearResourceSelection()
-  ElMessage.success(`已将 ${rows.length} 项资料移动到“${target ? target.name : '全部文件'}”`)
 }
 
 /* ---------- 资料操作 ---------- */
@@ -1876,24 +1917,54 @@ async function handleDownload(versionId, binding) {
   }
 }
 
-function exportResources() {
+async function exportResources() {
   if (!resourceList.value.length) {
     ElMessage.warning('当前没有可导出的资料')
     return
   }
-  const lines = [['文件名', '阅读人数', '下载次数', '大小', '创建者', '创建日期']]
-  resourceList.value.forEach(item => {
-    const size = Number(item.byteSize)
-    lines.push([
-      item.title,
-      item.readCount ?? '-',
-      item.downloadCount ?? '-',
-      size > 0 ? formatFileSize(size) : '-',
-      item.creatorName || '-',
-      formatTime(item.createdAt)
-    ])
-  })
-  saveCsv('课程资料.csv', lines)
+  try {
+    const blob = await exportResourcesZip(bindingId.value)
+    saveAs(blob, '课程资料.zip')
+    ElMessage.success('已导出 课程资料.zip')
+  } catch (e) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+function triggerResourceImport() {
+  resourceZipInputRef.value?.click()
+}
+
+async function onResourceZipSelected(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  try {
+    await ElMessageBox.confirm(
+      `将从压缩包导入资料：${file.name}。压缩包内受支持的文件会作为课程资料逐个创建，是否继续？`,
+      '导入课程资料',
+      { type: 'warning', confirmButtonText: '导入', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  resourceImporting.value = true
+  try {
+    const res = await importResourcesZip(bindingId.value, formData)
+    const data = res.data || {}
+    if (Number(data.failed || 0) > 0) {
+      ElMessage.warning(`导入完成：成功 ${data.imported || 0} 个，失败 ${data.failed} 个`)
+    } else {
+      ElMessage.success(`导入完成：成功 ${data.imported || 0} 个`)
+    }
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '导入失败')
+  } finally {
+    resourceImporting.value = false
+  }
 }
 
 /* ---------- 题库 ---------- */
@@ -1907,7 +1978,39 @@ function handleQuestionCreateCommand(command) {
 }
 
 function handleQuestionImportCommand(label) {
-  ElMessage.info(`${label}暂未接入`)
+  if (label !== '模板导入') {
+    ElMessage.info(`${label}暂未接入`)
+    return
+  }
+  questionImportRows.value = []
+  questionImportFileName.value = ''
+  questionImportOpen.value = true
+}
+
+function triggerQuestionImportFile() {
+  questionImportInputRef.value?.click()
+}
+
+async function onQuestionImportFileSelected(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  questionImportFileName.value = file.name
+  questionImportLoading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await previewQuestionImport(bindingId.value, formData)
+    questionImportRows.value = Array.isArray(res.data) ? res.data : []
+    if (!questionImportRows.value.length) {
+      ElMessage.warning('表格中没有可导入的题目')
+    }
+  } catch (e) {
+    questionImportRows.value = []
+    ElMessage.error(e?.message || '解析失败')
+  } finally {
+    questionImportLoading.value = false
+  }
 }
 
 function createQuestionFolder() {
@@ -2065,26 +2168,61 @@ function onQuestionRowClick(row) {
   questionPreviewOpen.value = true
 }
 
-function exportQuestions() {
-  const questions = questionList.value
-  if (!questions.length) {
+async function exportQuestions() {
+  if (!questionList.value.length) {
     ElMessage.warning('当前没有可导出的题目')
     return
   }
-  const lines = [['序号', '题目', '题型', '版本', '满分', '答案', '知识点', '创建时间']]
-  questions.forEach((question, index) => {
-    lines.push([
-      index + 1,
-      question.title,
-      questionKindLabel(question.questionKind),
-      `V${question.versionNo}`,
-      `${question.maxScore} 分`,
-      formatAnswer(question.answer, question.questionKind),
-      question.knowledgePoints || '-',
-      formatTime(question.createdAt)
-    ])
-  })
-  saveCsv('课程题库.csv', lines)
+  try {
+    const blob = await exportQuestionsExcel(bindingId.value)
+    saveAs(blob, '课程题库.xlsx')
+    ElMessage.success('已导出 课程题库.xlsx')
+  } catch (e) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const questionImportValidRows = computed(() => questionImportRows.value.filter(row => row.valid))
+const questionImportInvalidCount = computed(
+  () => questionImportRows.value.filter(row => !row.valid).length
+)
+
+async function submitQuestionImport() {
+  const rows = questionImportValidRows.value
+  if (!rows.length) {
+    ElMessage.warning('没有可导入的题目')
+    return
+  }
+  questionImportSaving.value = true
+  try {
+    const res = await importQuestions({
+      bindingId: Number(bindingId.value),
+      questions: rows.map(row => ({
+        rowNo: row.rowNo,
+        title: row.title,
+        questionKind: row.questionKind,
+        stem: row.stem,
+        options: row.options,
+        answer: row.answer,
+        explanation: row.explanation,
+        scoringRubric: row.scoringRubric,
+        maxScore: row.maxScore,
+        knowledgePointIds: row.knowledgePointIds
+      }))
+    })
+    const data = res.data || {}
+    if (Number(data.failed || 0) > 0) {
+      ElMessage.warning(`导入完成：成功 ${data.imported || 0} 题，失败 ${data.failed} 题`)
+    } else {
+      ElMessage.success(`导入完成：成功 ${data.imported || 0} 题`)
+    }
+    questionImportOpen.value = false
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '导入失败')
+  } finally {
+    questionImportSaving.value = false
+  }
 }
 
 /* ---------- 大纲：章 / 节 / 知识点 ---------- */

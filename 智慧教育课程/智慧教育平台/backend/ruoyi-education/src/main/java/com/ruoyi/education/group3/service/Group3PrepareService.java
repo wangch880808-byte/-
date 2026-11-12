@@ -71,6 +71,7 @@ public class Group3PrepareService implements PreviewTaskProvider
 
         Map<String, Object> question = new LinkedHashMap<>();
         question.put("courseSpaceId", courseSpaceId);
+        question.put("folderId", null);
         question.put("title", title);
         question.put("userId", Group3Security.currentUserId());
         mapper.insertQuestion(question);

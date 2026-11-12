@@ -64,7 +64,45 @@ public class Group3FileStorageService
         {
             throw new ServiceException("请选择要上传的文件", HttpStatus.BAD_REQUEST);
         }
-        String originalName = sanitizeName(file.getOriginalFilename());
+        try
+        {
+            return write(file.getInputStream(), file.getOriginalFilename(),
+                    file.getContentType(), courseSpaceId);
+        }
+        catch (IOException error)
+        {
+            throw new ServiceException("文件保存失败：" + error.getMessage(), HttpStatus.ERROR);
+        }
+    }
+
+    /** 供压缩包导入使用：按文件名字节写入存储。 */
+    public StoredUpload store(byte[] content, String originalName, Long courseSpaceId)
+    {
+        if (content == null || content.length == 0)
+        {
+            throw new ServiceException("文件内容为空", HttpStatus.BAD_REQUEST);
+        }
+        try (InputStream input = new java.io.ByteArrayInputStream(content))
+        {
+            return write(input, originalName, null, courseSpaceId);
+        }
+        catch (IOException error)
+        {
+            throw new ServiceException("文件保存失败：" + error.getMessage(), HttpStatus.ERROR);
+        }
+    }
+
+    /** 判断文件名是否为平台支持的资料格式。 */
+    public boolean supports(String fileName)
+    {
+        return SUPPORTED_EXTENSIONS.contains(extensionOf(sanitizeName(fileName)));
+    }
+
+    private StoredUpload write(
+            InputStream input, String submittedName, String submittedMime, Long courseSpaceId)
+            throws IOException
+    {
+        String originalName = sanitizeName(submittedName);
         String extension = extensionOf(originalName);
         if (!SUPPORTED_EXTENSIONS.contains(extension))
         {
@@ -75,20 +113,10 @@ public class Group3FileStorageService
         String storageKey = "resources/" + courseSpaceId + "/" + UUID.randomUUID()
                 + "/" + originalName;
         Path target = resolve(storageKey);
-        try
-        {
-            Files.createDirectories(target.getParent());
-            try (InputStream input = file.getInputStream())
-            {
-                Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-            return new StoredUpload(storageKey, sha256(target), mimeType(file.getContentType(), extension),
-                    Files.size(target), originalName, extension);
-        }
-        catch (IOException error)
-        {
-            throw new ServiceException("文件保存失败：" + error.getMessage(), HttpStatus.ERROR);
-        }
+        Files.createDirectories(target.getParent());
+        Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
+        return new StoredUpload(storageKey, sha256(target), mimeType(submittedMime, extension),
+                Files.size(target), originalName, extension);
     }
 
     public List<ConvertedPage> convert(String storageKey, String originalName)

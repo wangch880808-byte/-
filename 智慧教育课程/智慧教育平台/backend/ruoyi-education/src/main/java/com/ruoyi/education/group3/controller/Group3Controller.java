@@ -2,9 +2,12 @@ package com.ruoyi.education.group3.controller;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -28,6 +31,7 @@ import com.ruoyi.education.group3.mapper.Group3Mapper;
 import com.ruoyi.education.group3.service.Group3AccessService;
 import com.ruoyi.education.group3.service.Group3PrepareService;
 import com.ruoyi.education.group3.service.Group3ResourceService;
+import com.ruoyi.education.group3.service.Group3TransferService;
 import com.ruoyi.education.group3.support.Group3Requests;
 import com.ruoyi.education.group3.support.Group3Security;
 
@@ -38,6 +42,7 @@ public class Group3Controller
     private final Group3AccessService accessService;
     private final Group3ResourceService resourceService;
     private final Group3PrepareService prepareService;
+    private final Group3TransferService transferService;
     private final Group3Mapper mapper;
     private final PublishedResourceProvider publishedResourceProvider;
     private final PreviewTaskProvider previewTaskProvider;
@@ -46,6 +51,7 @@ public class Group3Controller
             Group3AccessService accessService,
             Group3ResourceService resourceService,
             Group3PrepareService prepareService,
+            Group3TransferService transferService,
             Group3Mapper mapper,
             PublishedResourceProvider publishedResourceProvider,
             PreviewTaskProvider previewTaskProvider)
@@ -53,6 +59,7 @@ public class Group3Controller
         this.accessService = accessService;
         this.resourceService = resourceService;
         this.prepareService = prepareService;
+        this.transferService = transferService;
         this.mapper = mapper;
         this.publishedResourceProvider = publishedResourceProvider;
         this.previewTaskProvider = previewTaskProvider;
@@ -142,6 +149,28 @@ public class Group3Controller
                 .body(resource);
     }
 
+    @GetMapping("/resources/export")
+    public ResponseEntity<Resource> exportResources(@RequestParam Long bindingId)
+    {
+        byte[] content = transferService.exportResources(bindingId);
+        return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("课程资料.zip", StandardCharsets.UTF_8)
+                                .build().toString())
+                .body(new ByteArrayResource(content));
+    }
+
+    @PostMapping("/resources/import")
+    public R<Map<String, Object>> importResources(
+            @RequestParam Long bindingId,
+            @RequestParam("file") MultipartFile file)
+    {
+        Map<String, Object> result = transferService.importResources(bindingId, file);
+        return R.ok(result, "导入完成：成功 " + result.get("imported") + " 个");
+    }
+
     @PostMapping("/releases")
     public R<Map<String, Object>> release(@RequestBody Group3Requests.ReleaseResource request)
     {
@@ -222,6 +251,49 @@ public class Group3Controller
             @RequestBody Group3Requests.Status request)
     {
         return R.ok(prepareService.updateQuestionStatus(bindingId, questionId, request), "题目状态已更新");
+    }
+
+    @GetMapping("/questions/export")
+    public ResponseEntity<Resource> exportQuestions(@RequestParam Long bindingId)
+    {
+        byte[] content = transferService.exportQuestions(bindingId);
+        return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("课程题库.xlsx", StandardCharsets.UTF_8)
+                                .build().toString())
+                .body(new ByteArrayResource(content));
+    }
+
+    @PostMapping("/questions/import/preview")
+    public R<List<Map<String, Object>>> previewQuestionImport(
+            @RequestParam Long bindingId,
+            @RequestParam("file") MultipartFile file)
+    {
+        return R.ok(transferService.previewQuestionImport(bindingId, file));
+    }
+
+    @PostMapping("/questions/import")
+    public R<Map<String, Object>> importQuestions(@RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        List<Map<String, Object>> questions = new ArrayList<>();
+        if (body.get("questions") instanceof List<?> list)
+        {
+            for (Object item : list)
+            {
+                if (item instanceof Map<?, ?> map)
+                {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    map.forEach((key, value) -> row.put(String.valueOf(key), value));
+                    questions.add(row);
+                }
+            }
+        }
+        Map<String, Object> result = transferService.importQuestions(bindingId, questions);
+        return R.ok(result, "导入完成：成功 " + result.get("imported") + " 题");
     }
 
     @GetMapping("/plans")
@@ -551,5 +623,162 @@ public class Group3Controller
         removed.put("id", targetId);
         removed.put("bindingId", bindingId);
         return R.ok(removed, "环节已归档");
+    }
+
+    /* === 资料 / 题库文件夹 === */
+
+    @GetMapping("/folders")
+    public R<List<Map<String, Object>>> folders(
+            @RequestParam Long bindingId,
+            @RequestParam String kind)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        return R.ok(foldersOf(courseSpaceId, kind));
+    }
+
+    @PostMapping("/folders")
+    public R<Map<String, Object>> createFolder(@RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String kind = String.valueOf(body.getOrDefault("kind", "RESOURCE")).toUpperCase();
+        String name = body.get("name") == null ? "" : body.get("name").toString().trim();
+        String visibility = body.get("visibility") == null ? "PUBLIC"
+                : body.get("visibility").toString().toUpperCase();
+        if (name.isBlank())
+        {
+            return R.fail("文件夹名称不能为空");
+        }
+        if (name.length() > 60)
+        {
+            return R.fail("文件夹名称不能超过 60 个字符");
+        }
+        if (!Set.of("PUBLIC", "PRIVATE", "PARTIAL").contains(visibility))
+        {
+            return R.fail("可见性无效");
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("name", name);
+        row.put("visibility", visibility);
+        row.put("userId", Group3Security.currentUserId());
+        if ("QUESTION".equals(kind))
+        {
+            mapper.insertQuestionFolder(row);
+        }
+        else
+        {
+            mapper.insertResourceFolder(row);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", row.get("id"));
+        result.put("name", name);
+        result.put("visibility", visibility);
+        return R.ok(result, "文件夹已创建");
+    }
+
+    @PatchMapping("/folders/{folderId}")
+    public R<Map<String, Object>> updateFolder(
+            @PathVariable Long folderId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String kind = String.valueOf(body.getOrDefault("kind", "RESOURCE")).toUpperCase();
+        String name = body.get("name") == null ? "" : body.get("name").toString().trim();
+        String visibility = body.get("visibility") == null ? "PUBLIC"
+                : body.get("visibility").toString().toUpperCase();
+        if (name.isBlank())
+        {
+            return R.fail("文件夹名称不能为空");
+        }
+        if (!Set.of("PUBLIC", "PRIVATE", "PARTIAL").contains(visibility))
+        {
+            return R.fail("可见性无效");
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("folderId", folderId);
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("name", name);
+        row.put("visibility", visibility);
+        int changed = "QUESTION".equals(kind)
+                ? mapper.updateQuestionFolder(row)
+                : mapper.updateResourceFolder(row);
+        if (changed == 0)
+        {
+            return R.fail("文件夹不存在或不属于当前课程");
+        }
+        return R.ok(row, "文件夹已更新");
+    }
+
+    @DeleteMapping("/folders/{folderId}")
+    public R<Map<String, Object>> deleteFolder(
+            @PathVariable Long folderId,
+            @RequestParam Long bindingId,
+            @RequestParam String kind)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        int changed = "QUESTION".equalsIgnoreCase(kind)
+                ? mapper.deleteQuestionFolder(courseSpaceId, folderId)
+                : mapper.deleteResourceFolder(courseSpaceId, folderId);
+        if (changed == 0)
+        {
+            return R.fail("文件夹不存在或不属于当前课程");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("folderId", folderId);
+        return R.ok(result, "文件夹已删除");
+    }
+
+    @PostMapping("/folders/move")
+    public R<Map<String, Object>> moveToFolder(@RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String kind = String.valueOf(body.getOrDefault("kind", "RESOURCE")).toUpperCase();
+        Long folderId = body.get("folderId") == null ? null : Long.valueOf(body.get("folderId").toString());
+        List<Long> ids = new ArrayList<>();
+        if (body.get("ids") instanceof List<?> list)
+        {
+            for (Object item : list)
+            {
+                if (item != null && !item.toString().isBlank())
+                {
+                    ids.add(Long.valueOf(item.toString()));
+                }
+            }
+        }
+        if (ids.isEmpty())
+        {
+            return R.fail("请选择要移动的项");
+        }
+        if (folderId != null)
+        {
+            boolean exists = foldersOf(courseSpaceId, kind).stream()
+                    .anyMatch(folder -> folderId.equals(Group3AccessService.asLong(folder.get("id"))));
+            if (!exists)
+            {
+                return R.fail("目标文件夹不存在");
+            }
+        }
+        int moved = "QUESTION".equals(kind)
+                ? mapper.moveQuestionsToFolder(courseSpaceId, folderId, ids)
+                : mapper.moveResourcesToFolder(courseSpaceId, folderId, ids);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("moved", moved);
+        result.put("folderId", folderId);
+        return R.ok(result, "已移动 " + moved + " 项");
+    }
+
+    private List<Map<String, Object>> foldersOf(Long courseSpaceId, String kind)
+    {
+        return "QUESTION".equalsIgnoreCase(kind)
+                ? mapper.selectQuestionFolders(courseSpaceId)
+                : mapper.selectResourceFolders(courseSpaceId);
     }
 }

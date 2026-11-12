@@ -222,4 +222,36 @@ public interface Group3Mapper
 
     /** 软归档备课包 */
     int updateLessonPlanStatus(Map<String, Object> row);
+
+    /* ---------- 资料 / 题库文件夹 ---------- */
+
+    List<Map<String, Object>> selectResourceFolders(@Param("courseSpaceId") Long courseSpaceId);
+
+    List<Map<String, Object>> selectQuestionFolders(@Param("courseSpaceId") Long courseSpaceId);
+
+    int insertResourceFolder(Map<String, Object> row);
+
+    int insertQuestionFolder(Map<String, Object> row);
+
+    int updateResourceFolder(Map<String, Object> row);
+
+    int updateQuestionFolder(Map<String, Object> row);
+
+    int deleteResourceFolder(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("folderId") Long folderId);
+
+    int deleteQuestionFolder(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("folderId") Long folderId);
+
+    int moveResourcesToFolder(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("folderId") Long folderId,
+            @Param("ids") List<Long> ids);
+
+    int moveQuestionsToFolder(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("folderId") Long folderId,
+            @Param("ids") List<Long> ids);
 }
