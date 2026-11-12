@@ -47,9 +47,10 @@
             <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
           </el-card>
         </el-tab-pane>
-        <el-tab-pane label="同步课堂" name="classroom">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('classroom')" :image-size="80" />
+        <el-tab-pane label="同步课堂" name="classroom" lazy>
+          <student-classroom v-if="bindingId" :key="'classroom-' + bindingId" :context-binding-id="bindingId" />
+          <el-card v-else shadow="never">
+            <el-empty description="未找到本课教学班绑定。请先在顶部课程上下文中选择课程与教学班，或确认你已在该班名单中。" :image-size="80" />
           </el-card>
         </el-tab-pane>
         <el-tab-pane label="课后学习" name="homework">
@@ -82,6 +83,7 @@ import { context } from '@/education/context'
 
 const StudentMaterials = defineAsyncComponent(() => import('@/views/education/group3/StudentMaterials.vue'))
 const StudentPrestudy = defineAsyncComponent(() => import('@/views/education/group3/StudentPrestudy.vue'))
+const StudentClassroom = defineAsyncComponent(() => import('@/views/education/group4/StudentClassroom.vue'))
 
 const route = useRoute()
 const courseId = computed(() => route.params.courseId)
@@ -95,12 +97,20 @@ const course = ref({})
 const activeTab = ref('outline')
 
 const bindingId = computed(() => {
+  const courseSpaceId = String(course.value.id || '')
   const selected = context.current
-  const sameCourse = selected?.courseSpaceId && String(selected.courseSpaceId) === String(course.value.id)
+  const sameCourse = selected?.courseSpaceId && String(selected.courseSpaceId) === courseSpaceId
+  const fromContextList = (context.courses || []).find(
+    item => String(item.courseSpaceId || item.id || '') === courseSpaceId && item.bindingId
+  )
+  const fromClasses = (course.value.classes || []).find(item => item.bindingId) || course.value.classes?.[0]
   return String(
     (sameCourse ? selected.bindingId : '') ||
     route.query.bindingId ||
     course.value.bindingId ||
+    fromContextList?.bindingId ||
+    fromClasses?.bindingId ||
+    fromClasses?.id ||
     ''
   )
 })

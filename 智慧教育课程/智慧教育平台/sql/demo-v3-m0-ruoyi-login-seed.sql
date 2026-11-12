@@ -11,7 +11,7 @@ DELIMITER //
 CREATE PROCEDURE edu_demo_login_seed_20261022()
 BEGIN
     DECLARE v_admin_hash VARCHAR(100)
-        DEFAULT '$2b$10$QaxcBTxAlvHSAbK33KHoH.Q30Rf4yhj8IeFPsufeSwdvb3VOYlzzi';
+        DEFAULT '$2a$10$J6vOCU1f/wkgFsvPtiCUsuLFKdN06aTfZwhryID0YF5BfnGaY4JeO';
     DECLARE v_teacher_hash VARCHAR(100)
         DEFAULT '$2b$10$gFkWCmCTyHHA5.wcrJ3kr.C/fSwc936qP0232yeIxb3dWd0L9aynS';
     DECLARE v_student_hash VARCHAR(100)

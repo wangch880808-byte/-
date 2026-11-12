@@ -68,7 +68,7 @@ mvn.cmd -B -pl ruoyi-admin -am package -DskipTests
 
 - Vue：<http://127.0.0.1:8080/vue/>
 - 原静态页：<http://127.0.0.1:8080/login.html>
-- 账号：`admin / admin123`、`teacher / teacher123`、`student / student123`（见 `docs/demo-login-accounts.txt`）
+- 账号：`admin / 123456`、`teacher / teacher123`、`student / student123`（见 `docs/demo-login-accounts.txt`）
 
 ---
 

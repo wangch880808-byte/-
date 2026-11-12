@@ -11,7 +11,7 @@ router.beforeEach(async to=>{
  if(!token)return to.meta.public?true:{path:'/login',query:{redirect:to.fullPath}}
  try{
   await bootstrap();if(!current())return
-  if(to.meta.public)return '/'+session.role
+  if(to.meta.public)return to.meta.publicStay?true:'/'+session.role
   if(to.name==='course-detail'&&String(to.query.courseSpaceId||'')!==String(to.params.courseId))return{path:to.path,query:{courseSpaceId:to.params.courseId}}
   if(to.params.role!==session.role)return '/'+session.role
   if(to.meta.adminPlaceholder&&session.role!=='admin')return '/'+session.role

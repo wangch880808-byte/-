@@ -72,7 +72,7 @@ create table sys_user (
 -- ----------------------------
 -- 初始化-用户信息表数据
 -- ----------------------------
-insert into sys_user values(1,  103, 'admin', '若依', '00', 'ry@163.com', '15888888888', '1', '', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '管理员');
+insert into sys_user values(1,  103, 'admin', '若依', '00', 'ry@163.com', '15888888888', '1', '', '$2a$10$J6vOCU1f/wkgFsvPtiCUsuLFKdN06aTfZwhryID0YF5BfnGaY4JeO', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '管理员');
 insert into sys_user values(2,  105, 'ry',    '若依', '00', 'ry@qq.com',  '15666666666', '1', '', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '测试员');
 
 
@@ -2400,7 +2400,7 @@ DELIMITER //
 CREATE PROCEDURE edu_demo_login_seed_20261022()
 BEGIN
     DECLARE v_admin_hash VARCHAR(100)
-        DEFAULT '$2b$10$w.4XLiGxiarh2L5n4ro0oufPMTHjUNyWKJDZAoAAVEPLy5ORjbZh2';
+        DEFAULT '$2a$10$J6vOCU1f/wkgFsvPtiCUsuLFKdN06aTfZwhryID0YF5BfnGaY4JeO';
     DECLARE v_teacher_hash VARCHAR(100)
         DEFAULT '$2b$10$w.4XLiGxiarh2L5n4ro0oufPMTHjUNyWKJDZAoAAVEPLy5ORjbZh2';
     DECLARE v_student_hash VARCHAR(100)

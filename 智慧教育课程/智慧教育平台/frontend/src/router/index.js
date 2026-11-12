@@ -14,6 +14,7 @@ const router = createRouter({
   history: createWebHashHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/education/LoginView.vue'), meta: { public: true } },
+    { path: '/education/projection', name: 'classroom-projection', component: () => import('@/views/education/classroom/Projection.vue'), meta: { public: true, publicStay: true } },
     { path: '/', redirect: () => getToken() ? '/' + (session.role || 'admin') : '/login' },
     { path: '/:role(admin|teacher|student)', name: 'workspace', component: () => import('@/layout/education/AppLayout.vue'),
       children: [{ path: '', name: 'home', component: () => import('@/views/education/HomeView.vue') }, ...pages.map(pageRoute), ...placeholderRoutes,

@@ -86,9 +86,10 @@
             <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
           </el-card>
         </el-tab-pane>
-        <el-tab-pane label="课堂教学" name="classroom">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('classroom')" :image-size="80" />
+        <el-tab-pane label="课堂教学" name="classroom" lazy>
+          <teacher-classroom v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
+          <el-card v-else shadow="never">
+            <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
           </el-card>
         </el-tab-pane>
         <el-tab-pane label="课后作业与反馈" name="homework">
@@ -182,6 +183,7 @@ import { context } from '@/education/context'
 
 const TeacherStudio = defineAsyncComponent(() => import('@/views/education/group3/TeacherStudio.vue'))
 const TeacherPrepare = defineAsyncComponent(() => import('@/views/education/group3/TeacherPrepare.vue'))
+const TeacherClassroom = defineAsyncComponent(() => import('@/views/education/group4/TeacherClassroom.vue'))
 
 const { proxy } = getCurrentInstance()
 const route = useRoute()
