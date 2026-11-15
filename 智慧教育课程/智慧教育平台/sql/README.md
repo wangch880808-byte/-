@@ -7,6 +7,7 @@
 | install-fresh.sql | 仅新建空库。含上游重建表、44 张教学业务表、虚构演示数据、登录账号、身份视图和菜单权限。不能对已有库执行。 |
 | upgrade-course-content.sql | 在现有业务库执行一次，增加章节正文、附件和课程逻辑删除支持，可重复执行。 |
 | upgrade-group12.sql | 已有同版本 sys_* / edu_* 基础表的库；补当前学期、身份视图与权限；不写演示数据或账号密码。先备份。 |
+| upgrade-group3-library-import-folders.sql | 已有业务库执行一次；补资料库／题库文件夹表及 edu_resource.folder_id、edu_question.folder_id 字段；可重复执行。 |
 | group12-system-directory.sql | 第一组提供的四个只读身份目录视图，第二组不直接查询系统私有表。 |
 | group12-menu-permissions.sql | 可重复执行的第二组页面／操作权限与三角色授权。 |
 | mysql-v3-m0-core-schema.sql | 教学核心表的单项建表脚本；已被新安装总脚本包含。 |

@@ -3,7 +3,7 @@
 -- These fixed BCrypt hashes are for disposable test databases only.
 -- High demo IDs advance MySQL AUTO_INCREMENT counters; use only in a disposable test DB.
 -- No menu grants are added: role identity works, while getRouters may be empty.
-USE zhijiao_m0;
+-- 本脚本不切换数据库：执行前请先手动 USE 目标演示库。
 SET NAMES utf8mb4;
 
 DROP PROCEDURE IF EXISTS edu_demo_login_seed_20261022;
