@@ -6,9 +6,10 @@ spring:
         druid:
             # 主库数据源
             master:
-                url: jdbc:mysql://127.0.0.1:3306/smart_edu_g12?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-                username: root
-                password: MySQL80@2025
+                # 数据库连接必须由 backend/.env 提供，避免账号口令进入 Git；默认值仅用于本地空口令演示库
+                url: ${RUOYI_DB_URL:jdbc:mysql://127.0.0.1:3306/smart_edu_g12?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+                username: ${RUOYI_DB_USERNAME:root}
+                password: ${RUOYI_DB_PASSWORD:}
             # 从库数据源
             slave:
                 # 从数据源开关/默认关闭

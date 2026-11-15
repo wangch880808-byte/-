@@ -29,7 +29,7 @@
 - `application.yml` 单文件上传上限由 10 MB 调整为 200 MB、请求总上限 220 MB，以支持课件与 PDF；第二组课程大纲附件仍在 `EduOutlineContentController` 内单独限制 10 MB，语义不变。
 - 前端新增 `src/api/education/group3.js` 与 `src/views/education/group3/`；页面不再注册为侧栏路由，由教师／学生课程详情按标签页异步加载，不新增若依菜单权限标识。
 - `AppLayout.vue` 非管理员导航维持“工作台＋我的课程”两条固定入口，第三组页面不再作为侧栏菜单；课程详情内通过标签页进入，顶部课程／教学班选择器继续负责上下文切换。
-- 第三组依赖的 `edu_resource*`、`edu_question*`、`edu_lesson_plan`、`edu_assignment*` 等 16 张表已包含在 M0 基础表和新库总脚本中，本版没有表结构变更，也没有新增迁移脚本。
+- 第三组依赖的 `edu_resource*`、`edu_question*`、`edu_lesson_plan`、`edu_assignment*` 等 16 张表已包含在 M0 基础表和新库总脚本中；资料库／题库文件夹功能另新增 `edu_resource_folder`、`edu_question_folder` 两张表以及 `edu_resource.folder_id`、`edu_question.folder_id` 两个字段，教学业务表合计 46 张。新库总脚本已包含这些变更，已有库需执行一次 `sql/upgrade-group3-library-import-folders.sql`（可重复执行，不写业务数据）。
 - 第三组读写教学班与成员关系时仍使用 `Group3Mapper` 只读 SQL。这是第三组在第二组服务契约冻结前的适配层；本次不擅自改动其已验证逻辑，后续正式联调应按第三组交接说明替换为第二组服务契约，避免长期直读其他领域私有表。
 - 预习提交继续复用共享 `edu_assignment`、`edu_assignment_submission`、`edu_submission_version` 表，作为第 5 组统一作业服务接管前的回退实现；本次不新建第二套提交表。
 - 登录、令牌、401/403、请求客户端、页签与退出均沿用第一组能力；第三组未另建登录态。

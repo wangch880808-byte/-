@@ -49,6 +49,9 @@ public class Group3TransferService
     // 与 application.yml 的单文件上传上限 200MB 保持一致
     private static final int MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 
+    // 单个 ZIP 解压后的累计上限，防止压缩包解压膨胀占满磁盘
+    private static final long MAX_IMPORT_TOTAL_BYTES = 1024L * 1024 * 1024;
+
     private final Group3Mapper mapper;
     private final Group3AccessService accessService;
     private final Group3ResourceService resourceService;
@@ -256,6 +259,7 @@ public class Group3TransferService
         }
         int imported = 0;
         int skipped = 0;
+        long totalBytes = 0;
         List<Map<String, Object>> failures = new ArrayList<>();
 
         try (InputStream input = file.getInputStream();
@@ -293,6 +297,12 @@ public class Group3TransferService
                     skipped++;
                     failures.add(failure(baseName, "文件超过 200MB"));
                     continue;
+                }
+                totalBytes += content.length;
+                if (totalBytes > MAX_IMPORT_TOTAL_BYTES)
+                {
+                    failures.add(failure(baseName, "压缩包解压后累计超过 1GB，已停止后续导入"));
+                    break;
                 }
                 String title = baseName.replaceFirst("\\.[^.]+$", "");
                 try
