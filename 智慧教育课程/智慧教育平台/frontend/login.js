@@ -107,7 +107,7 @@
     await api('/getRouters', { headers });
   }
 
-  const buildTag = '20261110d';
+  const buildTag = '20261116b';
 
   function openRolePage(role) {
     window.location.replace(`/${role}.html?v=${buildTag}`);

@@ -24,6 +24,7 @@ import com.ruoyi.common.core.domain.R;
 import com.ruoyi.education.group3.contract.PreviewTaskProvider;
 import com.ruoyi.education.group3.contract.PublishedResourceProvider;
 import com.ruoyi.education.group3.service.Group3AccessService;
+import com.ruoyi.education.group3.service.Group3DiscussionService;
 import com.ruoyi.education.group3.service.Group3PrepareService;
 import com.ruoyi.education.group3.service.Group3ResourceService;
 import com.ruoyi.education.group3.support.Group3Requests;
@@ -35,6 +36,7 @@ public class Group3Controller
     private final Group3AccessService accessService;
     private final Group3ResourceService resourceService;
     private final Group3PrepareService prepareService;
+    private final Group3DiscussionService discussionService;
     private final PublishedResourceProvider publishedResourceProvider;
     private final PreviewTaskProvider previewTaskProvider;
 
@@ -42,12 +44,14 @@ public class Group3Controller
             Group3AccessService accessService,
             Group3ResourceService resourceService,
             Group3PrepareService prepareService,
+            Group3DiscussionService discussionService,
             PublishedResourceProvider publishedResourceProvider,
             PreviewTaskProvider previewTaskProvider)
     {
         this.accessService = accessService;
         this.resourceService = resourceService;
         this.prepareService = prepareService;
+        this.discussionService = discussionService;
         this.publishedResourceProvider = publishedResourceProvider;
         this.previewTaskProvider = previewTaskProvider;
     }
@@ -257,13 +261,79 @@ public class Group3Controller
     @PostMapping("/stages/remove")
     public R<Map<String, Object>> removeStage(@RequestBody Group3Requests.RemoveStage request)
     {
+        if (request != null && "DISCUSSION".equalsIgnoreCase(request.kind()))
+        {
+            return R.ok(discussionService.archiveStage(request), "讨论环节已移入回收站");
+        }
         return R.ok(prepareService.removeStage(request), "环节已移除");
     }
 
     @PostMapping("/stages/update")
     public R<Map<String, Object>> updateStage(@RequestBody Group3Requests.UpdateStage request)
     {
+        if (request != null && "DISCUSSION".equalsIgnoreCase(request.kind()))
+        {
+            return R.ok(discussionService.updateStage(request), "讨论环节设置已保存");
+        }
         return R.ok(prepareService.updateStage(request), "环节设置已保存");
+    }
+
+    /* ------------------------- 发布讨论环节 ------------------------- */
+
+    @GetMapping("/discussions")
+    public R<List<Map<String, Object>>> discussions(
+            @RequestParam Long bindingId,
+            @RequestParam(required = false) String view,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long folderId,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String scope)
+    {
+        return R.ok(discussionService.topics(bindingId, view, keyword, folderId, sort, scope));
+    }
+
+    @GetMapping("/discussions/{topicId}")
+    public R<Map<String, Object>> discussionDetail(
+            @PathVariable Long topicId,
+            @RequestParam Long bindingId)
+    {
+        return R.ok(discussionService.topicDetail(bindingId, topicId));
+    }
+
+    @PostMapping("/discussions")
+    public R<Map<String, Object>> createDiscussion(@RequestBody Group3Requests.DiscussionTopic request)
+    {
+        return R.ok(discussionService.createTopic(request), "讨论已发布");
+    }
+
+    @PostMapping("/discussions/{topicId}/posts")
+    public R<Map<String, Object>> createDiscussionPost(
+            @PathVariable Long topicId,
+            @RequestBody Group3Requests.DiscussionPost request)
+    {
+        Group3Requests.DiscussionPost body = new Group3Requests.DiscussionPost(
+                request.bindingId(), topicId, request.parentPostId(), request.content(),
+                request.anonymous(), request.attachmentName(), request.attachmentUrl());
+        return R.ok(discussionService.createPost(body), "已发表");
+    }
+
+    @PostMapping("/discussions/action")
+    public R<Map<String, Object>> discussionAction(@RequestBody Group3Requests.DiscussionAction request)
+    {
+        return R.ok(discussionService.action(request), "操作已完成");
+    }
+
+    @GetMapping("/discussion-folders")
+    public R<List<Map<String, Object>>> discussionFolders(@RequestParam Long bindingId)
+    {
+        return R.ok(discussionService.folders(bindingId));
+    }
+
+    @PostMapping("/discussion-folders")
+    public R<Map<String, Object>> createDiscussionFolder(
+            @RequestBody Group3Requests.DiscussionFolder request)
+    {
+        return R.ok(discussionService.createFolder(request), "文件夹已创建");
     }
 
     @GetMapping("/health")

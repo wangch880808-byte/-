@@ -5,7 +5,7 @@
   const roleKey = 'zhijiao.login.role';
   const pageRole = document.body.dataset.role;
   const knownRoles = ['admin', 'teacher', 'student'];
-  const buildTag = '20261110d';
+  const buildTag = '20261116b';
   const status = document.getElementById('authStatus');
   const message = document.getElementById('authMessage');
   const retryButton = document.getElementById('authRetry');

@@ -10,8 +10,8 @@
 <script>
   (function () {
     var u = new URL(location.href);
-    if (u.searchParams.get('v') !== '20261110d') {
-      u.searchParams.set('v', '20261110d');
+    if (u.searchParams.get('v') !== '20261116b') {
+      u.searchParams.set('v', '20261116b');
       location.replace(u.toString());
     }
   })();
@@ -109,7 +109,7 @@
   #authRetry, .logout-button { border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; padding: 5px 10px; color: #555; cursor: pointer; font: inherit; }
   #authRetry:hover, .logout-button:hover { color: #1890ff; border-color: #1890ff; }
 </style>
-    <link rel="stylesheet" href="/group3.css?v=20261110d">
+    <link rel="stylesheet" href="/group3.css?v=20261116b">
 </head>
 <body class="auth-pending" data-role="student">
   <div id="authStatus" role="status"><span id="authMessage">正在核验登录信息…</span><button type="button" id="authRetry" hidden>重试</button></div>
@@ -239,9 +239,9 @@ function closeTab(g, i) {
   if (wasActive) {
     if (tabs.length > 0) {
       var next = tabs[Math.min(idx, tabs.length - 1)];
-      location.href = '?g=' + next.g + '&i=' + next.i;
+      location.href = '?g=' + next.g + '&i=' + next.i + '&v=20261116b';
     } else {
-      location.href = '?g=0&i=0';
+      location.href = '?g=0&i=0&v=20261116b';
     }
   } else {
     renderTabs();
@@ -267,7 +267,7 @@ function init() {
 
 init();
 </script>
-<script src="/group3.js?v=20261110d"></script>
-<script src="/role-home.js?v=20261110d"></script>
+<script src="/group3.js?v=20261116b"></script>
+<script src="/role-home.js?v=20261116b"></script>
 </body>
 </html>

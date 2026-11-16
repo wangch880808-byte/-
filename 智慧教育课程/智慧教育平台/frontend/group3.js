@@ -4,7 +4,7 @@
   // 第 3 组页面挂载层。三端 HTML 外壳、导航、页签、登录态与 Group3App.render(gi, ii)
   // 契约保持不变；本文件只负责把四个业务页面渲染进 #group3Content。
   // 前端构建号：所有页面内跳转都带上它，避免浏览器/IDE 内置浏览器复用改动前的缓存页面。
-  const BUILD = '20261110d';
+  const BUILD = '20261116b';
   function buildUrl(url) {
     const hashAt = url.indexOf('#');
     const path = hashAt < 0 ? url : url.slice(0, hashAt);
@@ -45,7 +45,13 @@
     stageGroups: [],
     // 独立分步创建页：与总览共用 #group3Content 和 ?g=&i= 路由，只用 #create= 区分视图。
     createFlow: '',
-    createDraft: {}
+    createDraft: {},
+    // 讨论区：列表筛选、当前话题与面板状态只在环节页内使用。
+    discussion: {
+      view: 'all', sort: 'publish', keyword: '', folderId: '',
+      topics: [], detail: null, activeTopicId: null,
+      composer: false, settings: false, folders: [], fullscreen: false
+    }
   };
 
   const routes = role === 'teacher'
@@ -65,6 +71,7 @@
     MATERIAL: { label: '资料阅读', short: '资料', tone: 'blue', icon: '▤' },
     QUIZ: { label: '预习习题', short: '习题', tone: 'teal', icon: '✎' },
     PLAN: { label: '备课包', short: '备课', tone: 'amber', icon: '◈' },
+    DISCUSSION: { label: '发布讨论', short: '讨论', tone: 'violet', icon: '❝' },
     DRAFT: { label: '待编排资料', short: '草稿', tone: 'slate', icon: '◌' }
   };
 
@@ -355,7 +362,7 @@
     }, fields);
   }
 
-  function collectTeacherNodes(overview, taskRows, plans) {
+  function collectTeacherNodes(overview, taskRows, plans, discussions) {
     const serverNow = overview.serverTime;
     const lessons = overview.lessons || [];
     const lessonTime = new Map(lessons.map(lesson => [String(lesson.lessonId), lesson.scheduledAt]));
@@ -432,10 +439,13 @@
       }));
     });
 
+    // 一个讨论话题 = 时间轴上的一个「发布讨论」环节。
+    (discussions || []).forEach(row => appendDiscussionNode(nodes, row));
+
     return nodes;
   }
 
-  function collectStudentNodes(materials, taskRows) {
+  function collectStudentNodes(materials, taskRows, discussions) {
     const nodes = [];
     (materials || []).forEach(item => {
       nodes.push(makeNode({
@@ -470,13 +480,37 @@
         meta: { ...row, itemCount: items.length, submitted, answerVisible, answerOpensAt: row.answerOpensAt }
       }));
     });
+    (discussions || []).forEach(row => appendDiscussionNode(nodes, row));
     return nodes;
+  }
+
+  function appendDiscussionNode(nodes, row) {
+    if (!row || row.topicId == null) return;
+    const tags = [row.category || '课堂讨论',
+      `${Number(row.replyCount || 0)} 条回复`,
+      `${Number(row.likeCount || 0)} 点赞`];
+    if (row.pinned) tags.unshift('置顶');
+    if (row.featured) tags.push('精华');
+    if (row.scoreEnabled) tags.push('计分');
+    nodes.push(makeNode({
+      key: `discussion-${row.topicId}`, kind: 'DISCUSSION', id: row.topicId,
+      title: row.title || '讨论话题',
+      subtitle: String(row.content || '').replace(/\s+/g, ' ').slice(0, 90),
+      opensAt: row.opensAt || null, closesAt: row.closesAt || null,
+      time: row.opensAt || row.createdAt || null,
+      state: String(row.state || 'OPEN').toUpperCase(),
+      tags,
+      meta: { ...row, topicId: row.topicId,
+        postCount: row.postCount, participantCount: row.participantCount,
+        replyCount: row.replyCount, likeCount: row.likeCount }
+    }));
   }
 
   function filterNodes(nodes, filter) {
     if (!filter || filter === 'all') return nodes.slice();
     if (filter === 'todo') {
-      return nodes.filter(node => node.kind === 'QUIZ' && !node.meta.submitted && ['OPEN', 'UPCOMING'].includes(node.state));
+      return nodes.filter(node => ['QUIZ', 'DISCUSSION'].includes(node.kind)
+      && !node.meta.submitted && !node.meta.myPosted && ['OPEN', 'UPCOMING'].includes(node.state));
     }
     if (filter === 'pending') {
       return nodes.filter(node => ['DRAFT', 'FAILED', 'UPCOMING'].includes(node.state));
@@ -540,7 +574,8 @@
     // 每个环节都有独立入口：进入后占满内容区，可上下切换环节。
     const enterLabel = role === 'student'
       ? (node.kind === 'QUIZ' ? (node.meta.submitted ? '查看作答' : '进入作答')
-        : node.kind === 'MATERIAL' ? '进入阅读' : '进入环节')
+        : node.kind === 'MATERIAL' ? '进入阅读'
+        : node.kind === 'DISCUSSION' ? '进入讨论' : '进入环节')
       : '编辑环节设置';
     actions.unshift(`<button class="g3-btn primary" type="button" data-act="stage-open" data-key="${escapeHtml(node.key)}">`
       + `${enterLabel}${node.seq ? ` · 第 ${node.seq} 环节` : ''}</button>`);
@@ -604,7 +639,8 @@
   }
 
   function filterOptions(current, withPrivate) {
-    const options = [['all', '全部环节'], ['MATERIAL', '资料阅读'], ['QUIZ', '预习习题']];
+    const options = [['all', '全部环节'], ['MATERIAL', '资料阅读'],
+      ['QUIZ', '预习习题'], ['DISCUSSION', '发布讨论']];
     if (withPrivate) {
       options.push(['PLAN', '备课包'], ['DRAFT', '待编排'], ['pending', '待处理 / 未开放']);
     } else {
@@ -621,8 +657,8 @@
    * ------------------------------------------------------------------ */
 
   function isNumberedStage(node) {
-    return !node.private && (node.kind === 'MATERIAL' || node.kind === 'QUIZ')
-      && node.state !== 'ARCHIVED';
+    return !node.private && (node.kind === 'MATERIAL' || node.kind === 'QUIZ'
+      || node.kind === 'DISCUSSION') && node.state !== 'ARCHIVED';
   }
 
   // 分组键把「哪一天」放在前面，保证总览按日期先后呈现不同的课堂。
@@ -640,7 +676,7 @@
   }
 
   function numberStages(nodes, context) {
-    const rank = { MATERIAL: 0, QUIZ: 1 };
+    const rank = { MATERIAL: 0, QUIZ: 1, DISCUSSION: 2 };
     const stamp = node => {
       const value = new Date(node.opensAt || node.time || 0).getTime();
       return Number.isFinite(value) ? value : 0;
@@ -753,14 +789,19 @@
 
   async function loadTeacherTimeline(context) {
     const binding = encodeURIComponent(state.bindingId);
-    const [overview, taskRows, plans] = await Promise.all([
+    const [overview, taskRows, plans, discussions, discussionFolders] = await Promise.all([
       loadOverview(context),
       api(`/education/group3/preview-tasks?bindingId=${binding}`),
-      api(`/education/group3/plans?bindingId=${binding}`)
+      api(`/education/group3/plans?bindingId=${binding}`),
+      api(`/education/group3/discussions?bindingId=${binding}&view=all`).catch(() => []),
+      api(`/education/group3/discussion-folders?bindingId=${binding}`).catch(() => [])
     ]);
     state.teacherTasks = taskRows || [];
     state.plans = plans || [];
-    indexNodes(numberStages(collectTeacherNodes(overview, state.teacherTasks, state.plans), context));
+    state.discussionTopics = discussions || [];
+    state.discussion.folders = discussionFolders || [];
+    indexNodes(numberStages(collectTeacherNodes(overview, state.teacherTasks, state.plans,
+      state.discussionTopics), context));
     return overview;
   }
 
@@ -928,7 +969,8 @@
    * 不新增接口、不重复上传文件、不重复录入题目。
    * ------------------------------------------------------------------ */
 
-  const CREATE_FLOWS = { material: '资料阅读环节', quiz: '预习习题环节', plan: '备课包' };
+  const CREATE_FLOWS = { material: '资料阅读环节', quiz: '预习习题环节',
+    plan: '备课包', discussion: '发布讨论环节' };
   const CREATE_DRAFT_KEY = 'zhijiao.group3.createDraft';
 
   function collectForm(form) {
@@ -1188,6 +1230,7 @@
     const data = readCreateDraft(flow);
     if (flow === 'quiz') renderQuizCreate(context, data);
     else if (flow === 'material') renderMaterialCreate(context, data);
+    else if (flow === 'discussion') renderDiscussionCreate(context, data);
     else renderPlanCreate(context, data);
   }
 
@@ -1235,6 +1278,10 @@
             <i>◈</i><strong>备课包（教师私有）</strong>
             <span>挑选已有课件与随堂题 → 保存为某课次的私有方案</span>
             <small>私有备注与答案不会进入学生端</small></button>
+          <button type="button" class="g3-wizard-card violet" data-create-flow="discussion">
+            <i>❝</i><strong>发布讨论</strong>
+            <span>写话题正文 → 设置开放 / 截止与回复规则 → 学生发帖讨论</span>
+            <small>支持置顶、加精、点赞、匿名、附件、评分与回收站</small></button>
         </div>`
     });
     modal.querySelectorAll('[data-create-flow]').forEach(button => {
@@ -1798,6 +1845,7 @@
 
   // 环节不是独立实体，删除 = 归档它对应的真实业务对象（后端 /stages/remove）。
   function stageRemoveTarget(node) {
+    if (node.kind === 'DISCUSSION') return { kind: 'DISCUSSION', id: node.id };
     if (node.kind === 'QUIZ') return { kind: 'QUIZ', id: node.id };
     if (node.kind === 'PLAN') return { kind: 'PLAN', id: node.id };
     return { kind: node.kind === 'DRAFT' ? 'DRAFT' : 'MATERIAL', id: node.meta.resourceId || node.id };
@@ -2222,13 +2270,16 @@
 
   async function loadStudentTimeline() {
     const binding = encodeURIComponent(state.bindingId);
-    const [materials, taskRows] = await Promise.all([
+    const [materials, taskRows, discussions] = await Promise.all([
       api(`/education/group3/student/materials?bindingId=${binding}`),
-      api(`/education/group3/student/previews?bindingId=${binding}`)
+      api(`/education/group3/student/previews?bindingId=${binding}`),
+      api(`/education/group3/discussions?bindingId=${binding}&view=all`).catch(() => [])
     ]);
     state.materials = materials || [];
     state.studentTasks = taskRows || [];
-    indexNodes(numberStages(collectStudentNodes(state.materials, state.studentTasks), currentContext()));
+    state.discussionTopics = discussions || [];
+    indexNodes(numberStages(collectStudentNodes(state.materials, state.studentTasks,
+      state.discussionTopics), currentContext()));
   }
 
   async function renderStudentTimeline(mode) {
@@ -2656,7 +2707,7 @@
     const index = siblings.findIndex(item => item.key === node.key);
     const prev = index > 0 ? siblings[index - 1] : null;
     const next = index >= 0 && index < siblings.length - 1 ? siblings[index + 1] : null;
-    root.innerHTML = `<div class="g3-stage-page">
+    root.innerHTML = `<div class="g3-stage-page${node.kind === 'QUIZ' ? ' g3-quiz-skin' : ''}${node.kind === 'DISCUSSION' ? ' g3-discussion-skin' : ''}">
       <div class="g3-stage-topbar">
         <button class="g3-btn" type="button" data-act="stage-back">← 返回</button>
         <div class="g3-stage-crumb">${escapeHtml(node.groupLabel
@@ -2692,6 +2743,7 @@
   function mountStageBody(node) {
     const container = document.getElementById('g3StageBody');
     if (!container) return;
+    if (node.kind === 'DISCUSSION') return mountDiscussionStage(node, container);
     if (role === 'student' && node.kind === 'QUIZ') return loadStageQuiz(node, container);
     if (role === 'student' && node.kind === 'MATERIAL') return mountMaterialReader(node, container);
     return stageTeacherBody(node, container);
@@ -2707,23 +2759,46 @@
       if (state.stageKey !== node.key || document.getElementById('g3StageBody') !== container) return;
       const items = detail.items || [];
       const canSubmit = detail.state === 'OPEN' && !detail.submitted && items.length > 0;
-      container.innerHTML = `<div class="g3-stage-quiz">
-        <div class="g3-stage-section-head"><h2>本环节作答</h2>
-          <span>${items.length} 道题 · ${detail.submitted ? '已提交' : '待完成'}</span></div>
-        ${detail.instructions ? `<div class="g3-inline-note">${escapeHtml(detail.instructions)}</div>` : ''}
-        ${detail.state === 'UPCOMING' ? emptyState('任务尚未开放', `${formatTime(detail.opensAt)} 开放`) : ''}
-        ${detail.state !== 'UPCOMING' && !items.length ? emptyState('本任务没有题目') : ''}
-        ${canSubmit ? '' : `<div class="g3-inline-note warn">${escapeHtml(submitBlockReason(detail, items))}</div>`}
-        <form id="g3StageAnswerForm" class="g3-stage-form">
-          ${items.map((item, index) => renderStudentQuestion(item, detail, index + 1, !canSubmit)).join('')}
-          <div class="g3-stage-submit">
-            <button class="g3-btn primary" type="submit" data-submit-preview${canSubmit ? '' : ' disabled'}>提交本环节预习</button>
+      const quizBody = `<div class="g3-stage-quiz">
+        <section class="g3-quiz-block" data-quiz-anchor="0">
+          <div class="g3-stage-section-head"><h2>本环节作答</h2>
+            <span>${items.length} 道题 · ${detail.submitted ? '已提交' : '待完成'}</span></div>
+          <div class="g3-quiz-info">
+            <div><small>开放时间</small><strong>${escapeHtml(formatTime(detail.opensAt))}</strong></div>
+            <div><small>截止时间</small><strong>${escapeHtml(formatTime(detail.closesAt))}</strong></div>
+            <div><small>当前状态</small><strong>${escapeHtml(STATE_LABELS[detail.state] || detail.state || '进行中')}</strong></div>
+            <div><small>完成情况</small><strong>${detail.submitted ? '已提交' : `${items.length} 题待完成`}</strong></div>
           </div>
+          ${canSubmit ? '' : `<div class="g3-inline-note warn">${escapeHtml(submitBlockReason(detail, items))}</div>`}
+        </section>
+        <section class="g3-quiz-block" data-quiz-anchor="1">
+          <div class="g3-stage-section-head"><h2>导学说明</h2><span>先看什么、要完成什么</span></div>
+          ${detail.instructions ? `<div class="g3-quiz-guide">${escapeHtml(detail.instructions)}</div>`
+            : '<div class="g3-inline-note">本环节没有额外的导学说明，直接开始下面的题目即可。</div>'}
+          ${detail.state === 'UPCOMING' ? emptyState('任务尚未开放', `${formatTime(detail.opensAt)} 开放`) : ''}
+          ${detail.state !== 'UPCOMING' && !items.length ? emptyState('本任务没有题目') : ''}
+        </section>
+        <form id="g3StageAnswerForm" class="g3-stage-form">
+          <section class="g3-quiz-block" data-quiz-anchor="2">
+            <div class="g3-stage-section-head"><h2>本环节题目</h2><span>共 ${items.length} 题</span></div>
+            ${items.map((item, index) => renderStudentQuestion(item, detail, index + 1, !canSubmit)).join('')}
+          </section>
+          <section class="g3-quiz-block" data-quiz-anchor="3">
+            <div class="g3-stage-section-head"><h2>提交与反馈</h2><span>提交后仍可查看解析</span></div>
+            <div class="g3-stage-submit">
+              <button class="g3-btn primary" type="submit" data-submit-preview${canSubmit ? '' : ' disabled'}>提交本环节预习</button>
+              <span class="g3-help">${canSubmit ? '请完成全部题目后再提交；切换环节会自动保留草稿。'
+                : '当前不可提交，按钮保持可见并说明原因。'}</span>
+            </div>
+            ${detail.submitted ? `<div class="g3-feedback">已于 ${formatTime(detail.submission?.submittedAt)} 提交${detail.answerVisible ? ' · 解析已公布' : ''}</div>` : ''}
+            ${(detail.resources || []).length ? `<div class="g3-stage-links"><div class="g3-task-actions">${detail.resources.map(resource =>
+              `<button class="g3-btn quiet" type="button" data-act="detail-preview" data-version="${resource.versionId}">${escapeHtml(resource.title)}</button>`).join('')}</div></div>` : ''}
+          </section>
         </form>
-        ${detail.submitted ? `<div class="g3-feedback">已于 ${formatTime(detail.submission?.submittedAt)} 提交${detail.answerVisible ? ' · 解析已公布' : ''}</div>` : ''}
-        ${(detail.resources || []).length ? `<div class="g3-stage-links"><div class="g3-task-actions">${detail.resources.map(resource =>
-          `<button class="g3-btn quiet" type="button" data-act="detail-preview" data-version="${resource.versionId}">${escapeHtml(resource.title)}</button>`).join('')}</div></div>` : ''}
       </div>`;
+      container.innerHTML = quizWizardShell(node, QUIZ_STUDENT_STEPS, quizBody,
+        '分步查看，切换步骤不会丢失已填答案；提交状态以服务端为准。');
+      wireQuizWizard(container);
       const form = container.querySelector('#g3StageAnswerForm');
       restoreStageDraft(form);
       form?.addEventListener('submit', event => {
@@ -2946,6 +3021,7 @@
   }
 
   function stageUpdateTarget(node) {
+    if (node.kind === 'DISCUSSION') return { kind: 'DISCUSSION', id: node.id };
     if (node.kind === 'QUIZ') return { kind: 'QUIZ', id: node.id };
     if (node.kind === 'PLAN') return { kind: 'PLAN', id: node.id };
     return { kind: node.kind === 'DRAFT' ? 'DRAFT' : 'MATERIAL', id: node.meta.resourceId || node.id };
@@ -2976,7 +3052,7 @@
       : {
           bindingId: Number(state.bindingId), kind: target.kind, id: Number(target.id), title,
           opensAt, closesAt, answerOpensAt,
-          instructions: node.kind === 'QUIZ' ? String(data.get('instructions') || '') : null,
+          instructions: ['QUIZ', 'DISCUSSION'].includes(node.kind) ? String(data.get('instructions') || '') : null,
           privateNotes: node.kind === 'PLAN' ? String(data.get('privateNotes') || '') : null
         };
     setBusy(button, true, '保存中…');
@@ -3003,12 +3079,895 @@
         node.meta.privateNotes = payload.privateNotes;
         node.subtitle = payload.privateNotes;
       }
+      if (node.kind === 'DISCUSSION') {
+        node.meta.content = payload.instructions;
+        node.subtitle = String(payload.instructions || '').replace(/\s+/g, ' ').slice(0, 90);
+      }
       clearOverview();
       paintStage(currentContext());
     } catch (error) {
       toast(actionableMessage(error), true);
       setBusy(button, false);
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 发布讨论：仿学习通讨论区（不含 AI 功能）
+   * 教师端：新建话题 / 文件夹 / 置顶 / 加精 / 回收站 / 评分 / 高级设置
+   * 学生端：话题列表 / 发帖回帖 / 点赞 / 匿名 / 附件 / 查看成绩
+   * ------------------------------------------------------------------ */
+
+  const DISCUSSION_VIEWS = [
+    ['all', '全部话题', '❝'], ['mine', '我发布的', '✎'], ['replied', '我回复的', '↩'],
+    ['replyMe', '回复我的', '❞'], ['chapter', '章节讨论', '▤'],
+    ['trash', '回收站', '⌫'], ['manage', '话题管理', '▦'],
+    ['folders', '讨论区管理', '◫'], ['settings', '高级设置', '⚙']
+  ];
+
+  function discussionText(value) {
+    return escapeHtml(String(value == null ? '' : value))
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  }
+
+  function discussionQuery() {
+    const d = state.discussion;
+    const params = new URLSearchParams({
+      bindingId: state.bindingId, view: d.view || 'all', sort: d.sort || 'publish'
+    });
+    if (d.keyword) params.set('keyword', d.keyword);
+    if (d.folderId) params.set('folderId', d.folderId);
+    return params.toString();
+  }
+
+  function boolish(value) {
+    return Array.isArray(value) ? value.length > 0 : Boolean(value);
+  }
+
+  function discussionStatePill(row) {
+    const value = String(row.state || 'OPEN').toUpperCase();
+    const label = { OPEN: '进行中', UPCOMING: '未开放', CLOSED: '已截止', ARCHIVED: '回收站' }[value] || value;
+    return `<span class="g3-disc-state ${value.toLowerCase()}">${label}</span>`;
+  }
+
+  async function loadDiscussionStage(node, container) {
+    const d = state.discussion;
+    const shell = container.querySelector('#g3DiscShell');
+    if (shell) shell.innerHTML = `<div class="g3-disc-loading">${loadingState('正在加载讨论区')}</div>`;
+    const topicId = d.activeTopicId || node.id;
+    try {
+      const [topics, detail, folders] = await Promise.all([
+        api(`/education/group3/discussions?${discussionQuery()}`),
+        api(`/education/group3/discussions/${encodeURIComponent(topicId)}?bindingId=${encodeURIComponent(state.bindingId)}`)
+          .catch(() => null),
+        api(`/education/group3/discussion-folders?bindingId=${encodeURIComponent(state.bindingId)}`)
+          .catch(() => [])
+      ]);
+      d.topics = topics || [];
+      d.detail = detail;
+      d.folders = folders || [];
+      paintDiscussionStage(node, container);
+    } catch (error) {
+      if (shell) shell.innerHTML = errorState(error);
+    }
+  }
+
+  function mountDiscussionStage(node, container) {
+    const d = state.discussion;
+    d.view = 'all';
+    d.sort = 'publish';
+    d.keyword = '';
+    d.folderId = '';
+    d.activeTopicId = node.id;
+    d.composer = false;
+    d.settings = false;
+    d.fullscreen = false;
+    container.innerHTML = '<div class="g3-disc-shell" id="g3DiscShell"></div>';
+    loadDiscussionStage(node, container);
+  }
+
+  function discussionSettingsCard(node) {
+    if (role !== 'teacher') return '';
+    const meta = node.meta || {};
+    const openValue = node.opensAt ? localInput(node.opensAt) : localInput();
+    const closeValue = node.closesAt ? localInput(node.closesAt) : '';
+    return `<div class="g3-edit-card g3-disc-setup">
+      <div class="g3-edit-head">
+        <div><span class="g3-edit-kicker">发布讨论 · 环节设置</span><h2>${escapeHtml(node.title)}</h2></div>
+        ${statePill(node.state)}
+      </div>
+      <form id="g3StageEditForm" class="g3-edit-form">
+        <div class="g3-field full"><label for="g3EditTitle">讨论主题</label>
+          <input id="g3EditTitle" name="title" class="g3-input" type="text" maxlength="160"
+            value="${escapeHtml(node.title)}"></div>
+        <div class="g3-field"><label for="g3EditOpen">开放时间</label>
+          <input id="g3EditOpen" name="opensAt" class="g3-input" type="datetime-local" value="${escapeHtml(openValue)}"></div>
+        <div class="g3-field"><label for="g3EditClose">截止时间 · 留空为不限</label>
+          <input id="g3EditClose" name="closesAt" class="g3-input" type="datetime-local" value="${escapeHtml(closeValue)}"></div>
+        <div class="g3-field full"><label for="g3EditNote">话题正文</label>
+          <textarea id="g3EditNote" name="instructions" class="g3-input" rows="3"
+            placeholder="补充或修改本次讨论的说明">${escapeHtml(meta.content || '')}</textarea></div>
+        <div class="g3-edit-foot">
+          <div class="g3-edit-stats"><span>${Number(meta.replyCount || 0)} 条回复</span>
+            <span>${Number(meta.participantCount || 0)} 人参与</span>
+            <span>${Number(meta.likeCount || 0)} 点赞</span></div>
+          <button class="g3-btn primary" type="submit">保存设置</button>
+        </div>
+      </form>
+      <div class="g3-disc-setup-more">
+        <button class="g3-btn quiet" type="button" data-disc="settings">⚙ 讨论高级设置</button>
+        <button class="g3-btn quiet" type="button" data-disc="${state.discussion.composer ? 'cancel-composer' : 'new'}" data-key="${escapeHtml(node.key)}">${state.discussion.composer ? '× 收起新建话题' : '+ 新建话题'}</button>
+        <button class="g3-btn quiet danger" type="button" data-act="stage-remove" data-key="${escapeHtml(node.key)}">删除环节</button>
+      </div>
+    </div>`;
+  }
+
+  function discussionToolbar(node) {
+    const d = state.discussion;
+    const context = currentContext();
+    const classes = state.contexts || [];
+    const folderOptions = `<option value="">全部文件夹</option>${d.folders.map(item =>
+      `<option value="${escapeHtml(item.folderId)}"${d.folderId === String(item.folderId) ? ' selected' : ''}>${escapeHtml(item.folderName)}</option>`).join('')}`;
+    return `<div class="g3-disc-toolbar">
+      <div class="g3-disc-toolbar-left">
+        ${role === 'teacher'
+          ? `<button class="g3-btn ${d.composer ? '' : 'primary'}" type="button" data-disc="${d.composer ? 'cancel-composer' : 'new'}" data-key="${escapeHtml(node.key)}">${d.composer ? '× 收起新建话题' : '+ 新建话题'}</button>
+             <button class="g3-btn" type="button" data-disc="new-folder">新建文件夹</button>`
+          : `<button class="g3-btn primary" type="button" data-disc="reply-focus">参与讨论</button>`}
+        <select class="g3-select g3-disc-class" data-disc-field="class" aria-label="发布范围">
+          <option value="all">全部班级</option>
+          <option value="current" selected>${escapeHtml(context ? context.className : '本教学班')}</option>
+        </select>
+        <select class="g3-select" data-disc-field="folder" aria-label="文件夹">${folderOptions}</select>
+        <select class="g3-select" data-disc-field="sort" aria-label="排序">
+          <option value="publish"${d.sort === 'publish' ? ' selected' : ''}>话题发布时间</option>
+          <option value="update"${d.sort === 'update' ? ' selected' : ''}>话题更新时间</option>
+          <option value="likes"${d.sort === 'likes' ? ' selected' : ''}>点赞量</option>
+        </select>
+        <input class="g3-input g3-disc-date" type="date" data-disc-field="start" aria-label="开始时间">
+        <span class="g3-disc-date-sep">~</span>
+        <input class="g3-input g3-disc-date" type="date" data-disc-field="end" aria-label="结束时间">
+      </div>
+      <div class="g3-disc-toolbar-right">
+        <span class="g3-disc-class-hint">${escapeHtml(classes.length ? `${classes.length} 个教学班` : '本教学班')}</span>
+        <input class="g3-input g3-disc-search" type="search" data-disc-field="keyword"
+          value="${escapeHtml(d.keyword)}" placeholder="搜索话题">
+      </div>
+    </div>`;
+  }
+
+  function discussionSide() {
+    const d = state.discussion;
+    const views = role === 'teacher' ? DISCUSSION_VIEWS : DISCUSSION_VIEWS.slice(0, 5);
+    const groups = [views.slice(0, 3), views.slice(3, 5), views.slice(5, 7), views.slice(7)];
+    return `<aside class="g3-disc-side">
+      <h3>我的（讨论）</h3>
+      ${groups.map(group => `<div class="g3-disc-side-group">${group.map(([value, label, icon]) =>
+        `<button type="button" class="g3-disc-side-item${d.view === value ? ' active' : ''}"
+          data-disc="view" data-value="${value}"><i>${icon}</i>${label}</button>`).join('')}</div>`).join('')}
+      <div class="g3-disc-side-note">讨论内容仅本教学班可见；回收站中的话题可随时恢复。</div>
+    </aside>`;
+  }
+
+  function discussionTopicCard(row) {
+    const d = state.discussion;
+    const teacher = role === 'teacher';
+    const active = String(d.activeTopicId) === String(row.topicId);
+    const archived = String(row.status).toUpperCase() === 'ARCHIVED';
+    return `<article class="g3-disc-topic${active ? ' active' : ''}" data-topic="${escapeHtml(row.topicId)}">
+      <div class="g3-disc-topic-lines">
+        <div class="g3-disc-topic-head">
+          ${row.pinned ? '<span class="g3-disc-badge pin">置顶</span>' : ''}
+          ${row.featured ? '<span class="g3-disc-badge feature">精华</span>' : ''}
+          <button type="button" class="g3-disc-topic-title" data-disc="open-topic" data-value="${escapeHtml(row.topicId)}">${escapeHtml(row.title)}</button>
+          ${discussionStatePill(row)}
+        </div>
+        <p class="g3-disc-topic-summary">${escapeHtml(String(row.content || '').replace(/\s+/g, ' ').slice(0, 110))}</p>
+        <div class="g3-disc-topic-meta">
+          <span>${escapeHtml(row.authorName || '教师')}</span>
+          <span>${formatTime(row.createdAt)}</span>
+          <span>${row.category ? escapeHtml(row.category) : '课堂讨论'}</span>
+          <span>${Number(row.replyCount || 0)} 回复</span>
+          <span>${Number(row.likeCount || 0)} 点赞</span>
+          <span>${Number(row.participantCount || 0)} 人参与</span>
+        </div>
+      </div>
+      ${teacher ? `<div class="g3-disc-topic-ops">
+        <button class="g3-btn quiet" type="button" data-disc="pin" data-value="${row.pinned ? 'unpin' : 'pin'}" data-topic="${escapeHtml(row.topicId)}">${row.pinned ? '取消置顶' : '置顶'}</button>
+        <button class="g3-btn quiet" type="button" data-disc="feature" data-value="${row.featured ? 'unfeature' : 'feature'}" data-topic="${escapeHtml(row.topicId)}">${row.featured ? '取消精华' : '加精'}</button>
+        ${archived
+          ? `<button class="g3-btn quiet" type="button" data-disc="restore" data-topic="${escapeHtml(row.topicId)}">恢复</button>`
+          : `<button class="g3-btn quiet danger" type="button" data-disc="archive" data-topic="${escapeHtml(row.topicId)}">删除</button>`}
+      </div>` : ''}
+    </article>`;
+  }
+
+  function discussionComposer(node, detail) {
+    if (!state.discussion.composer || role !== 'teacher') return '';
+    const folders = state.discussion.folders || [];
+    const overview = state.overview || {};
+    return `<form id="g3DiscComposer" class="g3-disc-card g3-disc-composer g3-disc-composer-top" data-disc-form="topic" novalidate>
+      <div class="g3-disc-card-head"><h3>新建话题</h3>
+        <button class="g3-btn quiet" type="button" data-disc="fullscreen">⛶ 全屏模式</button></div>
+      <div class="g3-disc-scope">发布范围
+        <select class="g3-select" name="publishScope">
+          <option value="CLASS">本教学班 · ${escapeHtml((currentContext() || {}).className || '当前班级')}</option>
+          <option value="ALL">全部班级</option>
+        </select>
+        <span class="g3-disc-scope-folder">文件夹
+          <select class="g3-select" name="folderId"><option value="">未归档</option>${folders.map(item =>
+            `<option value="${escapeHtml(item.folderId)}">${escapeHtml(item.folderName)}</option>`).join('')}</select></span>
+      </div>
+      <input class="g3-input" name="title" maxlength="200" placeholder="请输入标题">
+      <div class="g3-disc-editor">
+        <div class="g3-disc-editor-tools">
+          <button type="button" data-disc-tool="bold" title="加粗"><b>B</b></button>
+          <button type="button" data-disc-tool="italic" title="斜体"><i>I</i></button>
+          <button type="button" data-disc-tool="underline" title="下划线"><u>U</u></button>
+          <button type="button" data-disc-tool="list" title="列表">☰</button>
+          <button type="button" data-disc-tool="link" title="链接">🔗</button>
+          <button type="button" data-disc-tool="emoji" title="表情">☺</button>
+          <button type="button" data-disc-tool="image" title="图片占位">▣</button>
+          <button type="button" data-disc-tool="clear" title="清除格式">⌫</button>
+          <span class="g3-disc-editor-hint">正文 · 支持基础排版</span>
+        </div>
+        <textarea class="g3-textarea" name="content" rows="5" placeholder="请输入话题正文"></textarea>
+      </div>
+      <div class="g3-disc-composer-row">
+        <label>话题分类 <input class="g3-input" name="category" maxlength="64" placeholder="如：课前思考"></label>
+        <label>关联知识点 <input class="g3-input" name="knowledgePoint" maxlength="200" placeholder="选填"></label>
+        <label>关联课次 <select class="g3-select" name="lessonId">${lessonOptions(overview, true, '')}</select></label>
+      </div>
+      <div class="g3-disc-composer-grid">
+        <label>开放时间 <input class="g3-input" type="datetime-local" name="opensAt" value="${escapeHtml(localInput())}"></label>
+        <label>截止时间 <input class="g3-input" type="datetime-local" name="closesAt" value="${escapeHtml(futureInput(7))}"></label>
+        <label class="g3-disc-check"><input type="checkbox" name="allowAnonymous"> 允许匿名</label>
+        <label class="g3-disc-check"><input type="checkbox" name="allowAttachment" checked> 允许附件</label>
+        <label class="g3-disc-check"><input type="checkbox" name="allowReply" checked> 允许回帖</label>
+        <label class="g3-disc-check"><input type="checkbox" name="allowStudentTopic"> 允许学生发起主题帖</label>
+        <label class="g3-disc-check"><input type="checkbox" name="scoreEnabled"> 参与评分</label>
+        <label>满分 <input class="g3-input" type="number" name="scoreMax" min="1" max="1000" value="100"></label>
+        <label class="g3-disc-check"><input type="checkbox" name="pinned"> 置顶</label>
+        <label class="g3-disc-check"><input type="checkbox" name="featured"> 加精</label>
+      </div>
+      <div class="g3-disc-composer-foot">
+        <span class="g3-help">发表话题需遵守平台讨论规范；本页不含 AI 相关功能。</span>
+        <div class="g3-actions">
+          <button class="g3-btn" type="button" data-disc="settings">⚙ 讨论设置</button>
+          <button class="g3-btn" type="button" data-disc="cancel-composer">取消</button>
+          <button class="g3-btn primary" type="button" data-disc="publish-topic">发布</button>
+        </div>
+      </div>
+    </form>`;
+  }
+
+  function discussionPostRow(post, detail, teacher) {
+    const reply = post.parentPostId != null;
+    const topic = (detail && detail.topic) || {};
+    const scoreMax = Number(topic.scoreMax || 100);
+    return `<div class="g3-disc-post${reply ? ' reply' : ''}" data-post="${escapeHtml(post.postId)}">
+      <div class="g3-disc-avatar ${post.authorRole === 'teacher' ? 'teacher' : ''}">${escapeHtml(String(post.authorName || '?').slice(0, 1))}</div>
+      <div class="g3-disc-post-main">
+        <div class="g3-disc-post-head">
+          <strong>${escapeHtml(post.authorName || '同学')}</strong>
+          ${post.authorRole === 'teacher' ? '<span class="g3-disc-badge teacher">教师</span>' : ''}
+          ${post.anonymous ? '<span class="g3-disc-badge anon">匿名</span>' : ''}
+          <span class="g3-disc-post-time">${formatTime(post.createdAt)}</span>
+          ${post.replyToName ? `<span class="g3-disc-reply-to">回复 ${escapeHtml(post.replyToName)}</span>` : ''}
+          ${post.score != null ? `<span class="g3-disc-score-tag">${escapeHtml(post.score)} 分</span>` : ''}
+        </div>
+        <div class="g3-disc-post-body">${discussionText(post.content)}</div>
+        ${post.attachmentName ? `<div class="g3-disc-attach">📎 ${escapeHtml(post.attachmentName)}${post.attachmentUrl
+          ? ` · <a href="${escapeHtml(post.attachmentUrl)}" target="_blank" rel="noopener">打开链接</a>` : ''}</div>` : ''}
+        <div class="g3-disc-post-ops">
+          <button class="g3-disc-op${post.liked ? ' liked' : ''}" type="button" data-disc="like" data-value="${escapeHtml(post.postId)}">👍 ${Number(post.likeCount || 0)}</button>
+          <button class="g3-disc-op" type="button" data-disc="reply" data-value="${escapeHtml(post.postId)}">回复</button>
+          ${teacher ? `<button class="g3-disc-op" type="button" data-disc="remove-post" data-value="${escapeHtml(post.postId)}">删除</button>
+            <span class="g3-disc-score"><input class="g3-input" type="number" min="0" max="${scoreMax}" step="0.5"
+              data-disc-score="${escapeHtml(post.postId)}" placeholder="评分">
+              <button class="g3-btn quiet" type="button" data-disc="score" data-value="${escapeHtml(post.postId)}">打分</button></span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function discussionThread(node, teacher) {
+    const d = state.discussion;
+    const detail = d.detail;
+    if (!detail || !detail.topic) return `<div class="g3-disc-card">${emptyState('本周还没有话题哦，快去发布一个吧~', '可在上方「新建话题」里发起讨论')}</div>`;
+    const topic = detail.topic;
+    const posts = detail.posts || [];
+    const stats = detail.stats || {};
+    const archived = String(topic.status).toUpperCase() === 'ARCHIVED';
+    const canPost = Boolean(detail.canPost) && !archived;
+    const canNewPost = canPost && Boolean(topic.allowStudentTopic);
+    const folders = d.folders || [];
+    return `<div class="g3-disc-card g3-disc-thread">
+      <div class="g3-disc-thread-head">
+        <div><div class="g3-disc-thread-kicker">${escapeHtml(topic.category || '课堂讨论')}
+          ${topic.lessonTitle ? ` · ${escapeHtml(topic.lessonTitle)}` : ''}</div>
+          <h2>${escapeHtml(topic.title)}</h2></div>
+        <div class="g3-disc-thread-actions">
+          ${discussionStatePill(topic)}
+          ${teacher ? `<button class="g3-btn quiet" type="button" data-disc="pin" data-value="${topic.pinned ? 'unpin' : 'pin'}" data-topic="${escapeHtml(topic.topicId)}">${topic.pinned ? '取消置顶' : '置顶'}</button>
+            <button class="g3-btn quiet" type="button" data-disc="feature" data-value="${topic.featured ? 'unfeature' : 'feature'}" data-topic="${escapeHtml(topic.topicId)}">${topic.featured ? '取消精华' : '加精'}</button>` : ''}
+        </div>
+      </div>
+      <div class="g3-disc-thread-meta">
+        <span>${escapeHtml(topic.authorName || '教师')} 发布</span>
+        <span>开放 ${formatTime(topic.opensAt)}</span>
+        <span>${topic.closesAt ? `截止 ${formatTime(topic.closesAt)}` : '不限截止'}</span>
+        <span>${Number(stats.participantCount || 0)} 人参与</span>
+        <span>${Number(stats.replyCount || 0)} 条回复</span>
+        <span>${Number(stats.likeCount || 0)} 点赞</span>
+        ${topic.knowledgePoint ? `<span>知识点 · ${escapeHtml(topic.knowledgePoint)}</span>` : ''}
+      </div>
+      <div class="g3-disc-thread-body">${discussionText(topic.content)}</div>
+      ${topic.allowAnonymous ? '<div class="g3-inline-note">本讨论允许匿名发表，教师仍可查看真实发布者。</div>' : ''}
+      ${teacher ? `<div class="g3-disc-thread-admin">
+        <span>移动到文件夹</span>
+        <select class="g3-select" data-disc-field="move-folder"><option value="">未归档</option>${folders.map(item =>
+          `<option value="${escapeHtml(item.folderId)}"${String(topic.folderId) === String(item.folderId) ? ' selected' : ''}>${escapeHtml(item.folderName)}</option>`).join('')}</select>
+        <button class="g3-btn quiet" type="button" data-disc="move" data-value="${escapeHtml(topic.topicId)}">移动</button>
+        ${archived
+          ? `<button class="g3-btn quiet" type="button" data-disc="restore" data-topic="${escapeHtml(topic.topicId)}">恢复话题</button>`
+          : `<button class="g3-btn quiet danger" type="button" data-disc="archive" data-topic="${escapeHtml(topic.topicId)}">移入回收站</button>`}
+      </div>` : ''}
+      <div class="g3-disc-posts">${posts.length
+        ? posts.map(post => discussionPostRow(post, detail, teacher)).join('')
+        : '<div class="g3-disc-empty">还没有回复，来说说你的想法吧~</div>'}</div>
+      <form class="g3-disc-reply" data-disc-form="post" novalidate>
+        <div class="g3-disc-reply-head"><strong>发表讨论</strong>
+          <span id="g3DiscReplyTo" data-reply-to="">回复话题</span>
+          <button class="g3-btn quiet" type="button" data-disc="reply-cancel" hidden>取消回复</button></div>
+        <textarea class="g3-textarea" name="content" rows="3" placeholder="说点什么吧~"${canPost || canNewPost ? '' : ' disabled'}></textarea>
+        <div class="g3-disc-reply-foot">
+          <label class="g3-disc-check"><input type="checkbox" name="anonymous"${topic.allowAnonymous ? '' : ' disabled'}> 匿名发表</label>
+          ${topic.allowAttachment ? `<input class="g3-input" name="attachmentName" maxlength="200" placeholder="附件名称（选填）">
+            <input class="g3-input" name="attachmentUrl" maxlength="500" placeholder="附件链接（选填）">` : ''}
+          <span class="g3-disc-reply-hint">${canPost || canNewPost
+            ? '发表后会立即出现在讨论区' : '当前讨论未开放或已截止，仅可查看'}</span>
+          <button class="g3-btn" type="button" data-disc="new-post"${canNewPost || teacher ? '' : ' disabled'}>发表主题帖</button>
+          <button class="g3-btn primary" type="button" data-disc="submit-post"${canPost || canNewPost ? '' : ' disabled'}>发表</button>
+        </div>
+      </form>
+    </div>`;
+  }
+
+  function discussionSettingsPanel() {
+    const d = state.discussion;
+    if (!d.settings || role !== 'teacher') return '';
+    const topic = (d.detail && d.detail.topic) || {};
+    const check = (name, on, label) => `<label class="g3-disc-check"><input type="checkbox"
+      data-disc-setting="${name}"${on ? ' checked' : ''}> ${label}</label>`;
+    return `<div class="g3-disc-card g3-disc-settings">
+      <div class="g3-disc-card-head"><h3>高级设置</h3>
+        <button class="g3-btn quiet" type="button" data-disc="settings-close">收起</button></div>
+      <p class="g3-help">设置作用于当前话题：${escapeHtml(topic.title || '')}</p>
+      <div class="g3-disc-composer-grid">
+        ${check('allowAnonymous', topic.allowAnonymous, '允许匿名发表')}
+        ${check('allowAttachment', topic.allowAttachment, '允许上传附件')}
+        ${check('allowReply', topic.allowReply, '允许回帖')}
+        ${check('allowStudentTopic', topic.allowStudentTopic, '允许学生发起主题帖')}
+        ${check('scoreEnabled', topic.scoreEnabled, '参与评分')}
+        <label>满分 <input class="g3-input" type="number" min="1" max="1000" data-disc-setting="scoreMax"
+          value="${Number(topic.scoreMax || 100)}"></label>
+      </div>
+      <div class="g3-disc-composer-foot"><span></span>
+        <button class="g3-btn primary" type="button" data-disc="settings-save">保存设置</button></div>
+    </div>`;
+  }
+
+  function discussionFolderPanel() {
+    const d = state.discussion;
+    if (d.view !== 'folders' || role !== 'teacher') return '';
+    return `<div class="g3-disc-card g3-disc-folders">
+      <div class="g3-disc-card-head"><h3>讨论区管理 · 文件夹</h3>
+        <button class="g3-btn quiet" type="button" data-disc="new-folder">+ 新建文件夹</button></div>
+      ${d.folders.length ? d.folders.map(item => `<div class="g3-disc-folder-row">
+        <span>📁 ${escapeHtml(item.folderName)}</span>
+        <span>${Number(item.topicCount || 0)} 个话题</span>
+        <button class="g3-btn quiet" type="button" data-disc="filter-folder" data-value="${escapeHtml(item.folderId)}">查看</button>
+      </div>`).join('') : '<div class="g3-disc-empty">还没有文件夹，新建一个来归类话题吧。</div>'}
+    </div>`;
+  }
+
+  function paintDiscussionStage(node, container) {
+    const d = state.discussion;
+    const teacher = role === 'teacher';
+    let shell = container.querySelector('#g3DiscShell');
+    if (!shell) return;
+    // 每次重绘换一个新容器，旧节点上的委托监听器随之释放，避免重复触发。
+    const fresh = document.createElement('div');
+    fresh.id = 'g3DiscShell';
+    fresh.className = shell.className || 'g3-disc-shell';
+    shell.replaceWith(fresh);
+    shell = fresh;
+    const topics = d.topics || [];
+    const dated = topics.filter(row => {
+      if (!d.dateStart && !d.dateEnd) return true;
+      const day = String(row.createdAt || '').slice(0, 10);
+      if (d.dateStart && day < d.dateStart) return false;
+      if (d.dateEnd && day > d.dateEnd) return false;
+      return true;
+    });
+    const viewLabel = (DISCUSSION_VIEWS.find(item => item[0] === d.view) || DISCUSSION_VIEWS[0])[1];
+    shell.innerHTML = `${discussionSettingsCard(node)}
+      ${discussionToolbar(node)}
+      ${discussionComposer(node, d.detail)}
+      <div class="g3-disc-layout${d.fullscreen ? ' fullscreen' : ''}">
+        <div class="g3-disc-main">
+          <div class="g3-disc-list-head"><strong>${escapeHtml(viewLabel)}</strong>
+            <span>${dated.length} 个话题 · ${teacher ? '可管理' : '仅本班可见'}</span></div>
+          <div class="g3-disc-list">${dated.length
+            ? dated.map(discussionTopicCard).join('')
+            : `<div class="g3-disc-card">${emptyState('本周还没有话题哦，快去发布一个吧~',
+              d.view === 'trash' ? '回收站为空' : '可在上方新建话题')}</div>`}</div>
+          ${discussionFolderPanel()}
+          ${discussionSettingsPanel()}
+          ${discussionThread(node, teacher)}
+        </div>
+        ${discussionSide()}
+      </div>`;
+    wireDiscussionStage(node, container);
+  }
+
+  function discussionAction(body) {
+    return api('/education/group3/discussions/action', {
+      method: 'POST', body: { bindingId: Number(state.bindingId), ...body }
+    });
+  }
+
+  function wireDiscussionStage(node, container) {
+    const shell = container.querySelector('#g3DiscShell');
+    if (!shell) return;
+    const teacher = role === 'teacher';
+    const d = state.discussion;
+    const reload = () => loadDiscussionStage(node, container);
+
+    const setupForm = shell.querySelector('#g3StageEditForm');
+    setupForm?.addEventListener('submit', event => {
+      event.preventDefault();
+      saveStageSettings(node, setupForm, setupForm.querySelector('[type="submit"]'));
+    });
+
+    shell.querySelectorAll('[data-disc-form]').forEach(form =>
+      form.addEventListener('submit', event => event.preventDefault()));
+
+    shell.addEventListener('click', async event => {
+      const button = event.target.closest('[data-disc]');
+      if (!button || !shell.contains(button)) return;
+      const kind = button.dataset.disc;
+      const value = button.dataset.value || '';
+      const topicId = button.dataset.topic || d.activeTopicId;
+      if (kind === 'view') { d.view = value; d.settings = false; return reload(); }
+      if (kind === 'new') {
+        d.composer = true; d.fullscreen = false; d.settings = false;
+        paintDiscussionStage(node, container);
+        // paint 会替换 #g3DiscShell，必须重新从 container 查找，不能复用旧闭包里的 shell。
+        const form = container.querySelector('#g3DiscComposer');
+        const title = form?.querySelector('input[name="title"]');
+        form?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        try { title?.focus({ preventScroll: true }); } catch (_) { title?.focus(); }
+        toast('已展开「新建话题」，填写标题与正文后点「发布」');
+        return;
+      }
+      if (kind === 'cancel-composer') {
+        d.composer = false; toast('已收起新建话题');
+        return paintDiscussionStage(node, container);
+      }
+      if (kind === 'fullscreen') { d.fullscreen = !d.fullscreen; return paintDiscussionStage(node, container); }
+      if (kind === 'settings') { d.settings = !d.settings; return paintDiscussionStage(node, container); }
+      if (kind === 'settings-close') { d.settings = false; return paintDiscussionStage(node, container); }
+      if (kind === 'open-topic') { d.activeTopicId = Number(value); d.settings = false; return reload(); }
+      if (kind === 'filter-folder') { d.folderId = value; d.view = 'all'; return reload(); }
+      if (kind === 'reply-focus') {
+        const box = shell.querySelector('[data-disc-form="post"] textarea');
+        box?.focus(); box?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      if (kind === 'reply') {
+        const replyForm = shell.querySelector('[data-disc-form="post"]');
+        if (!replyForm) return;
+        replyForm.dataset.replyTo = value;
+        const label = replyForm.querySelector('#g3DiscReplyTo');
+        if (label) label.textContent = `正在回复 #${value}`;
+        const cancel = replyForm.querySelector('[data-disc="reply-cancel"]');
+        if (cancel) cancel.hidden = false;
+        const box = replyForm.querySelector('textarea');
+        box?.focus(); box?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      if (kind === 'reply-cancel') {
+        const replyForm = shell.querySelector('[data-disc-form="post"]');
+        if (!replyForm) return;
+        replyForm.dataset.replyTo = '';
+        const label = replyForm.querySelector('#g3DiscReplyTo');
+        if (label) label.textContent = '回复话题';
+        button.hidden = true;
+        return;
+      }
+      if (kind === 'new-folder') {
+        const modal = openModal({
+          title: '新建文件夹',
+          body: `<div class="g3-field"><label for="g3DiscFolderName">文件夹名称</label>
+            <input id="g3DiscFolderName" class="g3-input" maxlength="120" placeholder="例如：第一单元讨论"></div>`,
+          footer: `<button class="g3-btn" type="button" data-modal-close>取消</button>
+            <button class="g3-btn primary" type="button" data-folder-create>创建</button>`
+        });
+        modal.querySelector('[data-folder-create]')?.addEventListener('click', async () => {
+          const name = String(modal.querySelector('#g3DiscFolderName')?.value || '').trim();
+          if (!name) return toast('请填写文件夹名称', true);
+          try {
+            await api('/education/group3/discussion-folders', {
+              method: 'POST', body: { bindingId: Number(state.bindingId), name }
+            });
+            closeModal(); toast('文件夹已创建'); reload();
+          } catch (error) { toast(actionableMessage(error), true); }
+        });
+        return;
+      }
+      if (kind === 'publish-topic') {
+        const form = shell.querySelector('[data-disc-form="topic"]');
+        if (!form) return;
+        const data = new FormData(form);
+        const title = String(data.get('title') || '').trim();
+        const content = String(data.get('content') || '').trim();
+        if (!title) return toast('请输入话题标题', true);
+        if (!content) return toast('请输入话题正文', true);
+        let opensAt, closesAt;
+        try {
+          opensAt = isoFromInput(data.get('opensAt'));
+          closesAt = data.get('closesAt') ? isoFromInput(data.get('closesAt')) : null;
+        } catch (error) { return toast(error.message, true); }
+        if (closesAt && new Date(closesAt) <= new Date(opensAt)) return toast('截止时间必须晚于开放时间', true);
+        setBusy(button, true, '发布中…');
+        try {
+          await api('/education/group3/discussions', {
+            method: 'POST',
+            body: {
+              bindingId: Number(state.bindingId),
+              lessonId: data.get('lessonId') ? Number(data.get('lessonId')) : null,
+              folderId: data.get('folderId') ? Number(data.get('folderId')) : null,
+              title, content,
+              category: String(data.get('category') || '').trim(),
+              knowledgePoint: String(data.get('knowledgePoint') || '').trim(),
+              publishScope: String(data.get('publishScope') || 'CLASS'),
+              opensAt, closesAt,
+              allowAnonymous: data.get('allowAnonymous') === 'on',
+              allowAttachment: data.get('allowAttachment') === 'on',
+              allowReply: data.get('allowReply') === 'on',
+              allowStudentTopic: data.get('allowStudentTopic') === 'on',
+              scoreEnabled: data.get('scoreEnabled') === 'on',
+              scoreMax: Number(data.get('scoreMax') || 100),
+              pinned: data.get('pinned') === 'on',
+              featured: data.get('featured') === 'on'
+            }
+          });
+          d.composer = false; toast('讨论已发布，列表已刷新；点「返回」可在时间轴看到新环节');
+          clearOverview(); reload();
+        } catch (error) { toast(actionableMessage(error), true); setBusy(button, false); }
+        return;
+      }
+      if (kind === 'submit-post' || kind === 'new-post') {
+        const form = shell.querySelector('[data-disc-form="post"]');
+        if (!form || !d.detail || !d.detail.topic) return;
+        const data = new FormData(form);
+        const content = String(data.get('content') || '').trim();
+        if (!content) return toast('请填写讨论内容', true);
+        const isNewPost = kind === 'new-post';
+        const parentPostId = isNewPost ? null
+          : (form.dataset.replyTo ? Number(form.dataset.replyTo) : null);
+        setBusy(button, true, '发表中…');
+        try {
+          await api(`/education/group3/discussions/${encodeURIComponent(d.detail.topic.topicId)}/posts`, {
+            method: 'POST',
+            body: {
+              bindingId: Number(state.bindingId),
+              topicId: d.detail.topic.topicId,
+              parentPostId, content,
+              anonymous: data.get('anonymous') === 'on',
+              attachmentName: String(data.get('attachmentName') || '').trim(),
+              attachmentUrl: String(data.get('attachmentUrl') || '').trim()
+            }
+          });
+          toast('已发表'); reload();
+        } catch (error) { toast(actionableMessage(error), true); setBusy(button, false); }
+        return;
+      }
+      if (kind === 'like') {
+        try { await discussionAction({ action: 'like', postId: Number(value), topicId: null }); reload(); }
+        catch (error) { toast(actionableMessage(error), true); }
+        return;
+      }
+      if (kind === 'settings-save') {
+        const values = new URLSearchParams();
+        shell.querySelectorAll('[data-disc-setting]').forEach(input => {
+          values.set(input.dataset.discSetting,
+            input.type === 'checkbox' ? (input.checked ? '1' : '0') : String(input.value || ''));
+        });
+        try {
+          await discussionAction({ action: 'settings', topicId: Number(topicId), value: values.toString() });
+          toast('讨论设置已保存'); d.settings = false; reload();
+        } catch (error) { toast(actionableMessage(error), true); }
+        return;
+      }
+      if (kind === 'score') {
+        const input = shell.querySelector(`[data-disc-score="${CSS.escape(value)}"]`);
+        const score = input ? String(input.value || '').trim() : '';
+        if (!score) return toast('请填写分数', true);
+        try {
+          await discussionAction({ action: 'score', topicId: Number(topicId), postId: Number(value), value: score });
+          toast('评分已保存'); reload();
+        } catch (error) { toast(actionableMessage(error), true); }
+        return;
+      }
+      if (kind === 'move') {
+        const select = shell.querySelector('[data-disc-field="move-folder"]');
+        try {
+          await discussionAction({ action: 'move', topicId: Number(value),
+            value: String(select?.value || '') });
+          toast('话题已移动'); reload();
+        } catch (error) { toast(actionableMessage(error), true); }
+        return;
+      }
+      const simple = {
+        pin: 'pin', feature: 'feature', archive: 'archive', restore: 'restore',
+        'remove-post': 'remove-post'
+      }[kind];
+      if (simple) {
+        const isPost = simple === 'remove-post';
+        const action = isPost ? simple
+          : (simple === 'pin' || simple === 'feature' ? value || simple : simple);
+        if ((kind === 'archive' || kind === 'restore') && !window.confirm(
+          kind === 'archive' ? '确认把该话题移入回收站？学生将立即看不到。' : '确认恢复该话题？')) return;
+        try {
+          await discussionAction({
+            action, topicId: isPost ? Number(topicId) : Number(topicId),
+            postId: isPost ? Number(value) : null,
+            value: isPost ? null : null
+          });
+          toast('操作已完成'); reload();
+        } catch (error) { toast(actionableMessage(error), true); }
+      }
+    });
+
+    shell.addEventListener('change', event => {
+      const field = event.target.dataset.discField;
+      if (!field) return;
+      if (field === 'sort') { d.sort = event.target.value; return reload(); }
+      if (field === 'folder') { d.folderId = event.target.value; return reload(); }
+      if (field === 'start') { d.dateStart = event.target.value; return paintDiscussionStage(node, container); }
+      if (field === 'end') { d.dateEnd = event.target.value; return paintDiscussionStage(node, container); }
+    });
+
+    let searchTimer = null;
+    shell.addEventListener('input', event => {
+      if (event.target.dataset.discField !== 'keyword') return;
+      d.keyword = String(event.target.value || '').trim();
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const input = shell.querySelector('[data-disc-field="keyword"]');
+        const caret = input ? input.selectionStart : null;
+        reload();
+        if (caret != null) {
+          const next = container.querySelector('[data-disc-field="keyword"]');
+          if (next) { next.focus(); try { next.setSelectionRange(caret, caret); } catch (_) { /* 忽略 */ } }
+        }
+      }, 350);
+    });
+
+    shell.querySelectorAll('[data-disc-tool]').forEach(button => {
+      button.addEventListener('click', () => {
+        const form = shell.querySelector('[data-disc-form="topic"]');
+        const area = form?.querySelector('textarea[name="content"]');
+        if (!area) return;
+        const tool = button.dataset.discTool;
+        const start = area.selectionStart, end = area.selectionEnd;
+        const selected = area.value.slice(start, end);
+        const wraps = { bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'] };
+        let insert = selected;
+        if (wraps[tool]) insert = wraps[tool][0] + selected + wraps[tool][1];
+        else if (tool === 'list') insert = (selected ? selected.split('\n').map(line => `- ${line}`).join('\n') : '- ');
+        else if (tool === 'link') insert = `[${selected || '链接标题'}](https://)`;
+        else if (tool === 'emoji') insert = selected + ' 😊';
+        else if (tool === 'image') insert = selected + ' 🖼 图片';
+        else if (tool === 'clear') insert = selected.replace(/\*\*|__|\*|`/g, '');
+        area.setRangeText(insert, start, end, 'end');
+        area.focus();
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 预习习题环节页：仿「分步卡片」样式（图三），作答功能与提交状态不变
+   * ------------------------------------------------------------------ */
+
+  const QUIZ_STUDENT_STEPS = [
+    { label: '环节信息', hint: '时间 / 状态 / 进度', target: '[data-quiz-anchor="0"]' },
+    { label: '导学说明', hint: '先看什么、要完成什么', target: '[data-quiz-anchor="1"]' },
+    { label: '逐题作答', hint: '本题全部题目', target: '[data-quiz-anchor="2"]' },
+    { label: '提交与反馈', hint: '提交本环节预习', target: '[data-quiz-anchor="3"]' }
+  ];
+
+  const QUIZ_TEACHER_STEPS = [
+    { label: '基本信息', hint: '名称 / 时间 / 要求', target: '#g3StageEditForm' },
+    { label: '本环节题目', hint: '题目明细', target: '.g3-edit-content' },
+    { label: '本堂课资料', hint: '资料增删', target: '.g3-edit-materials' },
+    { label: '更多操作', hint: '继续发布 / 删除', target: '.g3-edit-more' }
+  ];
+
+  function quizWizardShell(node, steps, content, note) {
+    return `<div class="g3-quiz-wizard">
+      <aside class="g3-quiz-wizard-nav">
+        <div class="g3-quiz-wizard-title"><span>本环节</span>
+          <strong>${node.seq ? `第 ${node.seq} / ${node.total} 步` : '分步查看'}</strong></div>
+        ${steps.map((step, index) => `<button type="button" class="g3-quiz-step${index === 0 ? ' active' : ''}"
+          data-quiz-step="${index}" data-target="${escapeHtml(step.target)}">
+          <span class="g3-quiz-step-no">${index + 1}</span>
+          <span class="g3-quiz-step-text"><strong>${escapeHtml(step.label)}</strong>
+            <small>${escapeHtml(step.hint)}</small></span></button>`).join('')}
+        <div class="g3-quiz-wizard-note">${escapeHtml(note || '分步填写，切换步骤不会丢失已填内容；发布前可随时回到任意一步修改。')}</div>
+      </aside>
+      <div class="g3-quiz-wizard-main">${content}</div>
+    </div>`;
+  }
+
+  function wireQuizWizard(container) {
+    const buttons = [...container.querySelectorAll('[data-quiz-step]')];
+    buttons.forEach(button => button.addEventListener('click', () => {
+      buttons.forEach(item => item.classList.toggle('active', item === button));
+      const target = container.querySelector(button.dataset.target);
+      target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }));
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 发布讨论：独立的分步创建页（从「在时间轴上添加环节」进入）
+   * ------------------------------------------------------------------ */
+
+  function renderDiscussionCreate(context, data) {
+    const overview = state.overview || {};
+    const steps = [
+      {
+        label: '话题内容', hint: '标题 / 正文 / 分类',
+        intro: '写下要学生讨论的主题与背景；正文支持基础排版，发布后学生可以回帖、点赞。',
+        body: () => `<div class="g3-form-grid">
+            <div class="g3-field full"><label for="g3DiscTitle">讨论主题</label>
+              <input id="g3DiscTitle" class="g3-input" name="title" maxlength="200" required
+                value="${escapeHtml(data.title || '')}" placeholder="例如：第 3 章 · 你如何理解分层架构"></div>
+            <div class="g3-field full"><label for="g3DiscBody">话题正文</label>
+              <textarea id="g3DiscBody" class="g3-textarea" name="content" rows="6"
+                placeholder="请输入话题正文，说明讨论背景、要求与期望产出">${escapeHtml(data.content || '')}</textarea></div>
+            <div class="g3-field"><label for="g3DiscCategory">话题分类</label>
+              <input id="g3DiscCategory" class="g3-input" name="category" maxlength="64"
+                value="${escapeHtml(data.category || '')}" placeholder="如：课前思考"></div>
+            <div class="g3-field"><label for="g3DiscPoint">关联知识点</label>
+              <input id="g3DiscPoint" class="g3-input" name="knowledgePoint" maxlength="200"
+                value="${escapeHtml(data.knowledgePoint || '')}" placeholder="选填"></div>
+          </div>`
+      },
+      {
+        label: '发布范围', hint: '教学班 / 课次 / 文件夹',
+        intro: '讨论只对当前教学班可见；关联课次后会同时出现在「章节讨论」里。',
+        body: () => `<div class="g3-form-grid">
+            <div class="g3-field"><label for="g3DiscBinding">发布到教学班</label>
+              <select id="g3DiscBinding" class="g3-select" name="bindingId">${bindingOptions(data.bindingId)}</select></div>
+            <div class="g3-field"><label for="g3DiscLesson">关联课次</label>
+              <select id="g3DiscLesson" class="g3-select" name="lessonId">${lessonOptions(overview, true, data.lessonId)}</select></div>
+            <div class="g3-field"><label for="g3DiscScope">发布范围</label>
+              <select id="g3DiscScope" class="g3-select" name="publishScope">
+                <option value="CLASS"${data.publishScope !== 'ALL' ? ' selected' : ''}>本教学班</option>
+                <option value="ALL"${data.publishScope === 'ALL' ? ' selected' : ''}>全部班级</option>
+              </select></div>
+            <div class="g3-field"><label for="g3DiscFolder">讨论文件夹</label>
+              <select id="g3DiscFolder" class="g3-select" name="folderId">
+                <option value="">不归档</option>${(state.discussion.folders || []).map(item =>
+                  `<option value="${escapeHtml(item.folderId)}"${String(data.folderId) === String(item.folderId) ? ' selected' : ''}>${escapeHtml(item.folderName)}</option>`).join('')}
+              </select></div>
+          </div>
+          <div class="g3-inline-note">发布范围与文件夹随时可在环节设置里调整，无需删除重建。</div>`
+      },
+      {
+        label: '讨论设置', hint: '开放 / 截止 / 回复规则',
+        intro: '和学习通一样，可设置开放与截止时间、匿名、附件、回帖、学生发起主题帖、评分、置顶与加精。',
+        body: () => `<div class="g3-form-grid">
+            <div class="g3-field"><label for="g3DiscOpen">开放时间</label>
+              <input id="g3DiscOpen" class="g3-input" type="datetime-local" name="opensAt"
+                value="${escapeHtml(data.opensAt || localInput())}"></div>
+            <div class="g3-field"><label for="g3DiscClose">截止时间 · 留空为不限</label>
+              <input id="g3DiscClose" class="g3-input" type="datetime-local" name="closesAt"
+                value="${escapeHtml(data.closesAt || futureInput(7))}"></div>
+            <div class="g3-field full"><label>参与规则</label>
+              <div class="g3-disc-check-grid">
+                ${[['allowAnonymous', '允许匿名发表', false], ['allowAttachment', '允许上传附件', true],
+                   ['allowReply', '允许回帖', true], ['allowStudentTopic', '允许学生发起主题帖', false],
+                   ['scoreEnabled', '参与评分', false], ['pinned', '置顶', false],
+                   ['featured', '加精', false]].map(([name, label, def]) =>
+                    `<label class="g3-disc-check"><input type="checkbox" name="${name}"${(Array.isArray(data[name]) ? data[name].length > 0 : (data[name] == null ? def : Boolean(data[name]))) ? ' checked' : ''}> ${label}</label>`).join('')}
+              </div></div>
+            <div class="g3-field"><label for="g3DiscMax">评分满分</label>
+              <input id="g3DiscMax" class="g3-input" type="number" name="scoreMax" min="1" max="1000"
+                value="${escapeHtml(data.scoreMax || 100)}"></div>
+          </div>`
+      },
+      {
+        label: '确认发布', hint: '核对内容后写入时间轴',
+        intro: '确认后话题立即出现在当前教学班的课前时间轴上，并占本堂课的一个环节编号。',
+        body: () => '<div class="g3-summary" data-create-summary></div>'
+      }
+    ];
+    mountStepPage({
+      eyebrow: `${context.courseTitle} · ${context.className}`,
+      title: '添加发布讨论环节',
+      subtitle: '仿学习通讨论区：发布话题、回复点赞、置顶加精、匿名附件、评分与回收站；分步填写，不再把所有字段堆在一个弹窗里。',
+      steps, data, submitLabel: '发布到时间轴',
+      onEnter: (index, form) => {
+        if (index !== steps.length - 1) return;
+        const box = form.querySelector('[data-create-summary]');
+        if (!box) return;
+        const values = collectForm(form);
+        box.innerHTML = `<h3>发布确认</h3>${summaryRows([
+          ['讨论主题', values.title || '未填写'],
+          ['正文长度', `${String(values.content || '').length} 字`],
+          ['话题分类', values.category || '课堂讨论'],
+          ['关联知识点', values.knowledgePoint || '未关联'],
+          ['关联课次', values.lessonId ? '已关联' : '不关联课次'],
+          ['发布范围', values.publishScope === 'ALL' ? '全部班级' : '本教学班'],
+          ['开放', formatTime(values.opensAt)],
+          ['截止', values.closesAt ? formatTime(values.closesAt) : '不限'],
+          ['参与规则', [boolish(values.allowAnonymous) && '匿名', boolish(values.allowAttachment) && '附件',
+            boolish(values.allowReply) && '回帖', boolish(values.allowStudentTopic) && '学生发帖',
+            boolish(values.scoreEnabled) && `评分(${values.scoreMax || 100}分)`, boolish(values.pinned) && '置顶',
+            boolish(values.featured) && '加精'].filter(Boolean).join(' / ') || '默认']
+        ])}`;
+      },
+      onSubmit: async (values, form, button) => {
+        let payload;
+        try {
+          const title = String(values.title || '').trim();
+          const content = String(values.content || '').trim();
+          if (!title) throw new Error('请填写讨论主题');
+          if (!content) throw new Error('请填写话题正文');
+          const opensAt = isoFromInput(values.opensAt);
+          const closesAt = values.closesAt ? isoFromInput(values.closesAt) : null;
+          if (closesAt && new Date(closesAt) <= new Date(opensAt)) throw new Error('截止时间必须晚于开放时间');
+          const check = boolish;
+          payload = {
+            bindingId: Number(values.bindingId),
+            lessonId: values.lessonId ? Number(values.lessonId) : null,
+            folderId: values.folderId ? Number(values.folderId) : null,
+            title, content,
+            category: String(values.category || '').trim(),
+            knowledgePoint: String(values.knowledgePoint || '').trim(),
+            publishScope: values.publishScope || 'CLASS',
+            opensAt, closesAt,
+            allowAnonymous: check('allowAnonymous'),
+            allowAttachment: check('allowAttachment'),
+            allowReply: check('allowReply'),
+            allowStudentTopic: check('allowStudentTopic'),
+            scoreEnabled: check('scoreEnabled'),
+            scoreMax: Number(values.scoreMax || 100),
+            pinned: check('pinned'), featured: check('featured')
+          };
+        } catch (error) { toast(error.message, true); return; }
+        setBusy(button, true, '发布中…');
+        try {
+          const result = await api('/education/group3/discussions', { method: 'POST', body: payload });
+          state.bindingId = String(payload.bindingId);
+          localStorage.setItem(`zhijiao.group3.binding.${role}`, state.bindingId);
+          toast('发布讨论环节已加入时间轴');
+          clearCreateHash();
+          clearOverview();
+          state.selectedKey = '';
+          state.discussion.activeTopicId = result && result.topicId ? result.topicId : null;
+          refreshRoute();
+        } catch (error) {
+          toast(actionableMessage(error), true);
+          setBusy(button, false);
+        }
+      }
+    });
   }
 
   function stageTeacherBody(node, container) {
@@ -3099,7 +4058,7 @@
         · 上传新版本后可在此设置开放时间并发布</div>`;
     }
 
-    container.innerHTML = `<div class="g3-edit-card">
+    const bodyHtml = `<div class="g3-edit-card">
       <div class="g3-edit-head">
         <div><span class="g3-edit-kicker">${escapeHtml(kind.label)} · 环节设置</span>
           <h2>${escapeHtml(node.title)}</h2></div>
@@ -3123,6 +4082,11 @@
       <div class="g3-edit-body">${content}</div></div>` : ''}
     ${stageMaterialsCard(node)}
     <div class="g3-edit-more">${more.join('')}</div>`;
+    container.innerHTML = isQuiz
+      ? quizWizardShell(node, QUIZ_TEACHER_STEPS, bodyHtml,
+          '分步查看，切换步骤不会丢失已填内容；发布前可随时回到任意一步修改。')
+      : bodyHtml;
+    if (isQuiz) wireQuizWizard(container);
 
     const form = container.querySelector('#g3StageEditForm');
     form?.addEventListener('submit', event => {
@@ -3221,6 +4185,7 @@
     if (act === 'gen-plan') return openCreateFlow('plan');
     if (act === 'create-material-stage') return openCreateFlow('material', { source: 'existing' });
     if (act === 'create-quiz-stage') return openCreateFlow('quiz');
+    if (act === 'create-discussion-stage') return openCreateFlow('discussion');
     if (act === 'view') {
       state.prepareView = trigger.dataset.view;
       const context = currentContext();
@@ -3340,7 +4305,9 @@
     // 供离线逻辑校验使用：纯函数，不触发任何网络请求。
     __core: { collectTeacherNodes, collectStudentNodes, groupNodesByDay, filterNodes,
       numberStages, buildStageGroups, stageGroupKey, stageRemoveTarget, stageUpdateTarget,
-      stageMaterialRows, timeState, dayKeyOf }
+      stageMaterialRows, timeState, dayKeyOf, appendDiscussionNode, discussionText,
+      discussionTopicCard, discussionThread, discussionSide, discussionToolbar,
+      quizWizardShell, DISCUSSION_VIEWS, state }
   };
 
   routeFromLocation();

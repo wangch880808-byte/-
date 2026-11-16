@@ -103,4 +103,57 @@ public final class Group3Requests
             String answerOpensAt)
     {
     }
+
+    /** 发布讨论话题：一个话题就是时间轴上的一个「发布讨论」环节。 */
+    public record DiscussionTopic(
+            Long bindingId,
+            Long lessonId,
+            Long folderId,
+            String title,
+            String content,
+            String category,
+            String knowledgePoint,
+            String publishScope,
+            String opensAt,
+            String closesAt,
+            Boolean allowAnonymous,
+            Boolean allowAttachment,
+            Boolean allowReply,
+            Boolean allowStudentTopic,
+            Boolean scoreEnabled,
+            Integer scoreMax,
+            Boolean pinned,
+            Boolean featured)
+    {
+    }
+
+    /** 发表主题帖或回复；parentPostId 为空表示主题帖。 */
+    public record DiscussionPost(
+            Long bindingId,
+            Long topicId,
+            Long parentPostId,
+            String content,
+            Boolean anonymous,
+            String attachmentName,
+            String attachmentUrl)
+    {
+    }
+
+    /**
+     * 讨论管理动作：pin / feature / unpin / unfeature / archive / restore /
+     * score / remove-post / like / folder / move / settings。
+     */
+    public record DiscussionAction(
+            Long bindingId,
+            Long topicId,
+            Long postId,
+            String action,
+            String value)
+    {
+    }
+
+    /** 新建讨论文件夹。 */
+    public record DiscussionFolder(Long bindingId, String name)
+    {
+    }
 }

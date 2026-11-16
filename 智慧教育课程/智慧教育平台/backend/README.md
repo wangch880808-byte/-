@@ -3,10 +3,11 @@
 后端统一位于本目录。已接入 RuoYi-Vue `springboot3` 分支的若依 3.9.2（Spring Boot 3.5.16、Java 17 编译目标），包含六个基础模块和已接入构建的 `ruoyi-education`。登录页及三端原型导航运行页由 `ruoyi-admin` 同源提供；教学业务 HTTP 接口仍未实现，`ruoyi-education` 当前已有 6-02 公告领域的 Entity、Mapper 读写、状态规则和教师公告 Service。下表中“规划职责”描述后续教学业务的分工。
 
 ## 在 D 盘运行登录页
-「打开智慧教育平台」并点 ▶（工程内已配置 `.idea/runConfigurations/打开智慧教育平台.xml`），或直接点 [最新登录页](http://127.0.0.1:8081/login.html?v=20261110d)。该地址带当前前端构建号，不会命中 IDEA 内置浏览器里改动前的旧缓存。**若本文件显示的还是旧链接，先执行 `File → Reload All from Disk`**，让 IDEA 从磁盘重载；前端源码就在工程 `frontend/` 目录，无需另行同步。
+「打开智慧教育平台」并点 ▶（工程内已配置 `.idea/runConfigurations/打开智慧教育平台.xml`），或直接点 [最新登录页](http://127.0.0.1:8082/login.html?v=20261116b)。该地址带当前前端构建号，不会命中 IDEA 内置浏览器里改动前的旧缓存。**若本文件显示的还是旧链接，先执行 `File → Reload All from Disk`**，让 IDEA 从磁盘重载；前端源码就在工程 `frontend/` 目录，无需另行同步。
 
-> **在 IDEA 里直接打开最新页面**：工具栏运行配置下拉选
-本机联调库 `zhijiao_m0` 同时包含 V3.0 M0 教育业务表、若依 `sys_*`/`QRTZ_*` 基础表和演示账号；`zhijiao_login_dev` 是此前的独立登录测试库，当前启动配置已改用 `zhijiao_m0`。Redis 需在 `localhost:6379` 运行。`backend/.env` 为本机私有配置，已被 Git 忽略；换机器时复制 [.env.example](.env.example) 为 `.env`，填写数据库连接与随机令牌密钥。若依上游 SQL 位于 [sql/upstream/ruoyi](../sql/upstream/ruoyi/)；脚本含 `DROP TABLE`，只能用于新建的空测试库，不能对现有演示库重复执行。
+> **在 IDEA 里直接打开最新页面**：工具栏运行配置下拉选「打开智慧教育平台」并点 ▶，它指向 `http://127.0.0.1:8082/login.html?v=20261116b`（`application.yml` 的 `server.port` 为 8082）。若本机另用 `run-local.ps1` 以 jar 方式在 8081 启动，两个端口提供的是同一份最新代码。
+
+本机联调库 `zhijiao_m0` 同时包含 V3.0 M0 教育业务表、若依 `sys_*`/`QRTZ_*` 基础表和演示账号；`zhijiao_login_dev` 是此前的独立登录测试库，当前启动配置已改用 `zhijiao_m0`。Redis 需在 `localhost:6379` 运行。`backend/.env` 为本机私有配置，已被 Git 忽略；换机器时复制 [.env.example](.env.example) 为 `.env`，填写数据库连接与随机令牌密钥。若依上游 SQL 位于 [sql/upstream/ruoyi/ry_20260417.sql](../sql/upstream/ruoyi/ry_20260417.sql)；脚本含 `DROP TABLE`，只能用于新建的空测试库，不能对现有演示库重复执行。
 
 在 PowerShell 中执行：
 
@@ -16,23 +17,23 @@ mvn -B -pl ruoyi-admin -am package -DskipTests
 .\run-local.ps1
 ```
 
-打开 <http://127.0.0.1:8081/login.html?sv=20261110d>（带当前前端构建号的入口，在 IDEA 内置浏览器里点击不会命中改动前的旧缓存）。页面调用若依真实的 `GET /captchaImage`、`POST /login`、`GET /getInfo`、`GET /getRouters`、`POST /logout`；登录时向 `/login` 发送所选 `role`（`admin`、`teacher` 或 `student`），服务端确认账号具有该角色后才发令牌。若依旧调用方不传 `role` 时仍沿用原有登录流程。登录后按角色进入 `/admin.html`、`/teacher.html` 或 `/student.html`，运行页每次加载重新验证令牌和角色。三个页面沿用 [`console-navigation-v1`](../prototypes/console-navigation-v1/) 的导航原型；其静态菜单还未绑定若依授权路由，内容区和教学业务接口仍待开发。`admin` 沿用若依超级管理员账号，教师与学生演示账号使用项目角色并与教学数据的 `user_id` 对应。本机已对三角色成功登录、错入口拒绝、身份查询和退出进行接口联调。联调凭据见 [三端演示账号](../docs/demo-login-accounts.txt)；实际部署须更换密码、创建受限管理员账号并按权限矩阵授权。
+打开 <http://127.0.0.1:8082/login.html?v=20261116b>（带当前前端构建号的入口，在 IDEA 内置浏览器里点击不会命中改动前的旧缓存）。页面调用若依真实的 `GET /captchaImage`、`POST /login`、`GET /getInfo`、`GET /getRouters`、`POST /logout`；登录时向 `/login` 发送所选 `role`（`admin`、`teacher` 或 `student`），服务端确认账号具有该角色后才发令牌。若依旧调用方不传 `role` 时仍沿用原有登录流程。登录后按角色进入 `/admin.html`、`/teacher.html` 或 `/student.html`，运行页每次加载重新验证令牌和角色。三个页面沿用 [`prototypes/README.md`](../prototypes/README.md) 中的 `console-navigation-v1` 的导航原型；其静态菜单还未绑定若依授权路由，内容区和教学业务接口仍待开发。`admin` 沿用若依超级管理员账号，教师与学生演示账号使用项目角色并与教学数据的 `user_id` 对应。本机已对三角色成功登录、错入口拒绝、身份查询和退出进行接口联调。联调凭据见 [三端演示账号](../docs/demo-login-accounts.txt)；实际部署须更换密码、创建受限管理员账号并按权限矩阵授权。
 
 ## 启动失败排查
 
-`http://127.0.0.1:8081/login.html` 打不开时，先看 `netstat -ano | findstr :8081` 是否有 LISTENING；没有 LISTENING 就是应用根本没起来，按下面顺序检查：
+`http://127.0.0.1:8082/login.html` 打不开时，先看 `netstat -ano | findstr :8082` 是否有 LISTENING；没有 LISTENING 就是应用根本没起来，按下面顺序检查：
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `本地配置不存在` | `backend/.env` 缺失（本机私有配置，被 Git 忽略） | 复制 `.env.example` 为 `.env` 并填写必填项 |
 | `后端 JAR 不存在` | 只做过编译、未打包 | 执行 `mvn -B -pl ruoyi-admin -am package -DskipTests`，产出 `ruoyi-admin/target/ruoyi-admin.jar` |
-| 日志出现 `Port 56723 was already in use`（或其它非 8081 端口） | 宿主环境注入了 `SERVER__PORT` 之类环境变量，Spring Boot 将其识别为 `server.port`，覆盖了 `application.yml` 的 8081 | `run-local.ps1` 已用命令行参数 `--server.port=8081` 锁定；手动 `java -jar` 时也要带该参数，或先清除 `SERVER__PORT` |
+| 日志出现 `Port 56723 was already in use`（或其它非 8082 端口） | 宿主环境注入了 `SERVER__PORT` 之类环境变量，Spring Boot 将其识别为 `server.port`，覆盖了 `application.yml` 的 8082 | 手动 `java -jar` 时带 `--server.port=8082`，或先清除 `SERVER__PORT`；`run-local.ps1` 另用 `--server.port=8081` 启动等价的 jar 实例 |
 | 浏览器返回代理 502 | 系统/终端设置了 `HTTP_PROXY`，本地回环请求被转发 | 把 `127.0.0.1`、`localhost` 加入「不使用代理」；命令行验证用 `curl --noproxy '*'` |
-| 页面能打开但内容是旧版 | IDEA 内置浏览器缓存了改动前的 HTML/JS（jar 内资源时间戳固定为 1980，旧条目长期 fresh，连请求都不发） | 用带构建号的 <http://127.0.0.1:8081/login.html?v=20261110d> 打开一次，或关闭内置浏览器标签页重开；`application.yml` 已设 `no-store` 并关闭 `use-last-modified` |
+| 页面能打开但内容是旧版 | IDEA 内置浏览器缓存了改动前的 HTML/JS（jar 内资源时间戳固定为 1980，旧条目长期 fresh，连请求都不发） | 用带构建号的 <http://127.0.0.1:8082/login.html?v=20261116b> 打开一次，或关闭内置浏览器标签页重开；`application.yml` 已设 `no-store` 并关闭 `use-last-modified` |
 
 启动依赖本机 MySQL `127.0.0.1:3306/zhijiao_m0` 和 Redis `localhost:6379`（验证码写入 Redis）。真实数据库连接写在 `application-druid.yml`，`.env` 里的 `RUOYI_DB_*` 目前只被启动脚本校验，不会覆盖该配置。
 
-启动成功的标志是日志出现 `Starting ProtocolHandler ["http-nio-8081"]` 和 `Started RuoYiApplication`，且 `GET /login.html`、`GET /captchaImage` 均返回 200。
+启动成功的标志是日志出现 `Starting ProtocolHandler ["http-nio-8082"]`（jar 实例为 `http-nio-8081`） 和 `Started RuoYiApplication`，且 `GET /login.html`、`GET /captchaImage` 均返回 200。
 
 ## 基础模块与依赖
 

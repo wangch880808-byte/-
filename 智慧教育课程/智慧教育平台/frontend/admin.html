@@ -10,8 +10,8 @@
 <script>
   (function () {
     var u = new URL(location.href);
-    if (u.searchParams.get('v') !== '20261110d') {
-      u.searchParams.set('v', '20261110d');
+    if (u.searchParams.get('v') !== '20261116b') {
+      u.searchParams.set('v', '20261116b');
       location.replace(u.toString());
     }
   })();
@@ -235,9 +235,9 @@ function closeTab(g, i) {
   if (wasActive) {
     if (tabs.length > 0) {
       var next = tabs[Math.min(idx, tabs.length - 1)];
-      location.href = '?g=' + next.g + '&i=' + next.i;
+      location.href = '?g=' + next.g + '&i=' + next.i + '&v=20261116b';
     } else {
-      location.href = '?g=0&i=0';
+      location.href = '?g=0&i=0&v=20261116b';
     }
   } else {
     renderTabs();
@@ -263,6 +263,6 @@ function init() {
 
 init();
 </script>
-<script src="/role-home.js?v=20261110d"></script>
+<script src="/role-home.js?v=20261116b"></script>
 </body>
 </html>
