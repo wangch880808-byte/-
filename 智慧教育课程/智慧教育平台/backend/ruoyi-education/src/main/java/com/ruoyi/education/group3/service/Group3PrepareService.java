@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.constant.HttpStatus;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.education.group3.contract.PreviewSubmissionHandler;
 import com.ruoyi.education.group3.contract.PreviewTaskProvider;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
 import com.ruoyi.education.group3.support.Group3Requests;
@@ -30,17 +31,20 @@ public class Group3PrepareService implements PreviewTaskProvider
     private final Group3AccessService accessService;
     private final Group3ResourceService resourceService;
     private final ObjectMapper objectMapper;
+    private final PreviewSubmissionHandler submissionHandler;
 
     public Group3PrepareService(
             Group3Mapper mapper,
             Group3AccessService accessService,
             Group3ResourceService resourceService,
-            ObjectMapper objectMapper)
+            ObjectMapper objectMapper,
+            PreviewSubmissionHandler submissionHandler)
     {
         this.mapper = mapper;
         this.accessService = accessService;
         this.resourceService = resourceService;
         this.objectMapper = objectMapper;
+        this.submissionHandler = submissionHandler;
     }
 
     public List<Map<String, Object>> questions(Long bindingId)
@@ -402,7 +406,7 @@ public class Group3PrepareService implements PreviewTaskProvider
             item.put("answerVisible", answerVisible);
         }
         task.put("items", items);
-        Map<String, Object> submission = mapper.selectSubmissionByTarget(
+        Map<String, Object> submission = submissionHandler.existingSubmission(
                 Group3AccessService.asLong(task.get("targetId")));
         task.put("submitted", submission != null);
         task.put("submission", submission);
@@ -419,7 +423,7 @@ public class Group3PrepareService implements PreviewTaskProvider
     {
         accessService.requireStudentBinding(bindingId);
         Long userId = Group3Security.currentUserId();
-        Map<String, Object> target = mapper.selectStudentTargetForUpdate(assignmentId, userId);
+        Map<String, Object> target = submissionHandler.studentTarget(assignmentId, userId);
         if (target == null
                 || !bindingId.equals(Group3AccessService.asLong(target.get("bindingId"))))
         {
@@ -443,7 +447,7 @@ public class Group3PrepareService implements PreviewTaskProvider
         }
 
         Long targetId = Group3AccessService.asLong(target.get("targetId"));
-        Map<String, Object> existing = mapper.selectSubmissionByTarget(targetId);
+        Map<String, Object> existing = submissionHandler.existingSubmission(targetId);
         if (existing != null)
         {
             existing.put("idempotent", true);
@@ -460,62 +464,14 @@ public class Group3PrepareService implements PreviewTaskProvider
                 ? Map.of() : request.answers();
         for (Map<String, Object> item : items)
         {
-            String itemId = String.valueOf(item.get("assignmentItemId"));
-            JsonNode answer = answers.get(itemId);
-            if (answer == null && answers.size() == 1)
-            {
-                answer = answers.values().iterator().next();
-            }
-            validateStudentAnswer(item, answer);
+            validateStudentAnswer(item, resolveAnswer(item, answers));
         }
 
-        Map<String, Object> submissionRow = new LinkedHashMap<>();
-        submissionRow.put("assignmentId", assignmentId);
-        submissionRow.put("targetId", targetId);
-        mapper.insertSubmission(submissionRow);
-        Long submissionId = mapper.selectSubmissionIdByTarget(targetId);
-        if (submissionId == null)
-        {
-            throw new ServiceException("提交记录创建失败，请重试", HttpStatus.ERROR);
-        }
-        int versionNo = mapper.selectNextSubmissionVersion(submissionId);
-        Map<String, Object> version = new LinkedHashMap<>();
-        version.put("submissionId", submissionId);
-        version.put("assignmentId", assignmentId);
-        version.put("versionNo", versionNo);
-        version.put("late", false);
-        mapper.insertSubmissionVersion(version);
-        Long submissionVersionId = Group3AccessService.asLong(version.get("id"));
-
-        for (Map<String, Object> item : items)
-        {
-            String itemId = String.valueOf(item.get("assignmentItemId"));
-            JsonNode answer = answers.get(itemId);
-            if (answer == null && answers.size() == 1)
-            {
-                answer = answers.values().iterator().next();
-            }
-            Map<String, Object> answerRow = new LinkedHashMap<>();
-            answerRow.put("submissionVersionId", submissionVersionId);
-            answerRow.put("assignmentId", assignmentId);
-            answerRow.put("assignmentItemId", item.get("assignmentItemId"));
-            answerRow.put("answerJson", answer.toString());
-            mapper.insertSubmissionAnswer(answerRow);
-        }
-
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("bindingId", bindingId);
-        event.put("studentUserId", userId);
-        event.put("assignmentId", assignmentId);
-        event.put("submissionVersionId", submissionVersionId);
-        event.put("clientEventKey", "preview-" + assignmentId + "-" + userId + "-v" + versionNo);
-        event.put("metadataJson", "{\"questionCount\":" + items.size() + "}");
-        mapper.insertLearningEvent(event);
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("submissionId", submissionId);
-        result.put("submissionVersionId", submissionVersionId);
-        result.put("versionNo", versionNo);
+        // 持久化移交 PreviewSubmissionHandler；默认由本地实现写共享作业表，
+        // 第五组统一作业服务提供 @Primary 实现后即自动接管评分/改交/成绩。
+        Map<String, Object> result = submissionHandler.submit(
+                new PreviewSubmissionHandler.PreviewSubmissionCommand(
+                        bindingId, assignmentId, targetId, userId, items, answers));
         result.put("submitted", true);
         result.put("submittedAt", Group3Time.nowIso());
         return Group3Time.withServerTime(result);
@@ -626,6 +582,21 @@ public class Group3PrepareService implements PreviewTaskProvider
         {
             mapper.linkQuestionKnowledgePoint(questionId, courseSpaceId, knowledgePointId);
         }
+    }
+
+    /**
+     * 解析单题答案：优先按 assignmentItemId 精确匹配；
+     * 若只有一份答案且未精确匹配，则回退使用该唯一答案（兼容单题任务）。
+     */
+    private JsonNode resolveAnswer(Map<String, Object> item, Map<String, JsonNode> answers)
+    {
+        String itemId = String.valueOf(item.get("assignmentItemId"));
+        JsonNode answer = answers.get(itemId);
+        if (answer == null && answers.size() == 1)
+        {
+            answer = answers.values().iterator().next();
+        }
+        return answer;
     }
 
     private void validateStudentAnswer(Map<String, Object> item, JsonNode answer)
