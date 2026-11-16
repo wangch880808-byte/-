@@ -168,6 +168,26 @@ public class Group3FileStorageService
         return resolve(storageKey);
     }
 
+    /**
+     * 删除存储的单个文件（原始文件或单张预览图）。文件不存在时静默返回，
+     * 保留策略清理失败版本时使用。
+     */
+    public void delete(String storageKey)
+    {
+        if (storageKey == null || storageKey.isBlank())
+        {
+            return;
+        }
+        try
+        {
+            Files.deleteIfExists(resolve(storageKey));
+        }
+        catch (IOException ignored)
+        {
+            // 保留策略清理不阻断主流程
+        }
+    }
+
     public String fileName(String storageKey)
     {
         return Paths.get(storageKey).getFileName().toString();

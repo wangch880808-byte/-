@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.core.domain.R;
+import com.ruoyi.education.course.api.EduCourseAccessService;
+import com.ruoyi.education.course.api.EduTeacherRef;
 import com.ruoyi.education.group3.contract.PreviewTaskProvider;
 import com.ruoyi.education.group3.contract.PublishedResourceProvider;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
@@ -46,6 +48,7 @@ public class Group3Controller
     private final Group3Mapper mapper;
     private final PublishedResourceProvider publishedResourceProvider;
     private final PreviewTaskProvider previewTaskProvider;
+    private final EduCourseAccessService courseAccess;
 
     public Group3Controller(
             Group3AccessService accessService,
@@ -54,7 +57,8 @@ public class Group3Controller
             Group3TransferService transferService,
             Group3Mapper mapper,
             PublishedResourceProvider publishedResourceProvider,
-            PreviewTaskProvider previewTaskProvider)
+            PreviewTaskProvider previewTaskProvider,
+            EduCourseAccessService courseAccess)
     {
         this.accessService = accessService;
         this.resourceService = resourceService;
@@ -63,6 +67,7 @@ public class Group3Controller
         this.mapper = mapper;
         this.publishedResourceProvider = publishedResourceProvider;
         this.previewTaskProvider = previewTaskProvider;
+        this.courseAccess = courseAccess;
     }
 
     @GetMapping("/contexts")
@@ -87,8 +92,14 @@ public class Group3Controller
             @RequestParam("file") MultipartFile file)
     {
         Map<String, Object> result = resourceService.upload(bindingId, title, unitId, file);
-        return R.ok(result, "READY".equals(result.get("processingStatus"))
-                ? "资料已上传并完成处理" : "资料已上传，但转换失败");
+        String status = String.valueOf(result.get("processingStatus"));
+        String message = switch (status)
+        {
+            case "READY" -> "资料已上传并完成处理";
+            case "FAILED" -> "资料转换失败，请查看处理状态";
+            default -> "资料已上传，正在转换，请稍后刷新查看";
+        };
+        return R.ok(result, message);
     }
 
     @PostMapping("/resources/{resourceId}/versions")
@@ -555,19 +566,28 @@ public class Group3Controller
     @GetMapping("/classrooms")
     public R<Map<String, Object>> classroomDetail(@RequestParam Long bindingId)
     {
-        Long userId = Group3Security.currentUserId();
-        Map<String, Object> detail = mapper.selectClassroomDetail(bindingId, userId);
-        if (detail == null || detail.isEmpty())
-        {
-            return R.fail(404, "教学班不存在或无权限");
-        }
+        Map<String, Object> detail = accessService.requireAnyBinding(bindingId);
         Long teachingClassId = Group3AccessService.asLong(detail.get("teachingClassId"));
-        int studentCount = mapper.selectActiveStudentCount(teachingClassId);
-        List<Map<String, Object>> teachers = mapper.selectClassTeachers(teachingClassId);
+        int studentCount = courseAccess.activeMembers(teachingClassId).size();
+        List<Map<String, Object>> teachers = new ArrayList<>();
+        for (EduTeacherRef t : courseAccess.activeTeachers(teachingClassId))
+        {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", t.id());
+            row.put("userId", t.userId());
+            row.put("userName", t.userName());
+            row.put("nickName", t.nickName());
+            row.put("teacherRole", t.teacherRole());
+            row.put("canPublish", t.canPublish());
+            row.put("canGrade", t.canGrade());
+            row.put("canExport", t.canExport());
+            row.put("validTo", t.validTo());
+            teachers.add(row);
+        }
         Map<String, Object> result = new LinkedHashMap<>(detail);
         result.put("studentCount", studentCount);
         result.put("teachers", teachers);
-        // 开放范围：表无此字段，暂以 classKind + term 推断，前端展示用
+        // 开放范围：表无此字段，暂以 classKind 推断，前端展示用
         String openScope = "正式教学班";
         if ("TRIAL".equalsIgnoreCase(String.valueOf(detail.get("classKind"))))
         {

@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,15 +24,18 @@ public class Group3ResourceService implements PublishedResourceProvider
     private final Group3Mapper mapper;
     private final Group3AccessService accessService;
     private final Group3FileStorageService storage;
+    private final Executor conversionExecutor;
 
     public Group3ResourceService(
             Group3Mapper mapper,
             Group3AccessService accessService,
-            Group3FileStorageService storage)
+            Group3FileStorageService storage,
+            Executor group3ConversionExecutor)
     {
         this.mapper = mapper;
         this.accessService = accessService;
         this.storage = storage;
+        this.conversionExecutor = group3ConversionExecutor;
     }
 
     public Map<String, Object> overview(Long bindingId)
@@ -359,10 +363,20 @@ public class Group3ResourceService implements PublishedResourceProvider
         Long versionId = Group3AccessService.asLong(version.get("id"));
         version.put("versionId", versionId);
 
+        // 转换放入独立线程池异步执行，避免大文件阻塞请求线程；
+        // 调用方通过版本状态轮询 PENDING → READY / FAILED。
+        conversionExecutor.execute(
+                () -> processConversion(versionId, stored.storageKey(), stored.originalName()));
+        version.put("processingStatus", "PENDING");
+        version.put("processingMessage", "文件已上传，正在转换，请稍候刷新");
+        return version;
+    }
+
+    private void processConversion(Long versionId, String storageKey, String originalName)
+    {
         try
         {
-            List<Group3FileStorageService.ConvertedPage> pages =
-                    storage.convert(stored.storageKey(), stored.originalName());
+            List<Group3FileStorageService.ConvertedPage> pages = storage.convert(storageKey, originalName);
             mapper.clearResourcePages(versionId);
             for (Group3FileStorageService.ConvertedPage page : pages)
             {
@@ -378,22 +392,14 @@ public class Group3ResourceService implements PublishedResourceProvider
             ready.put("versionId", versionId);
             ready.put("processingStatus", "READY");
             mapper.updateResourceVersionStatus(ready);
-            version.put("processingStatus", "READY");
-            version.put("pageCount", pages.size());
-            version.put("processingMessage", pages.isEmpty()
-                    ? "文件已就绪，可直接受控下载"
-                    : "转换完成，可逐页预览");
-            return version;
         }
         catch (RuntimeException error)
         {
             Map<String, Object> failed = new LinkedHashMap<>();
             failed.put("versionId", versionId);
             failed.put("processingStatus", "FAILED");
+            failed.put("processingMessage", error.getMessage());
             mapper.updateResourceVersionStatus(failed);
-            version.put("processingStatus", "FAILED");
-            version.put("processingMessage", error.getMessage());
-            return version;
         }
     }
 

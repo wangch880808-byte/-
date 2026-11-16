@@ -11,6 +11,7 @@ import com.ruoyi.education.course.api.EduClassRef;
 import com.ruoyi.education.course.api.EduCourseAccessService;
 import com.ruoyi.education.course.api.EduCourseRef;
 import com.ruoyi.education.course.api.EduMemberRef;
+import com.ruoyi.education.course.api.EduTeacherRef;
 import com.ruoyi.education.course.api.EduTermRef;
 import com.ruoyi.education.domain.EduClassStudent;
 import com.ruoyi.education.domain.EduClassTeacher;
@@ -72,6 +73,8 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                 text(row.get("code")),
                 number(row.get("termId")),
                 text(row.get("termName")),
+                text(row.get("termStartsOn")),
+                text(row.get("termEndsOn")),
                 portalMapper.selectOrganizationIdByClassId(classId),
                 text(row.get("status")),
                 text(row.get("classKind")));
@@ -150,6 +153,8 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                     text(row.get("code")),
                     number(row.get("termId")),
                     text(row.get("termName")),
+                    text(row.get("termStartsOn")),
+                    text(row.get("termEndsOn")),
                     number(row.get("organizationId")),
                     text(row.get("status")),
                     text(row.get("classKind"))));
@@ -171,6 +176,8 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                     text(row.get("code")),
                     number(row.get("termId")),
                     text(row.get("termName")),
+                    text(row.get("termStartsOn")),
+                    text(row.get("termEndsOn")),
                     number(row.get("organizationId")),
                     text(row.get("classStatus")),
                     text(row.get("classKind"))));
@@ -190,6 +197,44 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
         return bindingMapper.selectActiveListByClassId(classId).stream()
                 .map(binding -> new EduClassBindingRef(binding.getId(), binding.getTeachingClassId(),
                         binding.getCourseSpaceId(), date(binding.getPublishedAt()))).toList();
+    }
+
+    @Override
+    public List<EduTeacherRef> activeTeachers(Long classId) {
+        List<Map<String, Object>> rows = portalMapper.selectClassTeachers(classId);
+        List<EduTeacherRef> teachers = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            teachers.add(new EduTeacherRef(
+                    classId,
+                    number(row.get("id")),
+                    number(row.get("userId")),
+                    text(row.get("userName")),
+                    text(row.get("nickName")),
+                    text(row.get("teacherRole")),
+                    truthy(row.get("canPublish")),
+                    truthy(row.get("canGrade")),
+                    truthy(row.get("canExport")),
+                    text(row.get("validTo"))));
+        }
+        return teachers;
+    }
+
+    @Override
+    public EduClassBindingRef binding(Long bindingId) {
+        if (bindingId == null) {
+            return null;
+        }
+        EduCourseClassBinding binding = bindingMapper.selectById(bindingId);
+        if (binding == null || binding.getEndedAt() != null) {
+            return null;
+        }
+        return new EduClassBindingRef(binding.getId(), binding.getTeachingClassId(),
+                binding.getCourseSpaceId(), date(binding.getPublishedAt()));
+    }
+
+    @Override
+    public EduCourseRef courseRef(Long courseSpaceId) {
+        return toRef(loadCourse(courseSpaceId));
     }
 
     /* ================= 课程 ================= */
@@ -230,7 +275,7 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
     }
 
     private EduCourseRef toRef(EduCourseSpace space) {
-        return new EduCourseRef(space.getId(), space.getTitle(), space.getOwnerUserId(),
+        return new EduCourseRef(space.getId(), space.getTitle(), space.getSummary(), space.getOwnerUserId(),
                 space.getOrganizationId(), space.getStatus());
     }
 

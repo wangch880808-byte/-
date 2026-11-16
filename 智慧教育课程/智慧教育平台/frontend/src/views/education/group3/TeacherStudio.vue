@@ -1414,6 +1414,22 @@ async function loadOverview() {
   }
 }
 
+// 上传后后端异步转换，轮询总览直到没有 PENDING 的资料/版本
+async function pollPendingConversion() {
+  const hasPending = () => {
+    const o = overview.value
+    if (!o) return false
+    const check = list => Array.isArray(list) && list.some(i => i.processingStatus === 'PENDING')
+    return check(o.resources) || check(o.materialVersions)
+  }
+  let tries = 0
+  while (hasPending() && tries < 60) {
+    await new Promise(r => setTimeout(r, 3000))
+    await loadOverview()
+    tries += 1
+  }
+}
+
 /* ---------- 文件夹（持久化到课程资料库） ---------- */
 
 function normalizeFolder(folder) {
@@ -1661,6 +1677,7 @@ async function submitUpload() {
     uploadFiles.value = []
     uploadRef.value?.clearFiles()
     await loadOverview()
+    await pollPendingConversion()
   } catch (e) {
     ElMessage.error(e?.message || '上传失败')
   } finally {
@@ -1693,11 +1710,14 @@ async function submitNewVersion() {
     const data = res.data || {}
     if (!data.processingStatus || data.processingStatus === 'READY') {
       ElMessage.success('新版本已保存')
+    } else if (data.processingStatus === 'PENDING') {
+      ElMessage.info('新版本已上传，正在转换')
     } else {
       ElMessage.warning(data.processingMessage || '新版本已保存，但转换失败')
     }
     versionOpen.value = false
     await loadOverview()
+    await pollPendingConversion()
   } catch (e) {
     ElMessage.error(e?.message || '新版本上传失败')
   } finally {

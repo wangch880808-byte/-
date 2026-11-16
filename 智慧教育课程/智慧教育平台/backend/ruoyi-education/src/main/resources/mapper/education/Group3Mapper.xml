@@ -4,109 +4,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.education.group3.mapper.Group3Mapper">
 
-    <select id="selectTeacherContexts" resultType="java.util.LinkedHashMap">
-        SELECT b.id AS bindingId,
-               b.course_space_id AS courseSpaceId,
-               cs.title AS courseTitle,
-               cs.summary AS courseSummary,
-               tc.id AS teachingClassId,
-               tc.name AS className,
-               tc.code AS classCode,
-               t.name AS termName,
-               ct.teacher_role AS teacherRole,
-               ct.can_publish AS canPublish
-        FROM edu_class_teacher ct
-        JOIN edu_teaching_class tc ON tc.id = ct.teaching_class_id
-        JOIN edu_term t ON t.id = tc.term_id
-        JOIN edu_course_class_binding b ON b.teaching_class_id = tc.id
-        JOIN edu_course_space cs ON cs.id = b.course_space_id
-        WHERE ct.user_id = #{userId}
-          AND ct.valid_to IS NULL
-          AND ct.valid_from &lt;= UTC_TIMESTAMP(3)
-          AND ct.can_publish = 1
-          AND tc.status = 'ACTIVE'
-          AND b.ended_at IS NULL
-        ORDER BY t.starts_on DESC, cs.title, tc.name
-    </select>
-
-    <select id="selectStudentContexts" resultType="java.util.LinkedHashMap">
-        SELECT b.id AS bindingId,
-               b.course_space_id AS courseSpaceId,
-               cs.title AS courseTitle,
-               cs.summary AS courseSummary,
-               tc.id AS teachingClassId,
-               tc.name AS className,
-               tc.code AS classCode,
-               t.name AS termName
-        FROM edu_class_student st
-        JOIN edu_teaching_class tc ON tc.id = st.teaching_class_id
-        JOIN edu_term t ON t.id = tc.term_id
-        JOIN edu_course_class_binding b ON b.teaching_class_id = tc.id
-        JOIN edu_course_space cs ON cs.id = b.course_space_id
-        WHERE st.user_id = #{userId}
-          AND st.left_at IS NULL
-          AND st.joined_at &lt;= UTC_TIMESTAMP(3)
-          AND tc.status = 'ACTIVE'
-          AND b.ended_at IS NULL
-        ORDER BY t.starts_on DESC, cs.title, tc.name
-    </select>
-
-    <select id="selectTeacherBinding" resultType="java.util.LinkedHashMap">
-        SELECT b.id AS bindingId,
-               b.course_space_id AS courseSpaceId,
-               b.teaching_class_id AS teachingClassId,
-               b.organization_id AS organizationId,
-               cs.title AS courseTitle,
-               tc.name AS className,
-               ct.teacher_role AS teacherRole,
-               ct.can_publish AS canPublish
-        FROM edu_course_class_binding b
-        JOIN edu_course_space cs ON cs.id = b.course_space_id
-        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
-        JOIN edu_class_teacher ct ON ct.teaching_class_id = tc.id
-        WHERE b.id = #{bindingId}
-          AND ct.user_id = #{userId}
-          AND ct.valid_to IS NULL
-          AND ct.valid_from &lt;= UTC_TIMESTAMP(3)
-          AND ct.can_publish = 1
-          AND tc.status = 'ACTIVE'
-          AND b.ended_at IS NULL
-    </select>
-
-    <select id="selectStudentBinding" resultType="java.util.LinkedHashMap">
-        SELECT b.id AS bindingId,
-               b.course_space_id AS courseSpaceId,
-               b.teaching_class_id AS teachingClassId,
-               cs.title AS courseTitle,
-               tc.name AS className,
-               st.id AS enrollmentId
-        FROM edu_course_class_binding b
-        JOIN edu_course_space cs ON cs.id = b.course_space_id
-        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
-        JOIN edu_class_student st ON st.teaching_class_id = tc.id
-        WHERE b.id = #{bindingId}
-          AND st.user_id = #{userId}
-          AND st.left_at IS NULL
-          AND st.joined_at &lt;= UTC_TIMESTAMP(3)
-          AND tc.status = 'ACTIVE'
-          AND b.ended_at IS NULL
-    </select>
-
-    <select id="selectBinding" resultType="java.util.LinkedHashMap">
-        SELECT b.id AS bindingId,
-               b.course_space_id AS courseSpaceId,
-               b.teaching_class_id AS teachingClassId,
-               b.organization_id AS organizationId,
-               cs.title AS courseTitle,
-               tc.name AS className
-        FROM edu_course_class_binding b
-        JOIN edu_course_space cs ON cs.id = b.course_space_id
-        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
-        WHERE b.id = #{bindingId}
-          AND b.ended_at IS NULL
-          AND tc.status = 'ACTIVE'
-    </select>
-
     <select id="selectCourseOutline" resultType="java.util.LinkedHashMap">
         SELECT u.id AS unitId,
                u.parent_unit_id AS parentUnitId,
@@ -227,14 +124,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                r.course_space_id AS courseSpaceId
         FROM edu_resource_version rv
         JOIN edu_resource r ON r.id = rv.resource_id
-        JOIN edu_course_class_binding b ON b.course_space_id = r.course_space_id
-        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
         WHERE rv.id = #{versionId}
-          AND b.id = #{bindingId}
-          AND b.ended_at IS NULL
-          AND ct.user_id = #{userId}
-          AND ct.valid_to IS NULL
-          AND ct.can_publish = 1
+          AND r.course_space_id = #{courseSpaceId}
     </select>
 
     <select id="selectStudentVisibleVersion" resultType="java.util.LinkedHashMap">
@@ -253,8 +144,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         FROM edu_resource_class_release rel
         JOIN edu_resource_version rv ON rv.id = rel.resource_version_id
         JOIN edu_resource r ON r.id = rel.resource_id
-        JOIN edu_course_class_binding b ON b.id = rel.binding_id
-        JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
         WHERE rel.id = (SELECT MAX(r2.id)
                           FROM edu_resource_class_release r2
                          WHERE r2.binding_id = #{bindingId}
@@ -267,9 +156,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           AND (rel.closes_at IS NULL OR rel.closes_at &gt; UTC_TIMESTAMP(3))
           AND rv.processing_status = 'READY'
           AND r.status = 'ACTIVE'
-          AND b.ended_at IS NULL
-          AND st.user_id = #{userId}
-          AND st.left_at IS NULL
     </select>
 
     <select id="selectVersionById" resultType="java.util.LinkedHashMap">
@@ -387,6 +273,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <delete id="clearResourcePages">
         DELETE FROM edu_resource_page WHERE resource_version_id = #{versionId}
     </delete>
+
+    <select id="selectExpiredFailedVersions" resultType="java.util.LinkedHashMap">
+        SELECT id, storage_key AS storageKey
+        FROM edu_resource_version
+        WHERE processing_status = 'FAILED'
+          AND created_at &lt; #{before}
+    </select>
+
+    <delete id="deleteResourceVersion">
+        DELETE FROM edu_resource_version WHERE id = #{versionId}
+    </delete>
+
+    <select id="selectResourcePageKeys" resultType="java.lang.String">
+        SELECT preview_storage_key FROM edu_resource_page WHERE resource_version_id = #{versionId}
+    </select>
 
     <update id="endRelease" parameterType="map">
         UPDATE edu_resource_class_release
@@ -1009,59 +910,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           AND course_space_id = #{courseSpaceId}
     </delete>
 
-    <!-- === 教学班详情（第三组补充） === -->
-
-    <select id="selectActiveStudentCount" resultType="int">
-        SELECT COUNT(*)
-        FROM edu_class_student
-        WHERE teaching_class_id = #{teachingClassId}
-          AND left_at IS NULL
-    </select>
-
-    <select id="selectClassTeachers" resultType="java.util.LinkedHashMap">
-        SELECT ct.id,
-               ct.user_id AS userId,
-               ct.teacher_role AS teacherRole,
-               ct.can_publish AS canPublish,
-               ct.can_grade AS canGrade,
-               ct.can_export AS canExport,
-               su.user_name AS userName,
-               su.nick_name AS nickName
-        FROM edu_class_teacher ct
-        LEFT JOIN sys_user su ON su.user_id = ct.user_id
-        WHERE ct.teaching_class_id = #{teachingClassId}
-          AND ct.valid_to IS NULL
-        ORDER BY ct.teacher_role, ct.id
-    </select>
-
-    <select id="selectClassroomDetail" resultType="java.util.LinkedHashMap">
-        SELECT b.id AS bindingId,
-               b.course_space_id AS courseSpaceId,
-               b.teaching_class_id AS teachingClassId,
-               cs.title AS courseTitle,
-               cs.summary AS courseSummary,
-               cs.status AS courseStatus,
-               tc.name AS className,
-               tc.code AS classCode,
-               tc.class_kind AS classKind,
-               tc.status AS classStatus,
-               t.id AS termId,
-               t.name AS termName,
-               t.starts_on AS termStartsOn,
-               t.ends_on AS termEndsOn,
-               ct.teacher_role AS teacherRole,
-               ct.can_publish AS canPublish
-        FROM edu_course_class_binding b
-        JOIN edu_course_space cs ON cs.id = b.course_space_id
-        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
-        JOIN edu_term t ON t.id = tc.term_id
-        JOIN edu_class_teacher ct ON ct.teaching_class_id = tc.id
-            AND ct.user_id = #{userId}
-            AND ct.valid_to IS NULL
-            AND ct.valid_from &lt;= UTC_TIMESTAMP(3)
-        WHERE b.id = #{bindingId}
-          AND b.ended_at IS NULL
-    </select>
+    <!-- === 教学班详情：教学班/教师/在班数据由 EduCourseAccessService 契约提供，Group3Mapper 不再直读 === -->
 
     <!-- ========== 资料 / 题库文件夹 ========== -->
 

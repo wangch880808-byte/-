@@ -47,6 +47,8 @@
         tc.term_id AS semesterId,
         t.name AS semesterName,
         t.name AS termName,
+        DATE_FORMAT(t.starts_on, '%Y-%m-%d') AS termStartsOn,
+        DATE_FORMAT(t.ends_on, '%Y-%m-%d') AS termEndsOn,
         tc.official_course_id AS officialCourseId,
         tc.official_course_id AS courseId,
         oc.name AS courseName,
@@ -118,7 +120,8 @@
     </select>
 
     <select id="selectClassTeachers" resultType="java.util.Map">
-        SELECT ct.teaching_class_id AS classId,
+        SELECT ct.id AS id,
+               ct.teaching_class_id AS classId,
                ct.user_id AS userId,
                u.user_name AS userName,
                u.nick_name AS nickName,
@@ -252,6 +255,8 @@
                tc.status AS classStatus,
                t.name AS termName,
                t.name AS semesterName,
+               DATE_FORMAT(t.starts_on, '%Y-%m-%d') AS termStartsOn,
+               DATE_FORMAT(t.ends_on, '%Y-%m-%d') AS termEndsOn,
                IF((cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3))), 'ACTIVE', 'LEFT') AS status,
                DATE_FORMAT(cs.joined_at, '%Y-%m-%d') AS joinedAt,
                DATE_FORMAT(cs.left_at, '%Y-%m-%d') AS leftAt

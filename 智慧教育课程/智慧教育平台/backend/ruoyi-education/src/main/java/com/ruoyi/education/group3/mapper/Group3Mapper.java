@@ -5,25 +5,14 @@ import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * Group 3 owns resource and prepare data. Course/class queries are read-only
- * authorization inputs until the course contract service is available.
+ * Group3 自有数据访问：资源、题库、备课、预习、文件夹，以及按课程空间过滤的课程大纲/知识点。
+ * 教学班、任课、在班、课程绑定等课程领域数据一律通过
+ * {@code com.ruoyi.education.course.api.EduCourseAccessService} 契约取得，
+ * 本 Mapper 不再直接查询 {@code edu_teaching_class}、{@code edu_class_teacher}、
+ * {@code edu_class_student}、{@code edu_course_class_binding}。
  */
 public interface Group3Mapper
 {
-    List<Map<String, Object>> selectTeacherContexts(@Param("userId") Long userId);
-
-    List<Map<String, Object>> selectStudentContexts(@Param("userId") Long userId);
-
-    Map<String, Object> selectTeacherBinding(
-            @Param("userId") Long userId,
-            @Param("bindingId") Long bindingId);
-
-    Map<String, Object> selectStudentBinding(
-            @Param("userId") Long userId,
-            @Param("bindingId") Long bindingId);
-
-    Map<String, Object> selectBinding(@Param("bindingId") Long bindingId);
-
     List<Map<String, Object>> selectCourseOutline(@Param("courseSpaceId") Long courseSpaceId);
 
     List<Map<String, Object>> selectKnowledgePoints(@Param("courseSpaceId") Long courseSpaceId);
@@ -42,14 +31,12 @@ public interface Group3Mapper
     List<Map<String, Object>> selectResourcePages(@Param("versionId") Long versionId);
 
     Map<String, Object> selectTeacherVersion(
-            @Param("bindingId") Long bindingId,
             @Param("versionId") Long versionId,
-            @Param("userId") Long userId);
+            @Param("courseSpaceId") Long courseSpaceId);
 
     Map<String, Object> selectStudentVisibleVersion(
             @Param("bindingId") Long bindingId,
-            @Param("versionId") Long versionId,
-            @Param("userId") Long userId);
+            @Param("versionId") Long versionId);
 
     Map<String, Object> selectVersionById(@Param("versionId") Long versionId);
 
@@ -211,11 +198,13 @@ public interface Group3Mapper
 
     int deleteKnowledgePoint(@Param("pointId") Long pointId, @Param("courseSpaceId") Long courseSpaceId);
 
-    int selectActiveStudentCount(@Param("teachingClassId") Long teachingClassId);
+    /** 保留策略：清理超过保留期限的 FAILED 资源版本（仅清理失败版本，不影响 READY/PENDING 版本）。 */
+    List<Map<String, Object>> selectExpiredFailedVersions(@Param("before") java.time.LocalDateTime before);
 
-    List<Map<String, Object>> selectClassTeachers(@Param("teachingClassId") Long teachingClassId);
+    int deleteResourceVersion(@Param("versionId") Long versionId);
 
-    Map<String, Object> selectClassroomDetail(@Param("bindingId") Long bindingId, @Param("userId") Long userId);
+    /** 保留策略清理时取出版本下全部预览文件键，用于逐个删除。 */
+    List<String> selectResourcePageKeys(@Param("versionId") Long versionId);
 
     /** 软归档预习任务 */
     int updateAssignmentStatus(Map<String, Object> row);
