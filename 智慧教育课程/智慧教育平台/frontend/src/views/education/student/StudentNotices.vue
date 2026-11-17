@@ -1,12 +1,13 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { getNoticeDetail, getUnreadCount, listNotices, markNoticeRead } from '@/api/education/notice'
+import { getNoticeDetail, getUnreadCount, listNotices, markAllNoticesRead, markNoticeRead } from '@/api/education/notice'
+import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
 import { context } from '@/education/context'
 
 /**
- * 学生通知只读列表（6-04 最小接入）。
+ * 学生通知列表、详情与已读（6-04 原型）。
  *
- * 只调用两个 GET：通知列表、未读数。已读、全部已读、详情和公告页签
+ * 已接通知列表、未读数、详情、单条已读和全部已读。来源页跳转和公告页签
  * 不在本轮范围。班级上下文来自 #27 的课程—教学班选择器；
  * 未选班级时省略 bindingId，由服务端返回本人全部当前可见通知。
  */
@@ -29,14 +30,21 @@ const readSubmitting = ref(false)
 const readMessage = ref('')
 const readError = ref('')
 const readWarnings = ref([])
+const confirmAllOpen = ref(false)
+const readAllSubmitting = ref(false)
+const readAllError = ref('')
+const readAllMessage = ref('')
+const readAllWarnings = ref([])
 
 let listSeq = 0
 let unreadSeq = 0
 let detailSeq = 0
+let readAllSeq = 0
 let listController = null
 let unreadController = null
 let detailController = null
 let readController = null
+let readAllController = null
 let detailTrigger = null
 let disposed = false
 
@@ -273,22 +281,51 @@ function closeDetail() {
 }
 
 /**
- * 写入成功后刷新当前列表、未读数和顶栏角标。
+ * 写入成功后刷新顶栏、当前列表和未读数。
  *
- * 列表与未读数分别记录失败，详情保持打开并逐项提示；不能用其中一个成功
- * 掩盖另一个失败。顶栏通过现有 EduVue.refreshHeader() 统一刷新。
+ * 顶栏刷新必须在写结果仍属于当前页面/班级时立即触发，不能等列表和未读数
+ * 都返回后再由可能已离开的旧页面发请求。列表与未读数分别记录失败，
+ * 不能用其中一个成功掩盖另一个失败。
  *
- * @param {number} seq 发起刷新时的详情序号；关闭/切换后不再写入提示
+ * @param {Function} isCurrent 返回当前页面/班级是否仍属于本次写入
+ * @param {Function} setWarnings 接收分项刷新失败文案
  * @returns {Promise<void>} 刷新完成
  */
-async function refreshAfterRead(seq) {
-  const [listOk, unreadOk] = await Promise.all([loadList(), loadUnread()])
+async function refreshAfterWrite(isCurrent, setWarnings) {
+  if (!isCurrent()) return
   window.EduVue?.refreshHeader?.()
-  if (disposed || seq !== detailSeq || !detailOpen.value) return
+  const [listOk, unreadOk] = await Promise.all([loadList(), loadUnread()])
+  if (!isCurrent()) return
   const warnings = []
   if (!listOk) warnings.push('通知列表刷新失败，当前列表可能不是最新。')
   if (!unreadOk) warnings.push('未读数刷新失败，顶栏角标可能不是最新。')
-  readWarnings.value = warnings
+  setWarnings(warnings)
+}
+
+/**
+ * 单条已读后的刷新；详情序号、打开状态或班级变化后不再写提示。
+ *
+ * @param {number} seq 发起刷新时的详情序号
+ * @returns {Promise<void>} 刷新完成
+ */
+async function refreshAfterRead(seq) {
+  return refreshAfterWrite(
+    () => !disposed && seq === detailSeq && detailOpen.value,
+    warnings => { readWarnings.value = warnings }
+  )
+}
+
+/**
+ * 全部已读后的刷新；切班/离开页面后不再写提示。
+ *
+ * @param {number} seq 发起刷新时的全部已读序号
+ * @returns {Promise<void>} 刷新完成
+ */
+async function refreshAfterReadAll(seq) {
+  return refreshAfterWrite(
+    () => !disposed && seq === readAllSeq,
+    warnings => { readAllWarnings.value = warnings }
+  )
 }
 
 /**
@@ -348,6 +385,110 @@ async function markDetailRead() {
   }
 }
 
+const READ_ALL_CONFIRM_TEXT = '将标记本人所有教学班当前可见的未读通知，包括其他教学班，不受当前班级和分页限制。'
+
+/**
+ * 全部已读错误文案，沿用现有 403 / 503 分类。
+ *
+ * @param {object} error 统一请求模块抛出的错误对象
+ * @returns {string} 确认弹窗内的错误文案
+ */
+function readAllErrorText(error) {
+  const message = typeof error?.message === 'string' ? error.message.trim() : ''
+  if (error?.code === 403 || error?.forbidden) {
+    return message ? '没有权限执行全部已读：' + message : '没有权限执行全部已读'
+  }
+  if (error?.code === 503) {
+    const title = classifyNotice503(error) === 'authorization'
+      ? '教学班授权服务暂不可用'
+      : '服务暂不可用'
+    return title + '：' + notice503Detail(error)
+  }
+  return message || '全部已读失败，请稍后重试。'
+}
+
+/**
+ * 打开全部已读确认框。此时不写请求；取消或切班/离开都不会发送 PUT。
+ *
+ * @returns {void}
+ */
+function openReadAllConfirm() {
+  if (disposed || readAllSubmitting.value) return
+  readAllError.value = ''
+  confirmAllOpen.value = true
+}
+
+/**
+ * 取消全部已读确认，并使确认前已排队的结果失效。
+ *
+ * @returns {void}
+ */
+function closeReadAllConfirm() {
+  readAllSeq++
+  readAllController?.abort()
+  readAllController = null
+  readAllSubmitting.value = false
+  confirmAllOpen.value = false
+  readAllError.value = ''
+}
+
+/**
+ * 切班/离开页面时清空全部已读状态；递增序号使迟到响应失效。
+ *
+ * @returns {void}
+ */
+function resetReadAllState() {
+  readAllSeq++
+  readAllController?.abort()
+  readAllController = null
+  readAllSubmitting.value = false
+  confirmAllOpen.value = false
+  readAllError.value = ''
+  readAllMessage.value = ''
+  readAllWarnings.value = []
+}
+
+/**
+ * 确认全部已读。
+ *
+ * 请求不带 bindingId、用户 ID 或请求体；服务端按当前登录人和可见性裁剪范围。
+ * 写结果与序号和班级绑定，切班/离开后迟到响应不能更新新状态。markedCount=0
+ * 也是成功，前端只按服务端数量展示，不本地推算。
+ *
+ * @returns {Promise<void>} 全部已读处理完成
+ */
+async function confirmReadAll() {
+  if (disposed || !confirmAllOpen.value || readAllSubmitting.value) return
+  const seq = ++readAllSeq
+  const bindingAtStart = bindingId.value
+  readAllController?.abort()
+  const controller = new AbortController()
+  readAllController = controller
+  readAllSubmitting.value = true
+  readAllError.value = ''
+  readAllMessage.value = ''
+  readAllWarnings.value = []
+
+  try {
+    const body = await markAllNoticesRead({ signal: controller.signal })
+    if (seq !== readAllSeq || disposed || bindingId.value !== bindingAtStart) return
+    const data = body?.data
+    if (!data || !Number.isSafeInteger(data.markedCount) || data.markedCount < 0) {
+      throw Object.assign(new Error('全部已读响应格式不正确'), { code: 500 })
+    }
+    readAllSubmitting.value = false
+    confirmAllOpen.value = false
+    readAllMessage.value = data.markedCount > 0
+      ? '已标记 ' + data.markedCount + ' 条为已读'
+      : '没有需要标记的通知'
+    await refreshAfterReadAll(seq)
+  } catch (error) {
+    if (seq !== readAllSeq || disposed || bindingId.value !== bindingAtStart || error?.cancelled) return
+    readAllSubmitting.value = false
+    readAllError.value = readAllErrorText(error)
+  }
+}
+
 function changePage(next) {
   if (next < 1 || next === pageNum.value || listState.value === 'loading') return
   pageNum.value = next
@@ -376,6 +517,7 @@ function kindLabel(kind) {
 // 班级上下文变化后关闭旧详情并重新加载；pageNum 回到第一页，避免新班级落在旧页码。
 watch(bindingId, () => {
   closeDetail()
+  resetReadAllState()
   pageNum.value = 1
   loadList()
   loadUnread()
@@ -386,10 +528,12 @@ onBeforeUnmount(() => {
   listSeq++
   unreadSeq++
   detailSeq++
+  readAllSeq++
   listController?.abort()
   unreadController?.abort()
   detailController?.abort()
   readController?.abort()
+  readAllController?.abort()
   detailTrigger = null
 })
 </script>
@@ -399,10 +543,20 @@ onBeforeUnmount(() => {
     <header class="notice-head">
       <div>
         <h2>学习通知</h2>
-        <p class="sub">只读通知列表；已读操作将在后续任务接入。</p>
+        <p class="sub">通知列表与详情；已读操作以服务端结果为准。</p>
       </div>
-      <p class="unread" :class="unreadTone" :title="unreadMessage" aria-live="polite">{{ unreadText }}</p>
+      <div class="notice-head-actions">
+        <p class="unread" :class="unreadTone" :title="unreadMessage" aria-live="polite">{{ unreadText }}</p>
+        <button type="button" class="detail-read" :disabled="readAllSubmitting" @click="openReadAllConfirm">
+          {{ readAllSubmitting ? '处理中…' : '全部标为已读' }}
+        </button>
+      </div>
     </header>
+
+    <p v-if="readAllMessage" class="read-all-message" role="status">{{ readAllMessage }}</p>
+    <ul v-if="readAllWarnings.length" class="detail-warnings" role="status">
+      <li v-for="warning in readAllWarnings" :key="warning">{{ warning }}</li>
+    </ul>
 
     <p class="context-note">
       {{ bindingId ? `当前教学班：${bindingId}` : '未选择教学班，显示本人全部当前可见通知。' }}
@@ -524,6 +678,17 @@ onBeforeUnmount(() => {
         </footer>
       </section>
     </div>
+
+    <ConfirmDialog
+      v-if="confirmAllOpen"
+      title="全部标为已读"
+      :text="READ_ALL_CONFIRM_TEXT"
+      :busy="readAllSubmitting"
+      :error="readAllError"
+      ok-text="确认"
+      @close="closeReadAllConfirm"
+      @confirm="confirmReadAll"
+    />
   </section>
 </template>
 
@@ -532,9 +697,11 @@ onBeforeUnmount(() => {
 .notice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .notice-head h2 { margin: 0 0 6px; font-size: 20px; color: #1f2d3d; }
 .sub { margin: 0; color: #909399; font-size: 13px; }
+.notice-head-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .unread { margin: 0; padding: 6px 12px; border-radius: 999px; background: #f0f2f5; color: #606266; white-space: nowrap; }
 .unread.is-loading { color: #909399; }
 .unread.is-unavailable { background: #fdf6ec; color: #b88230; }
+.read-all-message { margin: 12px 0 0; color: #67c23a; font-size: 13px; }
 .context-note { margin: 14px 0; color: #606266; font-size: 13px; }
 .state { display: flex; flex-direction: column; gap: 6px; padding: 28px 20px; text-align: center; color: #606266; background: #fafafa; border-radius: 8px; }
 .state-error { background: #fef0f0; color: #c45656; }

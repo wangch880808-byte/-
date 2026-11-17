@@ -7,11 +7,11 @@
  *
  * 运行前置：
  *   npm run build
- *   npm run preview -- --host 127.0.0.1 --port 4173
+ *   node tests/serve-dist.mjs
  *   PLAYWRIGHT_MODULE 可用（本机临时安装 playwright，使用 Edge 通道）
  *
  * 运行：
- *   NOTICE_TEST_BASE=http://127.0.0.1:4173 node tests/notice-vue.spec.mjs
+ *   NOTICE_TEST_BASE=http://127.0.0.1:4174 node tests/notice-vue.spec.mjs
  */
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
@@ -142,11 +142,11 @@ function detailBody(noticeId, overrides = {}) {
  *
  * 只改夹具响应，不代表前端本地减一；前端仍必须重新请求服务端。
  */
-function applyReadState(body, readState) {
+function applyReadState(body, readState, allRead) {
   if (!body || !Array.isArray(body.rows)) return body
   return {
     ...body,
-    rows: body.rows.map(row => (readState.has(row.id)
+    rows: body.rows.map(row => ((allRead || readState.has(row.id))
       ? { ...row, isRead: true, readAt: row.readAt || READ_AT }
       : row))
   }
@@ -166,17 +166,21 @@ async function installFixture(page, options = {}) {
     includeNoticeRoute: true,
     list: null,
     listAfterRead: null,
+    listAfterReadDelay: 0,
     unread: null,
     unreadAfterRead: null,
     detail: null,
     detailDelays: {},
     read: null,
     readDelays: {},
+    readAll: null,
+    readAllDelay: 0,
     delayByBinding: {},
     ...options
   }
   const requests = []
   const readState = new Set()
+  let allRead = false
 
   await page.route('**/getInfo', route => json(route, info(opts.role, opts.permissions)))
   await page.route('**/getRouters', route => json(route, routers(opts.includeNoticeRoute)))
@@ -220,11 +224,40 @@ async function installFixture(page, options = {}) {
       let body = typeof opts.detail === 'function'
         ? opts.detail(noticeId)
         : (opts.detail || detailBody(noticeId))
-      if (body?.code === 200 && body.data && readState.has(noticeId)) {
+      if (body?.code === 200 && body.data && (allRead || readState.has(noticeId))) {
         body = {
           ...body,
           data: { ...body.data, isRead: true, readAt: body.data.readAt || READ_AT }
         }
+      }
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
+  await page.route('**/education/student/notices/read-all', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    requests.push({
+      method: request.method(),
+      path: url.pathname,
+      query: url.search,
+      body: request.postData()
+    })
+    try {
+      await sleep(opts.readAllDelay || 0)
+      if (opts.rawReadAll) {
+        return route.fulfill(opts.rawReadAll)
+      }
+      const body = typeof opts.readAll === 'function'
+        ? opts.readAll()
+        : (opts.readAll || {
+          code: 200,
+          msg: '操作成功',
+          data: { markedCount: 3, unreadCount: 0, operatedAt: '2026-11-17T03:00:00.000Z' }
+        })
+      if (body?.code === 200 && body.data) {
+        allRead = true
       }
       return json(route, body)
     } catch {
@@ -236,7 +269,8 @@ async function installFixture(page, options = {}) {
     const url = new URL(request.url())
     requests.push({ path: url.pathname, query: url.search })
     try {
-      const unread = (readState.size > 0 && opts.unreadAfterRead) || opts.unread || {
+      const unread = (allRead ? { code: 200, msg: '操作成功', data: { unreadCount: 0, asOf: '2026-11-17T02:00:00.000Z' } } : null)
+        || (readState.size > 0 && opts.unreadAfterRead) || opts.unread || {
         code: 200,
         msg: '操作成功',
         data: { unreadCount: Math.max(0, 3 - readState.size), asOf: '2026-11-17T02:00:00.000Z' }
@@ -254,7 +288,8 @@ async function installFixture(page, options = {}) {
     requests.push({ path: url.pathname, query: url.search })
     try {
       if (url.pathname.endsWith('/unread-count')) {
-        const unread = (readState.size > 0 && opts.unreadAfterRead) || opts.unread || {
+        const unread = (allRead ? { code: 200, msg: '操作成功', data: { unreadCount: 0, asOf: '2026-11-17T02:00:00.000Z' } } : null)
+          || (readState.size > 0 && opts.unreadAfterRead) || opts.unread || {
           code: 200,
           msg: '操作成功',
           data: { unreadCount: Math.max(0, 3 - readState.size), asOf: '2026-11-17T02:00:00.000Z' }
@@ -263,15 +298,16 @@ async function installFixture(page, options = {}) {
         return json(route, unread)
       }
       const bindingId = url.searchParams.get('bindingId') || ''
-      const delay = opts.delayByBinding[bindingId] || 0
+      const afterRead = readState.size > 0 || allRead
+      const delay = (opts.delayByBinding[bindingId] || 0) + (afterRead ? opts.listAfterReadDelay : 0)
       await sleep(delay)
       if (opts.rawList) {
         return route.fulfill(opts.rawList)
       }
-      const body = applyReadState((readState.size > 0 && opts.listAfterRead)
+      const body = applyReadState((afterRead && opts.listAfterRead)
         || opts.list || (opts.listRows
           ? { code: 200, msg: '查询成功', total: opts.listRows.length, rows: opts.listRows }
-          : listBody(bindingId)), readState)
+          : listBody(bindingId)), readState, allRead)
       return json(route, body)
     } catch {
       // 请求已被切班 abort 时，Playwright 可能拒绝 fulfill；测试以 DOM 代际为准。
@@ -658,7 +694,7 @@ await run('打开详情零写请求，标为已读单次 POST 并同步列表和
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
   assert.equal(requests.filter(item => item.readId).length, 0, '打开详情不应产生写请求')
-  const readButton = page.locator('.detail-read')
+  const readButton = page.locator('.detail-dialog .detail-read')
   assert.equal(await readButton.innerText(), '标为已读')
   const postRequest = page.waitForRequest(request => request.method() === 'POST', { timeout: 10000 })
   await readButton.click()
@@ -688,7 +724,7 @@ await run('alreadyRead=true 按成功处理', async () => {
   await page.waitForSelector('.student-notices', { timeout: 15000 })
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-read').click()
   await page.waitForFunction(() => document.body.innerText.includes('已标记为已读'), null, { timeout: 10000 })
   assert.equal(requests.filter(item => item.readId).length, 1)
   assert.match(await page.locator('.detail-dialog').innerText(), /已读/)
@@ -707,7 +743,7 @@ await run('标为已读 404 提示不可访问并清除旧详情、刷新列表�
   const listRequestsBefore = requests.filter(item => item.path.endsWith('/student/notices')).length
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-read').click()
   await page.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('通知不存在或不可访问'), null, { timeout: 10000 })
   const detailText = await page.locator('.detail-dialog').innerText()
   assert.doesNotMatch(detailText, /详情-30001/)
@@ -731,7 +767,7 @@ await run('标为已读 503 区分授权与通用故障', async () => {
   await authPage.waitForSelector('.student-notices', { timeout: 15000 })
   await authPage.locator('.notice-main').first().click()
   await authPage.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await authPage.locator('.detail-read').click()
+  await authPage.locator('.detail-dialog .detail-read').click()
   await authPage.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('教学班授权服务暂不可用'), null, { timeout: 10000 })
   await authContext.close()
 
@@ -744,7 +780,7 @@ await run('标为已读 503 区分授权与通用故障', async () => {
   await genericPage.waitForSelector('.student-notices', { timeout: 15000 })
   await genericPage.locator('.notice-main').first().click()
   await genericPage.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await genericPage.locator('.detail-read').click()
+  await genericPage.locator('.detail-dialog .detail-read').click()
   await genericPage.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('服务暂不可用'), null, { timeout: 10000 })
   assert.doesNotMatch(await genericPage.locator('.detail-dialog').innerText(), /教学班授权服务暂不可用/)
   await genericContext.close()
@@ -761,7 +797,7 @@ await run('写入成功后列表与未读数刷新失败分别提示', async () 
   await page.waitForSelector('.student-notices', { timeout: 15000 })
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-read').click()
   await page.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('通知列表刷新失败'), null, { timeout: 10000 })
   const detailText = await page.locator('.detail-dialog').innerText()
   assert.match(detailText, /通知列表刷新失败/)
@@ -781,7 +817,7 @@ await run('关闭并切换通知后迟到写响应不覆盖新详情', async () 
   await page.waitForSelector('.student-notices', { timeout: 15000 })
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-read').click()
   await page.locator('.detail-dialog .detail-close').first().click()
   await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
   await page.locator('.notice-main').nth(1).click()
@@ -803,12 +839,190 @@ await run('切班后迟到写响应不更新新班级状态', async () => {
   await page.waitForSelector('.student-notices', { timeout: 15000 })
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-read').click()
   await page.evaluate(() => {
     location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
   })
   await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
   await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.detail-dialog').count(), 0)
+  assert.doesNotMatch(await text(page), /已标记为已读/)
+  await context.close()
+})
+
+await run('全部已读确认文案覆盖跨班范围，取消零写请求', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-head-actions button').click()
+  await page.waitForSelector('.modal', { timeout: 10000 })
+  const copy = await page.locator('.modal .confirm-text').innerText()
+  assert.match(copy, /所有教学班/)
+  assert.match(copy, /其他教学班/)
+  assert.match(copy, /不受当前班级和分页限制/)
+  await page.locator('.modal-foot button', { hasText: '取消' }).click()
+  await page.waitForFunction(() => !document.querySelector('.modal'), null, { timeout: 10000 })
+  assert.equal(requests.filter(item => item.method === 'PUT').length, 0, '取消不应发送 PUT')
+  await context.close()
+})
+
+await run('全部已读确认后单次 PUT 且不带筛选参数，成功后列表和角标同步', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-head-actions button').click()
+  await page.waitForSelector('.modal', { timeout: 10000 })
+  const putRequest = page.waitForRequest(request => request.method() === 'PUT', { timeout: 10000 })
+  await page.locator('.modal-foot button', { hasText: '确认' }).click()
+  await putRequest
+  await page.waitForFunction(() => document.body.innerText.includes('已标记 3 条为已读'), null, { timeout: 10000 })
+  await page.waitForFunction(() => document.querySelector('.student-notices')?.innerText.includes('未读：0'), null, { timeout: 10000 })
+  await page.waitForFunction(() => !document.querySelector('.header-right .notice-count'), null, { timeout: 10000 })
+  assert.match(await page.locator('.notice-item').first().innerText(), /已读/)
+  const puts = requests.filter(item => item.method === 'PUT')
+  assert.equal(puts.length, 1, '确认后只应发送一次 PUT')
+  assert.equal(puts[0].path, '/education/student/notices/read-all')
+  assert.equal(puts[0].query, '')
+  assert.ok(puts[0].body === null || puts[0].body === '', 'PUT 不应带请求体')
+  assert.ok(requests.some(item => item.path.endsWith('/unread-count') && item.query.includes('bindingId=9001')),
+    '刷新角标应使用当前班级范围')
+  await context.close()
+})
+
+await run('全部已读 markedCount=0 按成功处理', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    readAll: {
+      code: 200,
+      msg: '操作成功',
+      data: { markedCount: 0, unreadCount: 0, operatedAt: '2026-11-17T03:00:00.000Z' }
+    }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-head-actions button').click()
+  await page.waitForSelector('.modal', { timeout: 10000 })
+  await page.locator('.modal-foot button', { hasText: '确认' }).click()
+  await page.waitForFunction(() => document.body.innerText.includes('没有需要标记的通知'), null, { timeout: 10000 })
+  assert.equal(requests.filter(item => item.method === 'PUT').length, 1)
+  await page.waitForFunction(() => !document.querySelector('.header-right .notice-count'), null, { timeout: 10000 })
+  await context.close()
+})
+
+await run('全部已读确认前切班或离开页面不发请求', async () => {
+  const switchContext = await newContext(browser)
+  const switchPage = await switchContext.newPage()
+  const switchRequests = await installFixture(switchPage)
+  await openHash(switchPage, '/student/notices')
+  await switchPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await switchPage.locator('.notice-head-actions button').click()
+  await switchPage.waitForSelector('.modal', { timeout: 10000 })
+  await switchPage.evaluate(() => {
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await switchPage.waitForFunction(() => !document.querySelector('.modal'), null, { timeout: 10000 })
+  await switchPage.waitForTimeout(300)
+  assert.equal(switchRequests.filter(item => item.method === 'PUT').length, 0, '确认前切班不应发送 PUT')
+  await switchContext.close()
+
+  const leaveContext = await newContext(browser)
+  const leavePage = await leaveContext.newPage()
+  const leaveRequests = await installFixture(leavePage)
+  await openHash(leavePage, '/student/notices')
+  await leavePage.waitForSelector('.student-notices', { timeout: 15000 })
+  await leavePage.locator('.notice-head-actions button').click()
+  await leavePage.waitForSelector('.modal', { timeout: 10000 })
+  await leavePage.evaluate(() => { location.hash = '#/student' })
+  await leavePage.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
+  await leavePage.waitForTimeout(300)
+  assert.equal(leaveRequests.filter(item => item.method === 'PUT').length, 0, '确认前离开页面不应发送 PUT')
+  await leaveContext.close()
+})
+
+await run('全部已读错误沿用 403/503 展示', async () => {
+  const forbiddenContext = await newContext(browser)
+  const forbiddenPage = await forbiddenContext.newPage()
+  await installFixture(forbiddenPage, {
+    readAll: { code: 403, msg: '没有权限' }
+  })
+  await openHash(forbiddenPage, '/student/notices')
+  await forbiddenPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await forbiddenPage.locator('.notice-head-actions button').click()
+  await forbiddenPage.waitForSelector('.modal', { timeout: 10000 })
+  await forbiddenPage.locator('.modal-foot button', { hasText: '确认' }).click()
+  await forbiddenPage.waitForFunction(() => document.querySelector('.modal-error')?.textContent.includes('没有权限执行全部已读'), null, { timeout: 10000 })
+  await forbiddenContext.close()
+
+  const authContext = await newContext(browser)
+  const authPage = await authContext.newPage()
+  await installFixture(authPage, {
+    readAll: { code: 503, msg: '学生教学班授权服务尚未接入' }
+  })
+  await openHash(authPage, '/student/notices')
+  await authPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await authPage.locator('.notice-head-actions button').click()
+  await authPage.waitForSelector('.modal', { timeout: 10000 })
+  await authPage.locator('.modal-foot button', { hasText: '确认' }).click()
+  await authPage.waitForFunction(() => document.querySelector('.modal-error')?.textContent.includes('教学班授权服务暂不可用'), null, { timeout: 10000 })
+  await authContext.close()
+})
+
+await run('全部已读切班或离开后迟到响应不更新新状态', async () => {
+  const switchContext = await newContext(browser)
+  const switchPage = await switchContext.newPage()
+  await installFixture(switchPage, { readAllDelay: 1200 })
+  await openHash(switchPage, '/student/notices')
+  await switchPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await switchPage.locator('.notice-head-actions button').click()
+  await switchPage.waitForSelector('.modal', { timeout: 10000 })
+  await switchPage.locator('.modal-foot button', { hasText: '确认' }).click()
+  await switchPage.evaluate(() => {
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await switchPage.waitForFunction(() => !document.querySelector('.modal'), null, { timeout: 10000 })
+  await switchPage.waitForTimeout(1500)
+  assert.doesNotMatch(await text(switchPage), /已标记 .* 条为已读/)
+  await switchContext.close()
+
+  const leaveContext = await newContext(browser)
+  const leavePage = await leaveContext.newPage()
+  await installFixture(leavePage, { readAllDelay: 1200 })
+  await openHash(leavePage, '/student/notices')
+  await leavePage.waitForSelector('.student-notices', { timeout: 15000 })
+  await leavePage.locator('.notice-head-actions button').click()
+  await leavePage.waitForSelector('.modal', { timeout: 10000 })
+  await leavePage.locator('.modal-foot button', { hasText: '确认' }).click()
+  await leavePage.evaluate(() => { location.hash = '#/student' })
+  await leavePage.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
+  await leavePage.waitForTimeout(1500)
+  assert.doesNotMatch(await text(leavePage), /已标记 .* 条为已读/)
+  await leaveContext.close()
+})
+
+await run('单条已读成功后立即刷新顶栏，列表未完成时离开不晚发请求', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, { listAfterReadDelay: 1200 })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.evaluate(() => {
+    window.__noticeHeaderRefreshCount = 0
+    window.addEventListener('edu:refresh-header', () => { window.__noticeHeaderRefreshCount++ })
+  })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-dialog .detail-read').click()
+  await page.waitForFunction(() => window.__noticeHeaderRefreshCount >= 1, null, { timeout: 800 })
+  const countBeforeLeave = await page.evaluate(() => window.__noticeHeaderRefreshCount)
+  await page.evaluate(() => { location.hash = '#/student' })
+  await page.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.ok(countBeforeLeave >= 1, '列表刷新完成前应已触发顶栏刷新')
   assert.equal(await page.locator('.detail-dialog').count(), 0)
   assert.doesNotMatch(await text(page), /已标记为已读/)
   await context.close()
@@ -822,7 +1036,7 @@ await run('离开通知页后迟到写响应不更新新页面', async () => {
   await page.waitForSelector('.student-notices', { timeout: 15000 })
   await page.locator('.notice-main').first().click()
   await page.waitForSelector('.detail-dialog', { timeout: 10000 })
-  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-read').click()
   await page.evaluate(() => { location.hash = '#/student' })
   await page.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
   await page.waitForTimeout(1500)

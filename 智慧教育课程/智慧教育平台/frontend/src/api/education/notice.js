@@ -79,8 +79,8 @@ export function getUnreadCount(bindingId, options = {}) {
  * noticeId 必须是正整数字符串，路径段使用 encodeURIComponent，禁止 Number()
  * 转换，避免 19 位 ID 精度丢失。403 由页面展示，不让公共拦截器阻断工作台。
  *
- * TODO(6-04-notice-detail-read)：本轮只接详情 GET；已读、来源页跳转和
- * 生产授权适配器不在范围。解除条件：6-02 已读接口与来源路由确认并完成联调。
+ * TODO(6-04-notice-detail-read)：本轮只接详情 GET；来源页跳转和生产授权
+ * 适配器不在范围。解除条件：来源路由确认且生产授权适配器完成联调。
  *
  * @param {string} noticeId 通知 ID 字符串
  * @param {{signal?: AbortSignal}} [options] 取消信号；关闭/切换详情时中止旧请求
@@ -108,8 +108,8 @@ export function getNoticeDetail(noticeId, options = {}) {
  * 已退班或来源不可见时后端返回 404，不能复用旧 readAt。前端不本地减一，
  * 成功后统一重拉列表、未读数和顶栏角标。
  *
- * TODO(6-04-notice-read-source)：本轮只接单条已读；全部已读、来源页跳转
- * 和生产授权适配器不在范围。解除条件：全部已读/来源路由确认并完成联调。
+ * TODO(6-04-notice-read-source)：本轮只接单条/全部已读；来源页跳转和
+ * 生产授权适配器不在范围。解除条件：来源路由确认并完成联调。
  *
  * @param {string} noticeId 通知 ID 字符串
  * @param {{signal?: AbortSignal}} [options] 取消信号；关闭/切换详情时中止旧写入
@@ -123,6 +123,28 @@ export function markNoticeRead(noticeId, options = {}) {
   return edu({
     url: '/education/student/notices/' + encodeURIComponent(id) + '/read',
     method: 'post',
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
+ * 标记本人所有教学班当前可见的未读通知。
+ *
+ * 请求故意不带 bindingId、用户 ID 或请求体：范围由服务端按当前登录人和
+ * 当前可见性裁剪，包含其他教学班，不受页面筛选和分页影响。
+ * 幂等：重复调用返回 markedCount=0；markedCount=0 也是成功。
+ *
+ * TODO(6-04-notice-read-all-source)：来源页跳转和生产授权适配器不在范围。
+ * 解除条件：来源路由确认且生产授权适配器完成联调。
+ *
+ * @param {{signal?: AbortSignal}} [options] 取消信号；切班/离开页面时中止旧请求
+ * @returns {Promise<{data: {markedCount: number, unreadCount: number, operatedAt: string}}>} 全部已读响应体
+ */
+export function markAllNoticesRead(options = {}) {
+  return edu({
+    url: '/education/student/notices/read-all',
+    method: 'put',
     headers: { silent403: true },
     signal: options.signal
   })
