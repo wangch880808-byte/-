@@ -73,6 +73,35 @@ export function getUnreadCount(bindingId, options = {}) {
 }
 
 /**
+ * 查询单条通知详情。
+ *
+ * 只读请求；只返回通知元数据，不返回来源正文。
+ * noticeId 必须是正整数字符串，路径段使用 encodeURIComponent，禁止 Number()
+ * 转换，避免 19 位 ID 精度丢失。403 由页面展示，不让公共拦截器阻断工作台。
+ *
+ * TODO(6-04-notice-detail-read)：本轮只接详情 GET；已读、来源页跳转和
+ * 生产授权适配器不在范围。解除条件：6-02 已读接口与来源路由确认并完成联调。
+ *
+ * @param {string} noticeId 通知 ID 字符串
+ * @param {{signal?: AbortSignal}} [options] 取消信号；关闭/切换详情时中止旧请求
+ * @returns {Promise<{data: {id: string, kind: string, bindingId?: string,
+ *   sourceId: string, title: string, visibleAt: string, readAt?: string,
+ *   isRead: boolean, createdAt: string}}>} 详情响应体
+ */
+export function getNoticeDetail(noticeId, options = {}) {
+  const id = String(noticeId ?? '')
+  if (!/^[1-9]\d*$/.test(id)) {
+    return Promise.reject(new Error('noticeId 必须为正整数字符串'))
+  }
+  return edu({
+    url: '/education/student/notices/' + encodeURIComponent(id),
+    method: 'get',
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
  * 顶栏未读角标读取器。
  *
  * 由 AppLayout 的 headerEntry 调用。优先使用 AppLayout 传入的 request，

@@ -96,23 +96,43 @@ function info(role, permissions) {
   }
 }
 
-function listBody(bindingId) {
+const NOTICE_ID = '30001'
+const LARGE_NOTICE_ID = '820000000000000001'
+
+function noticeRow(id, title, bindingId = '9001') {
+  return {
+    id,
+    kind: 'ANNOUNCEMENT',
+    bindingId,
+    sourceId: 'announcement-1',
+    title,
+    visibleAt: '2026-11-17T02:00:00.000Z',
+    readAt: null,
+    isRead: false,
+    createdAt: '2026-11-17T01:00:00.000Z'
+  }
+}
+
+function listBody(bindingId, noticeId = NOTICE_ID) {
   const suffix = bindingId || 'ALL'
   return {
     code: 200,
     msg: '查询成功',
     total: 1,
-    rows: [{
-      id: `notice-${suffix}`,
-      kind: 'ANNOUNCEMENT',
-      bindingId: bindingId || '9001',
-      sourceId: 'announcement-1',
-      title: `通知-${suffix}`,
-      visibleAt: '2026-11-17T02:00:00.000Z',
+    rows: [noticeRow(noticeId, `通知-${suffix}`, bindingId || '9001')]
+  }
+}
+
+function detailBody(noticeId, overrides = {}) {
+  return {
+    code: 200,
+    msg: '操作成功',
+    data: {
+      ...noticeRow(noticeId, `详情-${noticeId}`),
       readAt: null,
       isRead: false,
-      createdAt: '2026-11-17T01:00:00.000Z'
-    }]
+      ...overrides
+    }
   }
 }
 
@@ -130,6 +150,8 @@ async function installFixture(page, options = {}) {
     includeNoticeRoute: true,
     list: null,
     unread: null,
+    detail: null,
+    detailDelays: {},
     delayByBinding: {},
     ...options
   }
@@ -139,6 +161,24 @@ async function installFixture(page, options = {}) {
   await page.route('**/getRouters', route => json(route, routers(opts.includeNoticeRoute)))
   await page.route('**/education/context/options*', route => json(route, opts.contextOptions || contextOptions()))
   await page.route('**/education/context/check*', route => json(route, contextCheck(new URL(route.request().url()))))
+  await page.route('**/education/student/notices/*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const noticeId = decodeURIComponent(url.pathname.split('/').pop())
+    requests.push({ path: url.pathname, query: url.search, detailId: noticeId })
+    try {
+      await sleep(opts.detailDelays[noticeId] ?? opts.detailDelay ?? 0)
+      if (opts.rawDetail) {
+        return route.fulfill(opts.rawDetail)
+      }
+      const body = typeof opts.detail === 'function'
+        ? opts.detail(noticeId)
+        : (opts.detail || detailBody(noticeId))
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
   await page.route('**/education/student/notices/unread-count*', async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -168,7 +208,9 @@ async function installFixture(page, options = {}) {
       if (opts.rawList) {
         return route.fulfill(opts.rawList)
       }
-      const body = opts.list || listBody(bindingId)
+      const body = opts.list || (opts.listRows
+        ? { code: 200, msg: '查询成功', total: opts.listRows.length, rows: opts.listRows }
+        : listBody(bindingId))
       return json(route, body)
     } catch {
       // 请求已被切班 abort 时，Playwright 可能拒绝 fulfill；测试以 DOM 代际为准。
@@ -393,6 +435,156 @@ await run('网关 HTML 503 显示服务暂不可用并补充 HTTP 状态', async
   assert.match(body, /服务暂不可用/)
   assert.match(body, /请求失败（HTTP 503）/)
   assert.doesNotMatch(body, /教学班授权服务暂不可用/)
+  await context.close()
+})
+
+await run('点击通知打开详情并展示服务端字段', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const detailText = await page.locator('.detail-dialog').innerText()
+  assert.match(detailText, /通知详情/)
+  assert.match(detailText, new RegExp(`详情-${NOTICE_ID}`))
+  assert.match(detailText, /类型\s*公告/)
+  assert.match(detailText, /可见时间/)
+  assert.match(detailText, /已读状态\s*未读/)
+  await page.locator('.detail-dialog .detail-close').first().click()
+  await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
+  await context.close()
+})
+
+await run('大整数通知 ID 按字符串编码并原样请求', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    listRows: [noticeRow(LARGE_NOTICE_ID, '大整数通知')]
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const request = requests.find(item => item.detailId)
+  assert.ok(request, '应请求通知详情')
+  assert.equal(request.detailId, LARGE_NOTICE_ID)
+  assert.ok(request.path.endsWith('/' + LARGE_NOTICE_ID), `详情路径应保留完整 ID：${request.path}`)
+  const detailText = await page.locator('.detail-dialog').innerText()
+  assert.match(detailText, new RegExp(`详情-${LARGE_NOTICE_ID}`))
+  await context.close()
+})
+
+await run('详情 404 显示通知不存在或不可访问', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    detail: { code: 404, msg: '通知不存在或当前不可访问' }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  assert.match(await page.locator('.detail-dialog').innerText(), /通知不存在或不可访问/)
+  await context.close()
+})
+
+await run('详情 503 区分授权与通用故障', async () => {
+  const authContext = await newContext(browser)
+  const authPage = await authContext.newPage()
+  await installFixture(authPage, {
+    detail: { code: 503, msg: '学生教学班授权服务尚未接入' }
+  })
+  await openHash(authPage, '/student/notices')
+  await authPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await authPage.locator('.notice-main').first().click()
+  await authPage.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const authText = await authPage.locator('.detail-dialog').innerText()
+  assert.match(authText, /教学班授权服务暂不可用/)
+  assert.match(authText, /学生教学班授权服务尚未接入/)
+  await authContext.close()
+
+  const genericContext = await newContext(browser)
+  const genericPage = await genericContext.newPage()
+  await installFixture(genericPage, {
+    detail: { code: 503, msg: '服务端暂时不可用' }
+  })
+  await openHash(genericPage, '/student/notices')
+  await genericPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await genericPage.locator('.notice-main').first().click()
+  await genericPage.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const genericText = await genericPage.locator('.detail-dialog').innerText()
+  assert.match(genericText, /服务暂不可用/)
+  assert.match(genericText, /服务端暂时不可用/)
+  assert.doesNotMatch(genericText, /教学班授权服务暂不可用/)
+  await genericContext.close()
+})
+
+await run('关闭详情后迟到响应不重新打开', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, { detailDelays: { [NOTICE_ID]: 1200 } })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-dialog .detail-close').first().click()
+  await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.detail-dialog').count(), 0)
+  await context.close()
+})
+
+await run('切换通知后旧详情迟到响应不覆盖新详情', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    listRows: [noticeRow('30001', '通知-A'), noticeRow('30002', '通知-B')],
+    detailDelays: { 30001: 1200, 30002: 50 }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-dialog .detail-close').first().click()
+  await page.locator('.notice-main').nth(1).click()
+  await page.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('详情-30002'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.match(await page.locator('.detail-dialog').innerText(), /详情-30002/)
+  assert.doesNotMatch(await page.locator('.detail-dialog').innerText(), /详情-30001/)
+  await context.close()
+})
+
+await run('切班后旧详情迟到响应不重新打开', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, { detailDelays: { [NOTICE_ID]: 1200 } })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.evaluate(() => {
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.detail-dialog').count(), 0)
+  await context.close()
+})
+
+await run('离开通知页后迟到详情不重新打开', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, { detailDelays: { [NOTICE_ID]: 1200 } })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.evaluate(() => { location.hash = '#/student' })
+  await page.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.detail-dialog').count(), 0)
   await context.close()
 })
 

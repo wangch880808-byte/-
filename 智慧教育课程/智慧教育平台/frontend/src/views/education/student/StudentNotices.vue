@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getUnreadCount, listNotices } from '@/api/education/notice'
+import { getNoticeDetail, getUnreadCount, listNotices } from '@/api/education/notice'
 import { context } from '@/education/context'
 
 /**
@@ -20,11 +20,17 @@ const listMessage = ref('')
 const unreadState = ref('idle')
 const unreadCount = ref(null)
 const unreadMessage = ref('')
+const detailOpen = ref(false)
+const detailState = ref('idle')
+const detail = ref(null)
+const detailMessage = ref('')
 
 let listSeq = 0
 let unreadSeq = 0
+let detailSeq = 0
 let listController = null
 let unreadController = null
+let detailController = null
 let disposed = false
 
 /**
@@ -168,6 +174,69 @@ function notice503Detail(error) {
   return message || '请稍后重试。'
 }
 
+/**
+ * 打开通知详情。
+ *
+ * 每次打开/切换通知都递增 detailSeq 并 abort 上一次请求；关闭、切班和卸载也会
+ * 递增序号。只有同时满足“序号未变、未卸载、详情仍打开”的响应才能写入，
+ * 防止迟到响应重新打开已关闭详情或覆盖新通知。
+ *
+ * @param {string} noticeId 通知 ID 字符串
+ * @returns {Promise<void>} 详情加载完成；失败写入详情错误态
+ */
+async function openDetail(noticeId) {
+  if (disposed) return
+  const id = String(noticeId ?? '')
+  if (!id) return
+  const seq = ++detailSeq
+  detailController?.abort()
+  const controller = new AbortController()
+  detailController = controller
+  detailOpen.value = true
+  detailState.value = 'loading'
+  detailMessage.value = ''
+  detail.value = null
+
+  try {
+    const body = await getNoticeDetail(id, { signal: controller.signal })
+    if (seq !== detailSeq || disposed || !detailOpen.value) return
+    const item = body?.data
+    if (!item || item.id !== id || typeof item.title !== 'string') {
+      throw Object.assign(new Error('通知详情响应格式不正确'), { code: 500 })
+    }
+    detail.value = item
+    detailState.value = 'ready'
+  } catch (error) {
+    if (seq !== detailSeq || disposed || !detailOpen.value || error?.cancelled) return
+    detailMessage.value = typeof error?.message === 'string' ? error.message : ''
+    if (error?.code === 404) {
+      detailState.value = 'notfound'
+    } else if (error?.code === 503) {
+      detailState.value = classifyNotice503(error) === 'authorization'
+        ? 'unavailable-auth'
+        : 'unavailable'
+      detailMessage.value = notice503Detail(error)
+    } else {
+      detailState.value = 'error'
+    }
+  }
+}
+
+/**
+ * 关闭详情并使在途详情响应失效。
+ *
+ * @returns {void}
+ */
+function closeDetail() {
+  detailSeq++
+  detailController?.abort()
+  detailController = null
+  detailOpen.value = false
+  detailState.value = 'idle'
+  detail.value = null
+  detailMessage.value = ''
+}
+
 function changePage(next) {
   if (next < 1 || next === pageNum.value || listState.value === 'loading') return
   pageNum.value = next
@@ -193,8 +262,9 @@ function kindLabel(kind) {
   }[kind] || kind || '通知'
 }
 
-// 班级上下文变化后重新加载；pageNum 回到第一页，避免新班级落在旧页码。
+// 班级上下文变化后关闭旧详情并重新加载；pageNum 回到第一页，避免新班级落在旧页码。
 watch(bindingId, () => {
+  closeDetail()
   pageNum.value = 1
   loadList()
   loadUnread()
@@ -204,8 +274,10 @@ onBeforeUnmount(() => {
   disposed = true
   listSeq++
   unreadSeq++
+  detailSeq++
   listController?.abort()
   unreadController?.abort()
+  detailController?.abort()
 })
 </script>
 
@@ -253,11 +325,11 @@ onBeforeUnmount(() => {
     <template v-else-if="listState === 'ready'">
       <ul class="notice-list">
         <li v-for="row in rows" :key="row.id" class="notice-item">
-          <div class="notice-main">
+          <button type="button" class="notice-main" @click="openDetail(row.id)">
             <strong class="notice-title">{{ row.title }}</strong>
             <span class="notice-kind">{{ kindLabel(row.kind) }}</span>
             <span class="notice-read" :class="{ 'is-unread': !row.isRead }">{{ row.isRead ? '已读' : '未读' }}</span>
-          </div>
+          </button>
           <div class="notice-meta">
             可见时间：{{ formatTime(row.visibleAt) }}
             <span v-if="row.bindingId"> · 班级 {{ row.bindingId }}</span>
@@ -271,6 +343,63 @@ onBeforeUnmount(() => {
         <button type="button" :disabled="pageNum * pageSize >= total || listState === 'loading'" @click="changePage(pageNum + 1)">下一页</button>
       </div>
     </template>
+
+    <div v-if="detailOpen" class="detail-overlay" @click.self="closeDetail">
+      <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="notice-detail-title">
+        <header class="detail-head">
+          <h3 id="notice-detail-title">通知详情</h3>
+          <button type="button" class="detail-close" aria-label="关闭通知详情" @click="closeDetail">关闭</button>
+        </header>
+
+        <div v-if="detailState === 'loading'" class="state" role="status">正在读取通知详情…</div>
+
+        <div v-else-if="detailState === 'notfound'" class="state state-error" role="alert">
+          <strong>通知不存在或不可访问</strong>
+          <span>{{ detailMessage }}</span>
+        </div>
+
+        <div v-else-if="detailState === 'unavailable-auth'" class="state state-warn" role="alert">
+          <strong>教学班授权服务暂不可用</strong>
+          <span>{{ detailMessage }}</span>
+        </div>
+
+        <div v-else-if="detailState === 'unavailable'" class="state state-warn" role="alert">
+          <strong>服务暂不可用</strong>
+          <span>{{ detailMessage }}</span>
+        </div>
+
+        <div v-else-if="detailState === 'error'" class="state state-error" role="alert">
+          <strong>通知读取失败</strong>
+          <span>{{ detailMessage || '请稍后重试。' }}</span>
+        </div>
+
+        <div v-else-if="detailState === 'ready' && detail" class="detail-content">
+          <h4 class="detail-title">{{ detail.title }}</h4>
+          <dl class="detail-meta">
+            <div>
+              <dt>类型</dt>
+              <dd>{{ kindLabel(detail.kind) }}</dd>
+            </div>
+            <div>
+              <dt>可见时间</dt>
+              <dd>{{ formatTime(detail.visibleAt) }}</dd>
+            </div>
+            <div>
+              <dt>已读状态</dt>
+              <dd>
+                {{ detail.isRead ? '已读' : '未读' }}
+                <span v-if="detail.isRead && detail.readAt"> · {{ formatTime(detail.readAt) }}</span>
+              </dd>
+            </div>
+          </dl>
+          <p class="detail-note">通知详情只包含元数据，正文由来源页面提供。</p>
+        </div>
+
+        <footer class="detail-actions">
+          <button type="button" class="detail-close" @click="closeDetail">关闭</button>
+        </footer>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -288,7 +417,35 @@ onBeforeUnmount(() => {
 .state-warn { background: #fdf6ec; color: #b88230; }
 .notice-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid #ebeef5; }
 .notice-item { padding: 14px 4px; border-bottom: 1px solid #ebeef5; }
-.notice-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notice-main {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; padding: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.notice-main:hover .notice-title { color: #409eff; }
+.detail-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0, 0, 0, .45);
+}
+.detail-dialog {
+  width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto;
+  padding: 20px; border-radius: 10px; background: #fff; box-shadow: 0 12px 40px rgba(0, 0, 0, .2);
+}
+.detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.detail-head h3 { margin: 0; font-size: 18px; color: #1f2d3d; }
+.detail-close {
+  padding: 5px 12px; border: 1px solid #dcdfe6; border-radius: 4px;
+  background: #fff; color: #606266; cursor: pointer;
+}
+.detail-close:hover { color: #409eff; border-color: #409eff; }
+.detail-title { margin: 0 0 14px; font-size: 17px; color: #303133; }
+.detail-meta { margin: 0; }
+.detail-meta > div { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f2f3f5; }
+.detail-meta dt { min-width: 72px; color: #909399; }
+.detail-meta dd { margin: 0; color: #303133; }
+.detail-note { margin: 14px 0 0; color: #909399; font-size: 12px; }
+.detail-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 18px; }
 .notice-title { color: #303133; font-size: 15px; }
 .notice-kind { padding: 1px 6px; border-radius: 4px; background: #ecf5ff; color: #409eff; font-size: 12px; }
 .notice-read { color: #909399; font-size: 12px; }
