@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 
-const BASE = process.env.NOTICE_TEST_BASE || 'http://127.0.0.1:4173'
+const BASE = process.env.NOTICE_TEST_BASE || 'http://127.0.0.1:4174'
 const ROLE_COOKIE = 'Edu-Role'
 const TOKEN_COOKIE = 'Admin-Token'
 
@@ -98,6 +98,7 @@ function info(role, permissions) {
 
 const NOTICE_ID = '30001'
 const LARGE_NOTICE_ID = '820000000000000001'
+const ANNOUNCEMENT_ID = '70001'
 const READ_AT = '2026-11-17T03:00:00.000Z'
 
 function noticeRow(id, title, bindingId = '9001') {
@@ -105,7 +106,7 @@ function noticeRow(id, title, bindingId = '9001') {
     id,
     kind: 'ANNOUNCEMENT',
     bindingId,
-    sourceId: 'announcement-1',
+    sourceId: ANNOUNCEMENT_ID,
     title,
     visibleAt: '2026-11-17T02:00:00.000Z',
     readAt: null,
@@ -132,6 +133,34 @@ function detailBody(noticeId, overrides = {}) {
       ...noticeRow(noticeId, `详情-${noticeId}`),
       readAt: null,
       isRead: false,
+      ...overrides
+    }
+  }
+}
+
+function announcementRow(id = ANNOUNCEMENT_ID, bindingId = '9001', title = `公告-${id}`) {
+  return {
+    id,
+    bindingId,
+    title,
+    opensAt: '2026-11-17T02:00:00.000Z',
+    closesAt: '2026-11-18T02:00:00.000Z',
+    createdAt: '2026-11-17T01:00:00.000Z'
+  }
+}
+
+function announcementDetailBody(id = ANNOUNCEMENT_ID, overrides = {}) {
+  return {
+    code: 200,
+    msg: '操作成功',
+    data: {
+      id,
+      bindingId: '9001',
+      title: `公告-${id}`,
+      body: `公告正文-${id}`,
+      opensAt: '2026-11-17T02:00:00.000Z',
+      closesAt: '2026-11-18T02:00:00.000Z',
+      createdAt: '2026-11-17T01:00:00.000Z',
       ...overrides
     }
   }
@@ -175,6 +204,10 @@ async function installFixture(page, options = {}) {
     readDelays: {},
     readAll: null,
     readAllDelay: 0,
+    announcementList: null,
+    announcementListDelays: {},
+    announcementDetail: null,
+    announcementDetailDelays: {},
     delayByBinding: {},
     ...options
   }
@@ -186,6 +219,41 @@ async function installFixture(page, options = {}) {
   await page.route('**/getRouters', route => json(route, routers(opts.includeNoticeRoute)))
   await page.route('**/education/context/options*', route => json(route, opts.contextOptions || contextOptions()))
   await page.route('**/education/context/check*', route => json(route, contextCheck(new URL(route.request().url()))))
+  await page.route('**/education/student/announcements/*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const announcementId = decodeURIComponent(url.pathname.split('/').pop())
+    requests.push({ path: url.pathname, query: url.search, announcementDetailId: announcementId })
+    try {
+      await sleep(opts.announcementDetailDelays[announcementId] || 0)
+      const body = typeof opts.announcementDetail === 'function'
+        ? opts.announcementDetail(announcementId)
+        : (opts.announcementDetail || announcementDetailBody(announcementId))
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
+  await page.route('**/education/student/announcements*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const bindingId = url.searchParams.get('bindingId') || ''
+    requests.push({ path: url.pathname, query: url.search, announcementBindingId: bindingId })
+    try {
+      await sleep(opts.announcementListDelays[bindingId] || 0)
+      const body = typeof opts.announcementList === 'function'
+        ? opts.announcementList(bindingId)
+        : (opts.announcementList || {
+          code: 200,
+          msg: '查询成功',
+          total: 1,
+          rows: [announcementRow(ANNOUNCEMENT_ID, bindingId || '9001')]
+        })
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
   await page.route('**/education/student/notices/*/read', async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -1059,6 +1127,127 @@ await run('详情弹窗打开聚焦、Esc 关闭并归还焦点', async () => {
   await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
   const focusedId = await page.evaluate(() => document.activeElement?.getAttribute('data-notice-id'))
   assert.equal(focusedId, NOTICE_ID, '关闭后焦点应回到触发按钮')
+  await context.close()
+})
+
+await run('课程公告列表按当前班级查询并展示详情', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.ann-main', { timeout: 15000 })
+  const listRequest = requests.find(item => item.announcementBindingId === '9001')
+  assert.ok(listRequest, '应请求当前班级公告列表')
+  await page.locator('.ann-main').first().click()
+  await page.waitForSelector('.ann-dialog', { timeout: 10000 })
+  const detailText = await page.locator('.ann-dialog').innerText()
+  assert.match(detailText, new RegExp(`公告-${ANNOUNCEMENT_ID}`))
+  assert.match(detailText, new RegExp(`公告正文-${ANNOUNCEMENT_ID}`))
+  assert.match(detailText, /开放：/)
+  const detailRequest = requests.find(item => item.announcementDetailId === ANNOUNCEMENT_ID)
+  assert.ok(detailRequest, '应请求公告详情')
+  assert.ok(detailRequest.path.endsWith('/' + ANNOUNCEMENT_ID))
+  await context.close()
+})
+
+await run('无班级上下文时公告列表省略 bindingId', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.ann-main', { timeout: 15000 })
+  const listRequest = requests.find(item => item.announcementBindingId === '')
+  assert.ok(listRequest, '应请求全部班级公告列表')
+  assert.equal(new URLSearchParams(listRequest.query).has('bindingId'), false, '无班级时应省略 bindingId')
+  await context.close()
+})
+
+await run('从 ANNOUNCEMENT 通知打开对应公告', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-link', { hasText: '查看公告' }).click()
+  await page.waitForSelector('.ann-dialog', { timeout: 15000 })
+  assert.equal(await page.getByRole('tab', { name: '课程公告' }).getAttribute('aria-selected'), 'true')
+  const detailText = await page.locator('.ann-dialog').innerText()
+  assert.match(detailText, new RegExp(`公告-${ANNOUNCEMENT_ID}`))
+  assert.match(detailText, new RegExp(`公告正文-${ANNOUNCEMENT_ID}`))
+  const detailRequest = requests.find(item => item.announcementDetailId === ANNOUNCEMENT_ID)
+  assert.ok(detailRequest, '应按 sourceId 请求公告详情')
+  assert.ok(detailRequest.path.endsWith('/' + ANNOUNCEMENT_ID))
+  await context.close()
+})
+
+await run('公告不可见返回 404 显示公告不存在或不可访问', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    announcementDetail: { code: 404, msg: '公告不存在或当前不可访问' }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.ann-main', { timeout: 15000 })
+  await page.locator('.ann-main').first().click()
+  await page.waitForSelector('.ann-dialog', { timeout: 10000 })
+  assert.match(await page.locator('.ann-dialog').innerText(), /公告不存在或不可访问/)
+  await context.close()
+})
+
+await run('切班后迟到公告列表响应不覆盖新班级', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    announcementListDelays: { 9001: 1200, 9002: 50 },
+    announcementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [announcementRow(ANNOUNCEMENT_ID, bindingId || '9001', `公告-${bindingId || 'ALL'}`)]
+    })
+  })
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  const listRequest = page.waitForRequest(request => request.url().includes('/education/student/announcements')
+    && request.url().includes('bindingId=9001'), { timeout: 10000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await listRequest
+  await page.evaluate(() => {
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await page.waitForFunction(() => document.querySelector('.ann-main')?.innerText.includes('公告-9002'), null, { timeout: 15000 })
+  await page.waitForTimeout(1500)
+  const listText = await page.locator('.student-announcements').innerText()
+  assert.match(listText, /公告-9002/)
+  assert.doesNotMatch(listText, /公告-9001/)
+  await context.close()
+})
+
+await run('切页签后迟到公告详情不重新打开', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    announcementDetailDelays: { [ANNOUNCEMENT_ID]: 1200 }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.ann-main', { timeout: 15000 })
+  await page.locator('.ann-main').first().click()
+  await page.waitForSelector('.ann-dialog', { timeout: 10000 })
+  await page.getByRole('tab', { name: '学习通知' }).click()
+  await page.waitForFunction(() => !document.querySelector('.ann-dialog'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.ann-dialog').count(), 0)
+  assert.match(await text(page), /学习通知/)
   await context.close()
 })
 

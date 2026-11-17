@@ -2,14 +2,17 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { getNoticeDetail, getUnreadCount, listNotices, markAllNoticesRead, markNoticeRead } from '@/api/education/notice'
 import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
+import StudentAnnouncements from './StudentAnnouncements.vue'
 import { context } from '@/education/context'
+import { classifyNotice503, notice503Detail } from './notice-error'
 
 /**
  * 学生通知列表、详情与已读（6-04 原型）。
  *
- * 已接通知列表、未读数、详情、单条已读和全部已读。来源页跳转和公告页签
- * 不在本轮范围。班级上下文来自 #27 的课程—教学班选择器；
- * 未选班级时省略 bindingId，由服务端返回本人全部当前可见通知。
+ * 已接通知列表、未读数、详情、单条/全部已读、课程公告页签，以及
+ * ANNOUNCEMENT 通知按 sourceId 跳转公告。非公告来源路由后续接入。
+ * 班级上下文来自 #27 的课程—教学班选择器；未选班级时省略 bindingId，
+ * 由服务端返回本人全部当前可见通知。
  */
 
 const rows = ref([])
@@ -35,6 +38,23 @@ const readAllSubmitting = ref(false)
 const readAllError = ref('')
 const readAllMessage = ref('')
 const readAllWarnings = ref([])
+const TAB_KEY = 'zhijiao.studentNoticeTab'
+function readInitialTab() {
+  try {
+    return sessionStorage.getItem(TAB_KEY) === 'announcements' ? 'announcements' : 'notices'
+  } catch {
+    return 'notices'
+  }
+}
+function persistTab(tab) {
+  try {
+    sessionStorage.setItem(TAB_KEY, tab)
+  } catch {
+    /* 存储不可用只影响刷新后页签记忆，不阻断当前切换 */
+  }
+}
+const activeTab = ref(readInitialTab())
+const announcementsRef = ref(null)
 
 let listSeq = 0
 let unreadSeq = 0
@@ -159,38 +179,6 @@ async function loadUnread() {
     unreadMessage.value = typeof error?.message === 'string' ? error.message : '未读数暂不可用'
     return false
   }
-}
-
-/**
- * 判定 503 是否来自教学班授权服务。
- *
- * 6-02 契约：HTTP 200 + 业务 code=503 + 服务端 msg 明确指向授权，才归为授权不可用。
- * 网关 HTTP 503 即使正文含糊提到“授权”也按通用服务故障处理，避免把基础设施
- * 故障误报成第 2 组授权契约问题。
- *
- * @param {object} error 统一请求模块抛出的错误对象
- * @returns {'authorization'|'generic'} 授权 503 或通用 503
- */
-function classifyNotice503(error) {
-  const httpStatus = Number(error?.status)
-  const message = String(error?.message || '')
-  return httpStatus === 200 && message.includes('授权') ? 'authorization' : 'generic'
-}
-
-/**
- * 503 详情文案。
- *
- * 优先保留服务端 msg；网关 HTML 503 没有业务 msg 时补充 HTTP 状态，
- * 方便定位是网关/容器故障而不是通知空数据。
- *
- * @param {object} error 统一请求模块抛出的错误对象
- * @returns {string} 展示给用户的详情
- */
-function notice503Detail(error) {
-  const message = typeof error?.message === 'string' ? error.message.trim() : ''
-  if (message && message !== '请求失败') return message
-  if (Number(error?.status) === 503) return '请求失败（HTTP 503）'
-  return message || '请稍后重试。'
 }
 
 /**
@@ -489,6 +477,66 @@ async function confirmReadAll() {
   }
 }
 
+/**
+ * 使当前通知列表/未读数请求失效；切到公告页签时调用。
+ *
+ * @returns {void}
+ */
+function cancelNoticeRequests() {
+  listSeq++
+  unreadSeq++
+  listController?.abort()
+  unreadController?.abort()
+  listController = null
+  unreadController = null
+}
+
+/**
+ * 切换「学习通知 / 课程公告」页签。
+ *
+ * 切页签会关闭通知详情和全部已读确认，并中止当前页签在途请求；公告子页签
+ * 卸载时由自身 cleanup 中止公告请求，避免迟到响应写入新页签。
+ *
+ * @param {'notices'|'announcements'} tab 目标页签
+ * @returns {void}
+ */
+function switchTab(tab) {
+  if (tab === activeTab.value) return
+  closeDetail()
+  resetReadAllState()
+  if (tab === 'announcements') {
+    cancelNoticeRequests()
+    activeTab.value = 'announcements'
+    persistTab('announcements')
+    return
+  }
+  activeTab.value = 'notices'
+  persistTab('notices')
+  loadList()
+  loadUnread()
+}
+
+/**
+ * 从 ANNOUNCEMENT 通知详情跳转到课程公告页签，并按 sourceId 打开公告。
+ *
+ * 只使用 sourceId 请求公告详情；公告可见性由服务端重新校验，通知行本身
+ * 不是访问凭证。其他通知来源不在这里自造路由。
+ *
+ * @returns {Promise<void>} 页签切换和公告详情打开完成
+ */
+async function openAnnouncementFromNotice() {
+  if (disposed || !detail.value || detail.value.kind !== 'ANNOUNCEMENT') return
+  const sourceId = String(detail.value.sourceId ?? '')
+  if (!sourceId) return
+  closeDetail()
+  resetReadAllState()
+  cancelNoticeRequests()
+  activeTab.value = 'announcements'
+  persistTab('announcements')
+  await nextTick()
+  announcementsRef.value?.openById(sourceId)
+}
+
 function changePage(next) {
   if (next < 1 || next === pageNum.value || listState.value === 'loading') return
   pageNum.value = next
@@ -519,8 +567,10 @@ watch(bindingId, () => {
   closeDetail()
   resetReadAllState()
   pageNum.value = 1
-  loadList()
-  loadUnread()
+  if (activeTab.value === 'notices') {
+    loadList()
+    loadUnread()
+  }
 }, { immediate: true })
 
 onBeforeUnmount(() => {
@@ -539,7 +589,25 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="student-notices" aria-label="学习通知">
+  <section class="student-notices" aria-label="学习通知与课程公告">
+    <div class="notice-tabs" role="tablist" aria-label="学习通知与课程公告">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'notices'"
+        :class="{ active: activeTab === 'notices' }"
+        @click="switchTab('notices')"
+      >学习通知</button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'announcements'"
+        :class="{ active: activeTab === 'announcements' }"
+        @click="switchTab('announcements')"
+      >课程公告</button>
+    </div>
+
+    <template v-if="activeTab === 'notices'">
     <header class="notice-head">
       <div>
         <h2>学习通知</h2>
@@ -668,6 +736,9 @@ onBeforeUnmount(() => {
               {{ readSubmitting ? '处理中…' : '标为已读' }}
             </button>
           </div>
+          <div v-if="detail.kind === 'ANNOUNCEMENT'" class="detail-announcement">
+            <button type="button" class="detail-link" @click="openAnnouncementFromNotice">查看公告</button>
+          </div>
           <p v-if="readMessage" class="read-success" role="status">{{ readMessage }}</p>
           <p v-if="readError" class="read-error" role="alert">{{ readError }}</p>
           <p class="detail-note">通知详情只包含元数据，正文由来源页面提供。</p>
@@ -689,11 +760,20 @@ onBeforeUnmount(() => {
       @close="closeReadAllConfirm"
       @confirm="confirmReadAll"
     />
+    </template>
+
+    <StudentAnnouncements v-else ref="announcementsRef" :binding-id="bindingId" />
   </section>
 </template>
 
 <style scoped>
 .student-notices { padding: 20px; background: #fff; border-radius: 8px; }
+.notice-tabs { position: relative; z-index: 3100; display: flex; gap: 8px; margin-bottom: 18px; border-bottom: 1px solid #ebeef5; }
+.notice-tabs button {
+  padding: 8px 14px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: #606266; font: inherit; cursor: pointer;
+}
+.notice-tabs button.active { color: #409eff; border-bottom-color: #409eff; font-weight: 600; }
 .notice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .notice-head h2 { margin: 0 0 6px; font-size: 20px; color: #1f2d3d; }
 .sub { margin: 0; color: #909399; font-size: 13px; }
@@ -742,6 +822,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .detail-read:disabled { background: #a0cfff; cursor: not-allowed; }
+.detail-announcement { padding-top: 10px; }
+.detail-link { padding: 0; border: 0; background: transparent; color: #409eff; font: inherit; cursor: pointer; }
+.detail-link:hover { text-decoration: underline; }
 .read-success { margin: 12px 0 0; color: #67c23a; font-size: 13px; }
 .read-error { margin: 12px 0 0; color: #c45656; font-size: 13px; }
 .detail-note { margin: 14px 0 0; color: #909399; font-size: 12px; }
