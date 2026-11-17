@@ -1,4 +1,5 @@
 import { registerBusinessPage } from '@/education/ui-pages'
+import '@/education/student-notices-page'
 import { resetSession } from '@/education/session'
 import { suspendWorkspace,forbidView } from '@/education/workspace'
 import usePermissionStore from '@/store/modules/permission'
