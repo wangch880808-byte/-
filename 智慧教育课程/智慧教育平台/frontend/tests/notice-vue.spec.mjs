@@ -165,6 +165,9 @@ async function installFixture(page, options = {}) {
       const bindingId = url.searchParams.get('bindingId') || ''
       const delay = opts.delayByBinding[bindingId] || 0
       await sleep(delay)
+      if (opts.rawList) {
+        return route.fulfill(opts.rawList)
+      }
       const body = opts.list || listBody(bindingId)
       return json(route, body)
     } catch {
@@ -354,8 +357,43 @@ await run('空列表、403、503 三种状态互不混同', async () => {
   await openHash(unavailablePage, '/student/notices')
   await unavailablePage.waitForSelector('.student-notices', { timeout: 15000 })
   assert.match(await text(unavailablePage), /教学班授权服务暂不可用/)
+  assert.match(await text(unavailablePage), /学生教学班授权服务尚未接入/)
   assert.doesNotMatch(await text(unavailablePage), /暂无通知/)
   await unavailableContext.close()
+})
+
+await run('通用业务 503 显示服务暂不可用并保留服务端消息', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    list: { code: 503, msg: '服务端暂时不可用' }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  const body = await text(page)
+  assert.match(body, /服务暂不可用/)
+  assert.match(body, /服务端暂时不可用/)
+  assert.doesNotMatch(body, /教学班授权服务暂不可用/)
+  await context.close()
+})
+
+await run('网关 HTML 503 显示服务暂不可用并补充 HTTP 状态', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    rawList: {
+      status: 503,
+      contentType: 'text/html',
+      body: '<html><body><h1>503 Service Unavailable</h1></body></html>'
+    }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  const body = await text(page)
+  assert.match(body, /服务暂不可用/)
+  assert.match(body, /请求失败（HTTP 503）/)
+  assert.doesNotMatch(body, /教学班授权服务暂不可用/)
+  await context.close()
 })
 
 await browser.close()

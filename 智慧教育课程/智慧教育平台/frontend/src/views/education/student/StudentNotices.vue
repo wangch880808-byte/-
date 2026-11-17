@@ -90,7 +90,12 @@ async function loadList() {
     if (error?.forbidden || error?.code === 403) {
       listState.value = 'forbidden'
     } else if (error?.code === 503) {
-      listState.value = 'unavailable'
+      // 6-02 契约：HTTP 200 + 业务 503 + msg 明确含“授权”才是授权不可用；
+      // 网关 HTTP 503 即使正文含“授权”也按通用服务故障展示，避免误报。
+      listState.value = classifyNotice503(error) === 'authorization'
+        ? 'unavailable-auth'
+        : 'unavailable'
+      listMessage.value = notice503Detail(error)
     } else {
       listState.value = 'error'
     }
@@ -129,6 +134,38 @@ async function loadUnread() {
     unreadState.value = 'unavailable'
     unreadMessage.value = typeof error?.message === 'string' ? error.message : '未读数暂不可用'
   }
+}
+
+/**
+ * 判定 503 是否来自教学班授权服务。
+ *
+ * 6-02 契约：HTTP 200 + 业务 code=503 + 服务端 msg 明确指向授权，才归为授权不可用。
+ * 网关 HTTP 503 即使正文含糊提到“授权”也按通用服务故障处理，避免把基础设施
+ * 故障误报成第 2 组授权契约问题。
+ *
+ * @param {object} error 统一请求模块抛出的错误对象
+ * @returns {'authorization'|'generic'} 授权 503 或通用 503
+ */
+function classifyNotice503(error) {
+  const httpStatus = Number(error?.status)
+  const message = String(error?.message || '')
+  return httpStatus === 200 && message.includes('授权') ? 'authorization' : 'generic'
+}
+
+/**
+ * 503 详情文案。
+ *
+ * 优先保留服务端 msg；网关 HTML 503 没有业务 msg 时补充 HTTP 状态，
+ * 方便定位是网关/容器故障而不是通知空数据。
+ *
+ * @param {object} error 统一请求模块抛出的错误对象
+ * @returns {string} 展示给用户的详情
+ */
+function notice503Detail(error) {
+  const message = typeof error?.message === 'string' ? error.message.trim() : ''
+  if (message && message !== '请求失败') return message
+  if (Number(error?.status) === 503) return '请求失败（HTTP 503）'
+  return message || '请稍后重试。'
 }
 
 function changePage(next) {
@@ -193,8 +230,13 @@ onBeforeUnmount(() => {
       <span>{{ listMessage }}</span>
     </div>
 
-    <div v-else-if="listState === 'unavailable'" class="state state-warn" role="alert">
+    <div v-else-if="listState === 'unavailable-auth'" class="state state-warn" role="alert">
       <strong>教学班授权服务暂不可用</strong>
+      <span>{{ listMessage }}</span>
+    </div>
+
+    <div v-else-if="listState === 'unavailable'" class="state state-warn" role="alert">
+      <strong>服务暂不可用</strong>
       <span>{{ listMessage }}</span>
     </div>
 
