@@ -24,6 +24,7 @@ registerBusinessPage({
   component: () => import('@/views/education/student/StudentNotices.vue'),
   headerEntry: {
     label: '通知',
+    tab: 'notices',
     getUnreadCount: getUnreadCountForHeader
   }
 })

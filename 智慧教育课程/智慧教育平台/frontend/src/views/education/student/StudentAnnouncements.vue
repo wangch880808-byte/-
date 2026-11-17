@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { getStudentAnnouncement, listStudentAnnouncements } from '@/api/education/announcement'
 import { classifyNotice503, notice503Detail } from './notice-error'
 
@@ -11,7 +11,8 @@ import { classifyNotice503, notice503Detail } from './notice-error'
  */
 
 const props = defineProps({
-  bindingId: { type: String, default: '' }
+  bindingId: { type: String, default: '' },
+  openAnnouncementId: { type: String, default: '' }
 })
 
 const rows = ref([])
@@ -24,11 +25,13 @@ const detailOpen = ref(false)
 const detailState = ref('idle')
 const detail = ref(null)
 const detailMessage = ref('')
+const detailCloseButton = ref(null)
 
 let listSeq = 0
 let detailSeq = 0
 let listController = null
 let detailController = null
+let detailTrigger = null
 let disposed = false
 
 /**
@@ -82,9 +85,10 @@ async function loadList() {
  * 详情请求与当前序号绑定；关闭、切班或卸载后迟到响应不能重新打开或覆盖。
  *
  * @param {string} announcementId 公告 ID 字符串
+ * @param {Event} [event] 触发按钮事件；关闭后焦点归还仍存在的按钮
  * @returns {Promise<void>} 详情加载完成
  */
-async function openDetail(announcementId) {
+async function openDetail(announcementId, event) {
   if (disposed) return
   const id = String(announcementId ?? '')
   if (!id) return
@@ -92,10 +96,13 @@ async function openDetail(announcementId) {
   detailController?.abort()
   const controller = new AbortController()
   detailController = controller
+  detailTrigger = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null
   detailOpen.value = true
   detailState.value = 'loading'
   detail.value = null
   detailMessage.value = ''
+  await nextTick()
+  detailCloseButton.value?.focus()
 
   try {
     const body = await getStudentAnnouncement(id, { signal: controller.signal })
@@ -136,6 +143,11 @@ function closeDetail() {
   detailState.value = 'idle'
   detail.value = null
   detailMessage.value = ''
+  const trigger = detailTrigger
+  detailTrigger = null
+  nextTick(() => {
+    if (trigger?.isConnected) trigger.focus()
+  })
 }
 
 function changePage(next) {
@@ -160,26 +172,20 @@ watch(() => props.bindingId, () => {
   loadList()
 }, { immediate: true })
 
+// 从通知详情跳转时由 route query 携带 announcementId；服务端仍重新校验可见性。
+watch(() => props.openAnnouncementId, id => {
+  if (id) openDetail(id)
+}, { immediate: true })
+
 onBeforeUnmount(() => {
   disposed = true
   listSeq++
   detailSeq++
   listController?.abort()
   detailController?.abort()
+  detailTrigger = null
 })
 
-/**
- * 供父页从通知详情跳转：切到公告页签后按 sourceId 打开目标公告。
- * 详情仍由服务端重新校验，通知本身不是访问凭证。
- *
- * @param {string} announcementId 公告 ID 字符串
- * @returns {void}
- */
-function openById(announcementId) {
-  openDetail(announcementId)
-}
-
-defineExpose({ openById })
 </script>
 
 <template>
@@ -222,7 +228,7 @@ defineExpose({ openById })
     <template v-else-if="listState === 'ready'">
       <ul class="ann-list">
         <li v-for="row in rows" :key="row.id" class="ann-item">
-          <button type="button" class="ann-main" @click="openDetail(row.id)">
+          <button type="button" class="ann-main" :data-announcement-id="row.id" @click="openDetail(row.id, $event)">
             <span class="ann-title">{{ row.title }}</span>
             <span class="ann-meta">开放：{{ formatTime(row.opensAt) }} · 关闭：{{ formatTime(row.closesAt) }}</span>
           </button>
@@ -236,11 +242,11 @@ defineExpose({ openById })
       </div>
     </template>
 
-    <div v-if="detailOpen" class="ann-overlay" @click.self="closeDetail">
+    <div v-if="detailOpen" class="ann-overlay" @click.self="closeDetail" @keydown.esc.stop.prevent="closeDetail">
       <section class="ann-dialog" role="dialog" aria-modal="true" aria-labelledby="ann-detail-title">
         <header class="ann-dialog-head">
           <h3 id="ann-detail-title">公告详情</h3>
-          <button type="button" class="ann-close" @click="closeDetail">关闭</button>
+          <button ref="detailCloseButton" type="button" class="ann-close" @click="closeDetail">关闭</button>
         </header>
 
         <div v-if="detailState === 'loading'" class="state" role="status">正在读取公告详情…</div>

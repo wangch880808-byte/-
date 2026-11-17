@@ -33,8 +33,10 @@ function compactParams(params) {
  * 只读请求；不包含详情、已读或全部已读操作。
  * 使用 silent403：403 由页面展示“无权限”，不能让公共拦截器把整个工作台置为阻断。
  *
- * @param {{bindingId?: string, pageNum?: number, pageSize?: number}} [query] 查询条件；
- *   bindingId 为课程—教学班绑定 ID 字符串，未选班级时省略
+ * @param {{bindingId?: string, kind?: string, unreadOnly?: boolean,
+ *   pageNum?: number, pageSize?: number}} [query] 查询条件；bindingId 为
+ *   课程—教学班绑定 ID 字符串，未选班级时省略；kind 为空时省略；
+ *   unreadOnly=true 时按契约发送字符串 "true"
  * @param {{signal?: AbortSignal}} [options] 取消信号；切班时由调用方中止旧请求
  * @returns {Promise<{total: number, rows: Array<object>}>} 分页响应体；rows 为服务端裁剪后的通知
  */
@@ -44,6 +46,8 @@ export function listNotices(query = {}, options = {}) {
     method: 'get',
     params: compactParams({
       bindingId: query.bindingId,
+      kind: query.kind,
+      unreadOnly: query.unreadOnly === true ? 'true' : undefined,
       pageNum: query.pageNum ?? 1,
       pageSize: query.pageSize ?? 10
     }),

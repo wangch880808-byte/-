@@ -1221,7 +1221,7 @@ await run('切班后迟到公告列表响应不覆盖新班级', async () => {
   await page.getByRole('tab', { name: '课程公告' }).click()
   await listRequest
   await page.evaluate(() => {
-    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002&tab=announcements'
   })
   await page.waitForFunction(() => document.querySelector('.ann-main')?.innerText.includes('公告-9002'), null, { timeout: 15000 })
   await page.waitForTimeout(1500)
@@ -1248,6 +1248,119 @@ await run('切页签后迟到公告详情不重新打开', async () => {
   await page.waitForTimeout(1500)
   assert.equal(await page.locator('.ann-dialog').count(), 0)
   assert.match(await text(page), /学习通知/)
+  await context.close()
+})
+
+await run('从公告页签点顶栏通知回学习通知并保留当前班级', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page)
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.ann-main', { timeout: 15000 })
+  assert.match(await page.evaluate(() => location.hash), /tab=announcements/)
+  const headerNotice = page.locator('.header-right button', { hasText: '通知' }).first()
+  await headerNotice.click()
+  await page.waitForFunction(() => location.hash.includes('tab=notices'), null, { timeout: 10000 })
+  await page.waitForSelector('.notice-main', { timeout: 15000 })
+  const hash = await page.evaluate(() => location.hash)
+  assert.match(hash, /bindingId=9001/)
+  assert.equal(await page.getByRole('tab', { name: '学习通知' }).getAttribute('aria-selected'), 'true')
+  assert.equal(await page.locator('.student-announcements').count(), 0)
+  await headerNotice.click()
+  await page.waitForTimeout(300)
+  assert.equal(await page.getByRole('tab', { name: '学习通知' }).getAttribute('aria-selected'), 'true')
+  await context.close()
+})
+
+await run('公告详情弹窗聚焦、Esc 关闭并归还焦点', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.ann-main', { timeout: 15000 })
+  await page.locator('.ann-main').first().click()
+  await page.waitForSelector('.ann-dialog', { timeout: 10000 })
+  const focusedInside = await page.evaluate(() => Boolean(document.activeElement?.closest('.ann-dialog')))
+  assert.equal(focusedInside, true, '打开公告详情后焦点应进入弹窗')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('.ann-dialog'), null, { timeout: 10000 })
+  const focusedId = await page.evaluate(() => document.activeElement?.getAttribute('data-announcement-id'))
+  assert.equal(focusedId, ANNOUNCEMENT_ID, '关闭后焦点应回到公告触发按钮')
+  await context.close()
+})
+
+await run('通知筛选发送 kind/unreadOnly 且回到第一页，过滤空值省略', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const listRows = Array.from({ length: 10 }, (_, index) =>
+    noticeRow(String(30001 + index), `通知-${index}`))
+  const requests = await installFixture(page, {
+    list: { code: 200, msg: '查询成功', total: 25, rows: listRows }
+  })
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.notice-main', { timeout: 15000 })
+  const initialList = requests.find(item => item.path.endsWith('/student/notices'))
+  assert.ok(initialList)
+  const initialQuery = new URLSearchParams(initialList.query)
+  assert.equal(initialQuery.has('kind'), false)
+  assert.equal(initialQuery.has('unreadOnly'), false)
+
+  const pageTwo = page.waitForRequest(request => {
+    const url = new URL(request.url())
+    return url.pathname.endsWith('/education/student/notices')
+      && url.searchParams.get('pageNum') === '2'
+  }, { timeout: 10000 })
+  await page.locator('.pager button', { hasText: '下一页' }).click()
+  await pageTwo
+
+  await page.selectOption('.notice-kind-filter', 'ASSIGNMENT')
+  const filtered = page.waitForRequest(request => {
+    const url = new URL(request.url())
+    return url.pathname.endsWith('/education/student/notices')
+      && url.searchParams.get('kind') === 'ASSIGNMENT'
+      && url.searchParams.get('unreadOnly') === 'true'
+      && url.searchParams.get('pageNum') === '1'
+  }, { timeout: 10000 })
+  await page.locator('.notice-unread-filter input').check()
+  const filteredRequest = await filtered
+  const filteredQuery = new URL(filteredRequest.url()).searchParams
+  assert.equal(filteredQuery.get('bindingId'), '9001')
+  assert.equal(filteredQuery.get('pageNum'), '1')
+  const unreadRequests = requests.filter(item => item.path.endsWith('/unread-count'))
+  assert.ok(unreadRequests.length > 0)
+  assert.ok(unreadRequests.every(item => {
+    const query = new URLSearchParams(item.query)
+    return !query.has('kind') && !query.has('unreadOnly')
+  }), '未读角标不应带列表筛选参数')
+  await context.close()
+})
+
+await run('筛选状态下全部已读仍为无参数全教学班范围', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.notice-main', { timeout: 15000 })
+  await page.selectOption('.notice-kind-filter', 'GRADE')
+  await page.locator('.notice-unread-filter input').check()
+  await page.waitForTimeout(200)
+  await page.locator('.notice-head-actions button').click()
+  await page.waitForSelector('.modal', { timeout: 10000 })
+  const copy = await page.locator('.modal .confirm-text').innerText()
+  assert.match(copy, /所有教学班/)
+  assert.match(copy, /其他教学班/)
+  assert.match(copy, /不受当前班级和分页限制/)
+  const putRequest = page.waitForRequest(request => request.method() === 'PUT', { timeout: 10000 })
+  await page.locator('.modal-foot button', { hasText: '确认' }).click()
+  await putRequest
+  const put = requests.find(item => item.method === 'PUT')
+  assert.ok(put)
+  assert.equal(put.query, '')
+  assert.ok(put.body === null || put.body === '')
   await context.close()
 })
 

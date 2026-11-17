@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { getNoticeDetail, getUnreadCount, listNotices, markAllNoticesRead, markNoticeRead } from '@/api/education/notice'
 import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
 import StudentAnnouncements from './StudentAnnouncements.vue'
@@ -19,6 +20,8 @@ const rows = ref([])
 const total = ref(0)
 const pageNum = ref(1)
 const pageSize = 10
+const kindFilter = ref('')
+const unreadOnly = ref(false)
 const listState = ref('idle')
 const listMessage = ref('')
 const unreadState = ref('idle')
@@ -38,23 +41,21 @@ const readAllSubmitting = ref(false)
 const readAllError = ref('')
 const readAllMessage = ref('')
 const readAllWarnings = ref([])
-const TAB_KEY = 'zhijiao.studentNoticeTab'
-function readInitialTab() {
-  try {
-    return sessionStorage.getItem(TAB_KEY) === 'announcements' ? 'announcements' : 'notices'
-  } catch {
-    return 'notices'
-  }
-}
-function persistTab(tab) {
-  try {
-    sessionStorage.setItem(TAB_KEY, tab)
-  } catch {
-    /* 存储不可用只影响刷新后页签记忆，不阻断当前切换 */
-  }
-}
-const activeTab = ref(readInitialTab())
-const announcementsRef = ref(null)
+const route = useRoute()
+const router = useRouter()
+
+/**
+ * 当前页签由显式路由参数表达，避免 sessionStorage 旧选择盖过本次入口意图。
+ * 顶栏「通知」固定带 tab=notices；通知来源跳转带 tab=announcements
+ * 和 announcementId。
+ */
+const activeTab = computed(() => route.query.tab === 'announcements' ? 'announcements' : 'notices')
+const requestedAnnouncementId = computed(() => {
+  const value = route.query.announcementId
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return String(value[0] || '')
+  return ''
+})
 
 let listSeq = 0
 let unreadSeq = 0
@@ -110,7 +111,13 @@ async function loadList() {
 
   try {
     const body = await listNotices(
-      { bindingId: bindingId.value || undefined, pageNum: pageNum.value, pageSize },
+      {
+        bindingId: bindingId.value || undefined,
+        kind: kindFilter.value || undefined,
+        unreadOnly: unreadOnly.value,
+        pageNum: pageNum.value,
+        pageSize
+      },
       { signal: controller.signal }
     )
     if (seq !== listSeq || disposed) return
@@ -500,20 +507,16 @@ function cancelNoticeRequests() {
  * @param {'notices'|'announcements'} tab 目标页签
  * @returns {void}
  */
-function switchTab(tab) {
+async function switchTab(tab) {
   if (tab === activeTab.value) return
   closeDetail()
   resetReadAllState()
   if (tab === 'announcements') {
     cancelNoticeRequests()
-    activeTab.value = 'announcements'
-    persistTab('announcements')
-    return
   }
-  activeTab.value = 'notices'
-  persistTab('notices')
-  loadList()
-  loadUnread()
+  const query = { ...route.query, tab }
+  delete query.announcementId
+  await router.replace({ path: route.path, query })
 }
 
 /**
@@ -531,10 +534,34 @@ async function openAnnouncementFromNotice() {
   closeDetail()
   resetReadAllState()
   cancelNoticeRequests()
-  activeTab.value = 'announcements'
-  persistTab('announcements')
-  await nextTick()
-  announcementsRef.value?.openById(sourceId)
+  await router.replace({
+    path: route.path,
+    query: { ...route.query, tab: 'announcements', announcementId: sourceId }
+  })
+}
+
+/**
+ * 应用通知筛选：回到第一页并重新请求列表。
+ *
+ * 空 kind 在 API 层省略；unreadOnly=true 按契约发送字符串 "true"。
+ * 未读数和顶栏仍按当前班级范围查询，不受筛选影响；全部已读也仍覆盖
+ * 本人所有教学班当前可见通知。
+ *
+ * @returns {void}
+ */
+function applyFilters() {
+  pageNum.value = 1
+  loadList()
+}
+
+function changeKind(event) {
+  kindFilter.value = event.target.value
+  applyFilters()
+}
+
+function changeUnreadOnly(event) {
+  unreadOnly.value = event.target.checked
+  applyFilters()
 }
 
 function changePage(next) {
@@ -629,6 +656,21 @@ onBeforeUnmount(() => {
     <p class="context-note">
       {{ bindingId ? `当前教学班：${bindingId}` : '未选择教学班，显示本人全部当前可见通知。' }}
     </p>
+
+    <div class="notice-filters">
+      <select class="notice-kind-filter" :value="kindFilter" aria-label="通知类型" @change="changeKind">
+        <option value="">全部类型</option>
+        <option value="ANNOUNCEMENT">公告</option>
+        <option value="PREVIEW">预习任务</option>
+        <option value="ACTIVITY">课堂活动</option>
+        <option value="ASSIGNMENT">作业</option>
+        <option value="GRADE">成绩</option>
+      </select>
+      <label class="notice-unread-filter">
+        <input type="checkbox" :checked="unreadOnly" @change="changeUnreadOnly" />
+        只看未读
+      </label>
+    </div>
 
     <div v-if="listState === 'loading'" class="state" role="status">正在读取通知…</div>
 
@@ -762,7 +804,11 @@ onBeforeUnmount(() => {
     />
     </template>
 
-    <StudentAnnouncements v-else ref="announcementsRef" :binding-id="bindingId" />
+    <StudentAnnouncements
+      v-else
+      :binding-id="bindingId"
+      :open-announcement-id="requestedAnnouncementId"
+    />
   </section>
 </template>
 
@@ -783,6 +829,9 @@ onBeforeUnmount(() => {
 .unread.is-unavailable { background: #fdf6ec; color: #b88230; }
 .read-all-message { margin: 12px 0 0; color: #67c23a; font-size: 13px; }
 .context-note { margin: 14px 0; color: #606266; font-size: 13px; }
+.notice-filters { display: flex; align-items: center; gap: 16px; margin: 0 0 14px; color: #606266; font-size: 13px; }
+.notice-kind-filter { padding: 5px 8px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; }
+.notice-unread-filter { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .state { display: flex; flex-direction: column; gap: 6px; padding: 28px 20px; text-align: center; color: #606266; background: #fafafa; border-radius: 8px; }
 .state-error { background: #fef0f0; color: #c45656; }
 .state-warn { background: #fdf6ec; color: #b88230; }
