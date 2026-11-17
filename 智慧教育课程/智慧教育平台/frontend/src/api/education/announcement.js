@@ -121,3 +121,70 @@ export function getTeacherAnnouncementDetail(announcementId, options = {}) {
     signal: options.signal
   })
 }
+
+/**
+ * 创建教师公告草稿。
+ *
+ * bindingId 必须来自当前教学班并保持字符串；服务端会重新校验当前任课、
+ * 绑定有效性和 canPublish 权限。创建接口没有幂等键，调用方不得自动重试，
+ * 超时后应先刷新当前班级列表确认是否已经落库。
+ *
+ * @param {{bindingId: string, title: string, body: string,
+ *   opensAt?: string|null, closesAt?: string|null}} payload 草稿字段
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: object}>} 新建草稿响应
+ */
+export function createTeacherAnnouncement(payload = {}, options = {}) {
+  const bindingId = String(payload.bindingId ?? '')
+  if (!/^[1-9]\d*$/.test(bindingId)) {
+    return Promise.reject(new Error('bindingId 必须为正整数字符串'))
+  }
+  return edu({
+    url: '/education/teacher/announcements',
+    method: 'post',
+    data: {
+      bindingId,
+      title: payload.title,
+      body: payload.body,
+      opensAt: payload.opensAt ?? null,
+      closesAt: payload.closesAt ?? null
+    },
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
+ * 完整覆盖编辑教师公告草稿。
+ *
+ * 只提交 title、body、opensAt、closesAt；bindingId 不可修改，不放入请求体。
+ * 服务端最终校验对象权限：创建者可编辑本人草稿，其他教师需要本班
+ * 公告管理权限；调用方不能只依赖入口是否显示。PUT 采用完整覆盖语义，
+ * 未设置的时间显式提交 null，避免与“保持原值”混淆。后端没有乐观锁，
+ * 条件更新 0 行时会重新读取并区分非草稿或真实并发冲突；前端不发送版本号，
+ * 收到 409 只保留冲突提示并刷新列表，不自行覆盖服务端状态。
+ *
+ * @param {string} announcementId 公告 ID 字符串
+ * @param {{title: string, body: string, opensAt?: string|null,
+ *   closesAt?: string|null}} payload 草稿字段
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: object}>} 更新后的草稿响应
+ */
+export function updateTeacherAnnouncement(announcementId, payload = {}, options = {}) {
+  const id = String(announcementId ?? '')
+  if (!/^[1-9]\d*$/.test(id)) {
+    return Promise.reject(new Error('announcementId 必须为正整数字符串'))
+  }
+  return edu({
+    url: '/education/teacher/announcements/' + encodeURIComponent(id),
+    method: 'put',
+    data: {
+      title: payload.title,
+      body: payload.body,
+      opensAt: payload.opensAt ?? null,
+      closesAt: payload.closesAt ?? null
+    },
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}

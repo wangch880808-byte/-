@@ -30,7 +30,7 @@ function json(route, body) {
   })
 }
 
-function contextOptions(role = 'student') {
+function contextOptions(role = 'student', canPublish = role === 'teacher') {
   return {
     code: 200,
     msg: '操作成功',
@@ -42,11 +42,11 @@ function contextOptions(role = 'student') {
         classes: [
           {
             classId: '201', className: '一班', termId: '1', bindingId: '9001',
-            memberRole: role, canPublish: role === 'teacher'
+            memberRole: role, canPublish
           },
           {
             classId: '202', className: '二班', termId: '1', bindingId: '9002',
-            memberRole: role, canPublish: role === 'teacher'
+            memberRole: role, canPublish
           }
         ]
       }]
@@ -54,10 +54,11 @@ function contextOptions(role = 'student') {
   }
 }
 
-function contextCheck(url) {
+function contextCheck(url, canPublish) {
   const bindingId = url.searchParams.get('bindingId')
   const classId = url.searchParams.get('classId')
   const role = url.searchParams.get('role') || 'student'
+  const publish = canPublish === undefined ? role === 'teacher' : canPublish === true
   return {
     code: 200,
     msg: '操作成功',
@@ -67,7 +68,7 @@ function contextCheck(url) {
       termId: '1',
       bindingId,
       memberRole: role,
-      canPublish: role === 'teacher',
+      canPublish: publish,
       canGrade: false
     }
   }
@@ -115,6 +116,24 @@ const LARGE_NOTICE_ID = '820000000000000001'
 const ANNOUNCEMENT_ID = '70001'
 const TEACHER_ANNOUNCEMENT_ID = '80001'
 const READ_AT = '2026-11-17T03:00:00.000Z'
+const TEACHER_WRITE_PERMISSIONS = [
+  'education:announcement:list',
+  'education:announcement:add',
+  'education:announcement:edit',
+  'education:scope:read'
+]
+
+function teacherListRequests(requests) {
+  return requests.filter(item => item.teacherAnnouncementBindingId !== undefined)
+}
+
+function teacherCreateRequests(requests) {
+  return requests.filter(item => item.method === 'POST' && item.teacherAnnouncementCreate)
+}
+
+function teacherUpdateRequests(requests) {
+  return requests.filter(item => item.method === 'PUT' && item.teacherAnnouncementUpdateId)
+}
 
 function noticeRow(id, title, bindingId = '9001') {
   return {
@@ -260,6 +279,13 @@ async function installFixture(page, options = {}) {
     teacherAnnouncementListDelays: {},
     teacherAnnouncementDetail: null,
     teacherAnnouncementDetailDelays: {},
+    teacherAnnouncementCreate: null,
+    teacherAnnouncementCreateDelay: 0,
+    teacherAnnouncementUpdate: null,
+    teacherAnnouncementUpdateDelay: 0,
+    abortTeacherAnnouncementCreate: null,
+    abortTeacherAnnouncementUpdate: null,
+    contextCheck: null,
     delayByBinding: {},
     ...options
   }
@@ -272,11 +298,52 @@ async function installFixture(page, options = {}) {
     routers(opts.includeNoticeRoute, opts.includeTeacherAnnouncementRoute)))
   await page.route('**/education/context/options*', route => json(route,
     opts.contextOptions || contextOptions(opts.role)))
-  await page.route('**/education/context/check*', route => json(route, contextCheck(new URL(route.request().url()))))
+  await page.route('**/education/context/check*', route => {
+    const url = new URL(route.request().url())
+    return json(route, typeof opts.contextCheck === 'function'
+      ? opts.contextCheck(url)
+      : (opts.contextCheck || contextCheck(url)))
+  })
   await page.route('**/education/teacher/announcements/*', async route => {
     const request = route.request()
     const url = new URL(request.url())
     const announcementId = decodeURIComponent(url.pathname.split('/').pop())
+    if (request.method() === 'PUT') {
+      const payload = JSON.parse(request.postData() || '{}')
+      requests.push({
+        method: 'PUT',
+        path: url.pathname,
+        query: url.search,
+        teacherAnnouncementUpdateId: announcementId,
+        payload,
+        body: request.postData()
+      })
+      try {
+        await sleep(opts.teacherAnnouncementUpdateDelay || 0)
+        if (opts.abortTeacherAnnouncementUpdate) {
+          return route.abort(opts.abortTeacherAnnouncementUpdate)
+        }
+        const body = typeof opts.teacherAnnouncementUpdate === 'function'
+          ? opts.teacherAnnouncementUpdate(announcementId, payload)
+          : (opts.teacherAnnouncementUpdate || {
+            code: 200,
+            msg: '操作成功',
+            data: {
+              ...teacherAnnouncementRow(announcementId),
+              title: payload?.title ?? `教师公告-${announcementId}`,
+              body: payload?.body ?? `教师公告正文-${announcementId}`,
+              opensAt: payload?.opensAt ?? null,
+              closesAt: payload?.closesAt ?? null,
+              status: 'DRAFT',
+              visibilityState: 'DRAFT',
+              publishedByUserId: null
+            }
+          })
+        return json(route, body)
+      } catch {
+        return undefined
+      }
+    }
     requests.push({ path: url.pathname, query: url.search, teacherAnnouncementDetailId: announcementId })
     try {
       await sleep(opts.teacherAnnouncementDetailDelays[announcementId] || 0)
@@ -291,6 +358,39 @@ async function installFixture(page, options = {}) {
   await page.route('**/education/teacher/announcements*', async route => {
     const request = route.request()
     const url = new URL(request.url())
+    if (request.method() === 'POST') {
+      const payload = JSON.parse(request.postData() || '{}')
+      requests.push({
+        method: 'POST',
+        path: url.pathname,
+        query: url.search,
+        teacherAnnouncementCreate: true,
+        payload,
+        body: request.postData()
+      })
+      try {
+        await sleep(opts.teacherAnnouncementCreateDelay || 0)
+        if (opts.abortTeacherAnnouncementCreate) {
+          return route.abort(opts.abortTeacherAnnouncementCreate)
+        }
+        const body = typeof opts.teacherAnnouncementCreate === 'function'
+          ? opts.teacherAnnouncementCreate(payload)
+          : (opts.teacherAnnouncementCreate || {
+            code: 200,
+            msg: '操作成功',
+            data: {
+              ...teacherAnnouncementRow('81001', payload?.bindingId || '9001', 'DRAFT', payload?.title || '新草稿'),
+              body: payload?.body || '新草稿正文',
+              opensAt: payload?.opensAt ?? null,
+              closesAt: payload?.closesAt ?? null,
+              createdAt: '2026-11-17T04:00:00.000Z'
+            }
+          })
+        return json(route, body)
+      } catch {
+        return undefined
+      }
+    }
     const bindingId = url.searchParams.get('bindingId') || ''
     requests.push({
       path: url.pathname,
@@ -1500,6 +1600,7 @@ await run('教师未选教学班时提示选择班级且零列表请求', async 
   await openHash(page, '/teacher?section=notice')
   await page.waitForSelector('.teacher-announcements', { timeout: 15000 })
   assert.match(await text(page), /请先选择有效教学班/)
+  assert.equal(await page.locator('.teacher-announcements .ann-create').count(), 0)
   assert.equal(requests.filter(item => item.teacherAnnouncementBindingId !== undefined).length, 0)
   await context.close()
 })
@@ -1591,6 +1692,656 @@ await run('教师切班后旧公告列表迟到响应不覆盖新班级', async 
   const body = await page.locator('.teacher-announcements').innerText()
   assert.match(body, /教师公告-9002/)
   assert.doesNotMatch(body, /教师公告-9001/)
+  await context.close()
+})
+
+await run('教师新建入口需要有效班级、add 权限和当前班级发布权限', async () => {
+  const cases = [
+    { label: '全部满足', permissions: TEACHER_WRITE_PERMISSIONS, canPublish: true, expected: 1 },
+    {
+      label: '缺 add 权限',
+      permissions: ['education:announcement:list', 'education:announcement:edit', 'education:scope:read'],
+      canPublish: true,
+      expected: 0
+    },
+    { label: '班级不允许发布', permissions: TEACHER_WRITE_PERMISSIONS, canPublish: false, expected: 0 }
+  ]
+  for (const item of cases) {
+    const context = await newContext(browser, 'teacher')
+    const page = await context.newPage()
+    await installFixture(page, {
+      role: 'teacher',
+      permissions: item.permissions,
+      contextOptions: contextOptions('teacher', item.canPublish),
+      contextCheck: url => contextCheck(url, item.canPublish)
+    })
+    await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+    await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+    assert.equal(await page.locator('.teacher-announcements .ann-create').count(), item.expected, item.label)
+    await context.close()
+  }
+})
+
+await run('教师新建草稿提交当前班级 bindingId、UTC 时间并重拉列表', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementCreateDelay: 350,
+    teacherAnnouncementCreate: payload => ({
+      code: 200,
+      msg: '操作成功',
+      data: {
+        ...teacherAnnouncementRow('81001', payload.bindingId, 'DRAFT', payload.title),
+        body: payload.body,
+        opensAt: payload.opensAt,
+        closesAt: payload.closesAt
+      }
+    }),
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow('80001', bindingId, 'DRAFT', `列表-${bindingId}`)]
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  const listBefore = teacherListRequests(requests).length
+
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('新建草稿标题')
+  await page.locator('#ann-form-body').fill('新建草稿正文')
+  await page.locator('#ann-form-opens').fill('2026-11-18T09:30')
+  await page.locator('#ann-form-closes').fill('2026-11-18T11:45')
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-save')?.disabled === true)
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+
+  const createRequests = teacherCreateRequests(requests)
+  assert.equal(createRequests.length, 1)
+  const payload = createRequests[0].payload
+  assert.equal(payload.bindingId, '9001')
+  assert.equal(typeof payload.bindingId, 'string')
+  assert.equal(payload.title, '新建草稿标题')
+  assert.equal(payload.body, '新建草稿正文')
+  assert.equal(payload.opensAt, new Date('2026-11-18T09:30').toISOString())
+  assert.equal(payload.closesAt, new Date('2026-11-18T11:45').toISOString())
+
+  await page.waitForFunction(() => document.querySelector('.ann-notice')?.textContent.includes('公告草稿已创建'), null, { timeout: 10000 })
+  await page.waitForFunction(() => document.querySelector('.ann-item')?.innerText.includes('列表-9001'), null, { timeout: 10000 })
+  assert.ok(teacherListRequests(requests).length > listBefore, '成功后应重拉当前列表')
+  await context.close()
+})
+
+await run('教师草稿表单校验标题、正文码点、UTF-8 字节和关闭时间', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('标题不能为空'))
+
+  await page.locator('#ann-form-title').fill('标题')
+  await page.locator('#ann-form-body').fill('😀'.repeat(16384))
+  await page.waitForFunction(() => document.querySelector('#ann-form-body + .ann-count')?.textContent.includes('65536 / 65535'))
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('UTF-8 编码后超过 65535 字节'))
+
+  await page.locator('#ann-form-body').fill('字'.repeat(20001))
+  await page.waitForFunction(() => document.querySelector('#ann-form-body + .ann-count')?.textContent.includes('20001 / 20000'))
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('正文超过 20000 字'))
+
+  await page.locator('#ann-form-body').fill('有效正文')
+  await page.locator('#ann-form-opens').fill('2026-11-18T10:00')
+  await page.locator('#ann-form-closes').fill('2026-11-18T10:00')
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('关闭时间必须晚于开放时间'))
+
+  assert.equal(teacherCreateRequests(requests).length, 0, '校验失败不得发送创建请求')
+  await context.close()
+})
+
+await run('教师标题按 Unicode 码点限制 200 字', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  const maxTitle = '😀'.repeat(200)
+  await page.locator('#ann-form-title').fill(maxTitle)
+  await page.locator('#ann-form-body').fill('正文')
+  await page.waitForFunction(() => document.querySelector('#ann-form-title + .ann-count')?.textContent.includes('200 / 200'))
+  await page.locator('.ann-save').click()
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+  const createRequests = teacherCreateRequests(requests)
+  assert.equal(createRequests.length, 1)
+  assert.equal(Array.from(createRequests[0].payload.title).length, 200)
+
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('😀'.repeat(201))
+  await page.locator('#ann-form-body').fill('正文')
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('标题最多 200 字'))
+  assert.equal(teacherCreateRequests(requests).length, 1, '201 码点标题不得发送请求')
+  await context.close()
+})
+
+await run('教师成功响应格式不正确时保留表单', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementCreate: { code: 200, msg: '操作成功', data: null }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('响应格式')
+  await page.locator('#ann-form-body').fill('成功响应缺少公告对象。')
+  await page.locator('.ann-save').click()
+
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('公告保存响应格式不正确'))
+  assert.equal(await page.locator('.ann-form-dialog').count(), 1)
+  assert.equal(await page.locator('.ann-save').isDisabled(), false)
+  assert.equal(teacherCreateRequests(requests).length, 1)
+  await context.close()
+})
+
+await run('教师重复点击保存只发送一次创建请求', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementCreateDelay: 650
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('只提交一次')
+  await page.locator('#ann-form-body').fill('重复点击不得重复创建。')
+
+  await page.locator('.ann-save').evaluate(button => {
+    button.click()
+    button.click()
+  })
+  await page.waitForFunction(() => document.querySelector('.ann-save')?.disabled === true)
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+  assert.equal(teacherCreateRequests(requests).length, 1)
+  await context.close()
+})
+
+await run('教师新建 403 保留表单和服务端权限提示', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementCreate: { code: 403, msg: '无该教学班发布权限' }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('无权限草稿')
+  await page.locator('#ann-form-body').fill('服务端应再次拒绝。')
+  await page.locator('.ann-save').click()
+
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('没有该公告操作的权限'))
+  const errorText = await page.locator('.ann-form-error').innerText()
+  assert.match(errorText, /无该教学班发布权限/)
+  assert.equal(await page.locator('.ann-form-dialog').count(), 1, '失败后应保留表单和输入')
+  assert.equal(await page.locator('.ann-save').isDisabled(), false)
+  await context.close()
+})
+
+await run('教师新建 503 区分教学班授权不可用', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementCreate: { code: 503, msg: '教师教学班授权服务尚未接入' }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('授权不可用')
+  await page.locator('#ann-form-body').fill('应显示授权服务提示。')
+  await page.locator('.ann-save').click()
+
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('教学班授权服务暂不可用'))
+  assert.match(await page.locator('.ann-form-error').innerText(), /教师教学班授权服务尚未接入/)
+  await context.close()
+})
+
+await run('教师新建超时引导先查列表再决定重试', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    abortTeacherAnnouncementCreate: 'timedout'
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  const listBefore = teacherListRequests(requests).length
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('超时草稿')
+  await page.locator('#ann-form-body').fill('创建接口没有幂等键。')
+  await page.locator('.ann-save').click()
+
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('先刷新列表确认'))
+  assert.equal(await page.locator('.ann-check-list').count(), 1)
+  assert.equal(await page.locator('.ann-save').isDisabled(), false)
+  assert.equal(teacherCreateRequests(requests).length, 1, '网络失败后不得自动重发创建请求')
+  await page.locator('.ann-check-list').click()
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+  assert.ok(teacherListRequests(requests).length > listBefore, '确认按钮应重拉列表')
+  await context.close()
+})
+
+await run('教师编辑入口按 edit 权限、草稿状态和创建者或发布权限显示', async () => {
+  const rows = [
+    teacherAnnouncementRow('80001', '9001', 'DRAFT', '我创建的草稿'),
+    { ...teacherAnnouncementRow('80002', '9001', 'DRAFT', '他人创建的草稿'), createdByUserId: '9003' },
+    teacherAnnouncementRow('80003', '9001', 'OPEN', '已发布公告')
+  ]
+  const cases = [
+    {
+      label: '无发布权限仅能编辑本人草稿',
+      permissions: ['education:announcement:list', 'education:announcement:edit', 'education:scope:read'],
+      canPublish: false,
+      expectedIds: ['80001']
+    },
+    {
+      label: '有发布权限可编辑本班草稿',
+      permissions: ['education:announcement:list', 'education:announcement:edit', 'education:scope:read'],
+      canPublish: true,
+      expectedIds: ['80001', '80002']
+    },
+    {
+      label: '缺 edit 权限不显示编辑入口',
+      permissions: ['education:announcement:list', 'education:scope:read'],
+      canPublish: true,
+      expectedIds: []
+    }
+  ]
+  for (const item of cases) {
+    const context = await newContext(browser, 'teacher')
+    const page = await context.newPage()
+    await installFixture(page, {
+      role: 'teacher',
+      permissions: item.permissions,
+      contextOptions: contextOptions('teacher', item.canPublish),
+      contextCheck: url => contextCheck(url, item.canPublish),
+      teacherAnnouncementList: () => ({ code: 200, msg: '查询成功', total: rows.length, rows })
+    })
+    await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+    await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+    const ids = await page.locator('.teacher-announcements .ann-edit').evaluateAll(nodes =>
+      nodes.map(node => node.getAttribute('data-id')))
+    assert.deepEqual(ids, item.expectedIds, item.label)
+    await context.close()
+  }
+})
+
+await run('教师编辑草稿只提交四个字段并重拉列表', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow('80001', bindingId, 'DRAFT', '列表标题')]
+    }),
+    teacherAnnouncementDetailDelays: { 80001: 350 },
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      title: '服务端标题',
+      body: '服务端正文',
+      opensAt: '2026-11-17T02:00:00.000Z',
+      closesAt: '2026-11-18T02:00:00.000Z',
+      status: 'DRAFT',
+      visibilityState: 'DRAFT',
+      publishedByUserId: null
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  const listBefore = teacherListRequests(requests).length
+
+  await page.locator('.teacher-announcements .ann-edit[data-id="80001"]').click()
+  await page.waitForSelector('.ann-form-dialog', { timeout: 10000 })
+  assert.equal(await page.locator('.ann-save').isDisabled(), true, '详情未加载前不得保存')
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  assert.equal(await page.locator('#ann-form-title').inputValue(), '服务端标题')
+  assert.equal(await page.locator('#ann-form-body').inputValue(), '服务端正文')
+
+  await page.locator('#ann-form-title').fill('修改后标题')
+  await page.locator('#ann-form-body').fill('修改后正文')
+  await page.locator('#ann-form-opens').fill('2026-11-18T09:15')
+  await page.locator('#ann-form-closes').fill('')
+  await page.locator('.ann-save').click()
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+
+  const updates = teacherUpdateRequests(requests)
+  assert.equal(updates.length, 1)
+  const update = updates[0]
+  assert.equal(update.teacherAnnouncementUpdateId, '80001')
+  assert.deepEqual(Object.keys(update.payload).sort(), ['body', 'closesAt', 'opensAt', 'title'])
+  assert.equal(update.payload.bindingId, undefined)
+  assert.equal(update.payload.title, '修改后标题')
+  assert.equal(update.payload.body, '修改后正文')
+  assert.equal(update.payload.opensAt, new Date('2026-11-18T09:15').toISOString())
+  assert.equal(update.payload.closesAt, null)
+
+  await page.waitForFunction(() => document.querySelector('.ann-notice')?.textContent.includes('公告草稿已保存'), null, { timeout: 10000 })
+  assert.ok(teacherListRequests(requests).length > listBefore, '成功后应重拉当前列表')
+  await context.close()
+})
+
+await run('教师编辑未修改时间时保留原时间精度', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow('80001', bindingId, 'DRAFT', '列表标题')]
+    }),
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      status: 'DRAFT',
+      visibilityState: 'DRAFT',
+      publishedByUserId: null,
+      opensAt: '2026-11-17T02:00:45.123Z',
+      closesAt: '2026-11-17T03:00:50.456Z'
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-edit[data-id="80001"]').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('.ann-save').click()
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+
+  const updates = teacherUpdateRequests(requests)
+  assert.equal(updates.length, 1)
+  assert.equal(updates[0].payload.opensAt, '2026-11-17T02:00:45.123Z')
+  assert.equal(updates[0].payload.closesAt, '2026-11-17T03:00:50.456Z')
+  await context.close()
+})
+
+await run('教师编辑详情已非草稿时关闭表单并刷新列表', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: () => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow('80001', '9001', 'DRAFT', '列表标题')]
+    }),
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      status: 'PUBLISHED',
+      visibilityState: 'OPEN',
+      publishedByUserId: '9002'
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  const listBefore = teacherListRequests(requests).length
+
+  await page.locator('.teacher-announcements .ann-edit[data-id="80001"]').click()
+  await page.waitForFunction(() => document.querySelector('.ann-notice')?.textContent.includes('不能编辑'), null, { timeout: 10000 })
+  assert.equal(await page.locator('.ann-form-dialog').count(), 0)
+  await page.waitForTimeout(150)
+  assert.ok(teacherListRequests(requests).length > listBefore, '非草稿详情应刷新列表')
+  await context.close()
+})
+
+await run('教师编辑保存 409 保留状态冲突提示并刷新列表', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: () => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow('80001', '9001', 'DRAFT', '列表标题')]
+    }),
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      status: 'DRAFT',
+      visibilityState: 'DRAFT',
+      publishedByUserId: null
+    }),
+    teacherAnnouncementUpdate: { code: 409, msg: '只有草稿可以编辑' }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  const listBefore = teacherListRequests(requests).length
+
+  await page.locator('.teacher-announcements .ann-edit[data-id="80001"]').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('.ann-save').click()
+  await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.includes('公告状态已变化'), null, { timeout: 10000 })
+  assert.match(await page.locator('.ann-form-error').innerText(), /只有草稿可以编辑/)
+  assert.equal(await page.locator('.ann-form-dialog').count(), 1, '冲突提示应保留表单输入')
+  await page.waitForTimeout(150)
+  assert.ok(teacherListRequests(requests).length > listBefore, '409 后应刷新列表')
+  await context.close()
+})
+
+await run('教师编辑保存 403/503 保留权限与授权提示', async () => {
+  const cases = [
+    {
+      label: '403',
+      response: { code: 403, msg: '非创建者且无公告管理权限' },
+      expected: /非创建者且无公告管理权限/
+    },
+    {
+      label: '503',
+      response: { code: 503, msg: '教师教学班授权服务尚未接入' },
+      expected: /教学班授权服务暂不可用/
+    }
+  ]
+  for (const item of cases) {
+    const context = await newContext(browser, 'teacher')
+    const page = await context.newPage()
+    await installFixture(page, {
+      role: 'teacher',
+      permissions: TEACHER_WRITE_PERMISSIONS,
+      teacherAnnouncementList: () => ({
+        code: 200,
+        msg: '查询成功',
+        total: 1,
+        rows: [teacherAnnouncementRow('80001', '9001', 'DRAFT', '列表标题')]
+      }),
+      teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+        status: 'DRAFT',
+        visibilityState: 'DRAFT',
+        publishedByUserId: null
+      }),
+      teacherAnnouncementUpdate: item.response
+    })
+    await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+    await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+    await page.locator('.teacher-announcements .ann-edit[data-id="80001"]').click()
+    await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+    await page.locator('.ann-save').click()
+    await page.waitForFunction(() => document.querySelector('.ann-form-error')?.textContent.length > 0, null, { timeout: 10000 })
+    assert.match(await page.locator('.ann-form-error').innerText(), item.expected, item.label)
+    assert.equal(await page.locator('.ann-form-dialog').count(), 1, item.label)
+    await context.close()
+  }
+})
+
+await run('教师切班后迟到的编辑详情不重开旧表单也不覆盖新列表', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, bindingId, 'DRAFT', `教师公告-${bindingId}`)]
+    }),
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      status: 'DRAFT',
+      visibilityState: 'DRAFT',
+      publishedByUserId: null
+    }),
+    teacherAnnouncementDetailDelays: { [TEACHER_ANNOUNCEMENT_ID]: 1000 }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-edit').first().click()
+  await page.waitForSelector('.ann-form-dialog', { timeout: 10000 })
+
+  await page.evaluate(() => {
+    location.hash = '#/teacher/announcements?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements .ann-main')?.innerText.includes('教师公告-9002'), null, { timeout: 15000 })
+  assert.equal(await page.locator('.ann-form-dialog').count(), 0, '切班应立即关闭旧表单')
+  await page.waitForTimeout(1200)
+  assert.equal(await page.locator('.ann-form-dialog').count(), 0, '迟到详情不得重开旧表单')
+  const body = await page.locator('.teacher-announcements').innerText()
+  assert.match(body, /教师公告-9002/)
+  assert.doesNotMatch(body, /教师公告-9001|教师公告正文-80001/)
+  await context.close()
+})
+
+await run('教师关闭编辑表单后迟到详情不重新打开', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: () => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, '9001', 'DRAFT', '列表标题')]
+    }),
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      status: 'DRAFT',
+      visibilityState: 'DRAFT',
+      publishedByUserId: null
+    }),
+    teacherAnnouncementDetailDelays: { [TEACHER_ANNOUNCEMENT_ID]: 900 }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-edit').first().click()
+  await page.waitForSelector('.ann-form-dialog', { timeout: 10000 })
+  await page.locator('.ann-form-dialog .ann-dialog-head .ann-close').click()
+  await page.waitForSelector('.ann-form-dialog', { state: 'detached', timeout: 10000 })
+  await page.waitForTimeout(1100)
+  assert.equal(await page.locator('.ann-form-dialog').count(), 0)
+  await context.close()
+})
+
+await run('教师新建提交中切班，旧响应不覆盖新班级列表', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementCreateDelay: 1000,
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow('80001', bindingId, 'DRAFT', `列表-${bindingId}`)]
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-create').click()
+  await page.waitForSelector('#ann-form-title', { timeout: 10000 })
+  await page.locator('#ann-form-title').fill('切班前草稿')
+  await page.locator('#ann-form-body').fill('切班后旧响应不得生效。')
+
+  const createRequest = page.waitForRequest(request => request.method() === 'POST'
+    && new URL(request.url()).pathname.endsWith('/education/teacher/announcements'), { timeout: 10000 })
+  await page.locator('.ann-save').click()
+  await createRequest
+  await page.evaluate(() => {
+    location.hash = '#/teacher/announcements?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements .ann-main')?.innerText.includes('列表-9002'), null, { timeout: 15000 })
+  await page.waitForTimeout(1200)
+  assert.equal(await page.locator('.ann-form-dialog').count(), 0)
+  const body = await page.locator('.teacher-announcements').innerText()
+  assert.match(body, /列表-9002/)
+  assert.doesNotMatch(body, /列表-9001/)
+  assert.doesNotMatch(body, /公告草稿已创建/)
+  assert.equal(teacherCreateRequests(requests).length, 1, '旧创建响应不得触发重发')
+  await context.close()
+})
+
+await run('教师离开公告页后迟到编辑详情不重开', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: () => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, '9001', 'DRAFT', '列表标题')]
+    }),
+    teacherAnnouncementDetail: id => teacherAnnouncementDetailBody(id, {
+      status: 'DRAFT',
+      visibilityState: 'DRAFT',
+      publishedByUserId: null
+    }),
+    teacherAnnouncementDetailDelays: { [TEACHER_ANNOUNCEMENT_ID]: 900 }
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.locator('.teacher-announcements .ann-edit').first().click()
+  await page.waitForSelector('.ann-form-dialog', { timeout: 10000 })
+  await page.evaluate(() => { location.hash = '#/teacher' })
+  await page.waitForFunction(() => !location.hash.includes('/teacher/announcements'), null, { timeout: 10000 })
+  await page.waitForTimeout(1100)
+  assert.equal(await page.locator('.ann-form-dialog').count(), 0)
+  assert.equal(await page.locator('.teacher-announcements').count(), 0)
   await context.close()
 })
 

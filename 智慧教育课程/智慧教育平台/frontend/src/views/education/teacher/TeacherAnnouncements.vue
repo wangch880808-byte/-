@@ -1,14 +1,23 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getTeacherAnnouncementDetail, listTeacherAnnouncements } from '@/api/education/announcement'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  createTeacherAnnouncement,
+  getTeacherAnnouncementDetail,
+  listTeacherAnnouncements,
+  updateTeacherAnnouncement
+} from '@/api/education/announcement'
 import { context } from '@/education/context'
+import { hasPermission, session } from '@/education/session'
 import { classifyNotice503, notice503Detail } from '@/views/education/student/notice-error'
 
 /**
- * 教师工作台「班级消息 / 公告」只读视图（6-04 原型）。
+ * 教师工作台「班级消息 / 公告」视图（6-04 原型）。
  *
- * 只接列表和详情两个 GET。列表必须带有效教学班 bindingId；未选班时不发请求。
- * 详情只读展示服务端计算的 visibilityState，不提供新建、编辑、发布或归档。
+ * 列表必须带有效教学班 bindingId；未选班时不发请求。本轮接入草稿新建和编辑：
+ * 新建要求当前班级 canPublish 且具备 education:announcement:add；编辑要求
+ * education:announcement:edit、公告为 DRAFT，并满足“本人创建或本班可发布”的
+ * 后端对象权限规则。入口隐藏只是交互约束，服务端仍会逐请求复核权限。
+ * 发布与归档不在本轮范围。
  */
 
 const rows = ref([])
@@ -23,10 +32,32 @@ const detailState = ref('idle')
 const detail = ref(null)
 const detailMessage = ref('')
 
+const pageNotice = ref('')
+const formOpen = ref(false)
+const formMode = ref('create')
+const formId = ref('')
+const formTitle = ref('')
+const formBody = ref('')
+const formOpensAt = ref('')
+const formClosesAt = ref('')
+const formOpensOriginal = ref('')
+const formClosesOriginal = ref('')
+const formOpensDirty = ref(false)
+const formClosesDirty = ref(false)
+const formError = ref('')
+const formCheckList = ref(false)
+const formLoading = ref(false)
+const formLoaded = ref(false)
+const submitting = ref(false)
+const formTitleInput = ref(null)
+const formDialog = ref(null)
+
 let listSeq = 0
 let detailSeq = 0
+let formSeq = 0
 let listController = null
 let detailController = null
+let formBindingId = ''
 let disposed = false
 
 /**
@@ -37,6 +68,100 @@ const bindingId = computed(() => {
   const value = context.current?.bindingId
   return value === undefined || value === null || value === '' ? '' : String(value)
 })
+
+/**
+ * 当前登录用户 ID。后端以字符串返回 ID，比较时统一转字符串，避免精度丢失。
+ */
+const currentUserId = computed(() => {
+  const value = session.user?.userId
+  return value === undefined || value === null ? '' : String(value)
+})
+
+/**
+ * 当前教学班是否允许创建和编辑公告。该值来自上下文核验响应，不是前端推测。
+ */
+const canPublishInCurrentClass = computed(() => context.current?.canPublish === true)
+
+/**
+ * 新建草稿入口条件：有效教学班 + 当前班级允许发布 + add 权限。
+ * 服务端创建接口还会再次校验当前任课、绑定有效性和 canPublish。
+ */
+const canCreateDraft = computed(() => Boolean(bindingId.value)
+  && canPublishInCurrentClass.value
+  && hasPermission('education:announcement:add'))
+
+const titleCodePoints = computed(() => codePointLength(formTitle.value))
+const bodyCodePoints = computed(() => codePointLength(formBody.value))
+const bodyBytes = computed(() => utf8Length(formBody.value))
+const formCanSave = computed(() => formOpen.value && formLoaded.value && !submitting.value)
+
+/**
+ * 是否显示草稿编辑入口。
+ *
+ * 后端先要求 education:announcement:edit，再按“创建者本人或本班 canPublish”
+ * 判断对象权限；只显示 DRAFT 编辑入口。其他教师的草稿在缺少发布权限时
+ * 不显示编辑，但服务端仍是最终裁决方。
+ *
+ * @param {object} row 公告列表行
+ * @returns {boolean} 是否显示编辑入口
+ */
+function canEditDraft(row) {
+  if (!row || row.status !== 'DRAFT' || !hasPermission('education:announcement:edit')) return false
+  if (canPublishInCurrentClass.value) return true
+  return Boolean(currentUserId.value) && String(row.createdByUserId ?? '') === currentUserId.value
+}
+
+/**
+ * 统计 Unicode 码点数量，与后端 codePointCount 对齐。
+ *
+ * @param {string} value 文本
+ * @returns {number} 码点数
+ */
+function codePointLength(value) {
+  return value ? Array.from(value).length : 0
+}
+
+/**
+ * 统计 UTF-8 编码字节数，与后端 65,535 字节上限对齐。
+ *
+ * @param {string} value 文本
+ * @returns {number} UTF-8 字节数
+ */
+function utf8Length(value) {
+  return value ? new TextEncoder().encode(value).length : 0
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * datetime-local 值转 UTC ISO 字符串；空值返回 null。
+ *
+ * 后端要求 RFC3339 且毫秒精度，toISOString 正好输出毫秒 UTC。
+ *
+ * @param {string} localValue datetime-local 输入值
+ * @returns {string|null} UTC 时间字符串
+ */
+function toUtcIso(localValue) {
+  if (!localValue) return null
+  const date = new Date(localValue)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+/**
+ * UTC ISO 字符串转 datetime-local 输入值；空值或非法值返回空串。
+ *
+ * @param {string} iso UTC 时间字符串
+ * @returns {string} 本机时区的 datetime-local 值
+ */
+function toLocalInput(iso) {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+    + `T${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+}
 
 const VISIBILITY_LABEL = {
   DRAFT: '草稿',
@@ -169,9 +294,256 @@ function closeDetail() {
   detailMessage.value = ''
 }
 
+function resetFormFields() {
+  formTitle.value = ''
+  formBody.value = ''
+  formOpensAt.value = ''
+  formClosesAt.value = ''
+  formOpensOriginal.value = ''
+  formClosesOriginal.value = ''
+  formOpensDirty.value = false
+  formClosesDirty.value = false
+  formError.value = ''
+  formCheckList.value = false
+  formLoading.value = false
+  formLoaded.value = false
+  submitting.value = false
+}
+
+/**
+ * 关闭表单并作废所有旧响应。
+ *
+ * formSeq 前进后，迟到的详情加载或保存响应不能再填充或重新打开表单；
+ * 切班和卸载也复用该方法。
+ */
+function closeForm() {
+  formSeq++
+  formOpen.value = false
+  formMode.value = 'create'
+  formId.value = ''
+  formBindingId = ''
+  resetFormFields()
+}
+
+/**
+ * 打开新建草稿表单。入口条件在点击时再检查一次，避免权限或班级变化后误用。
+ */
+async function openCreateForm() {
+  if (disposed || submitting.value || !canCreateDraft.value) return
+  formSeq++
+  formMode.value = 'create'
+  formId.value = ''
+  formBindingId = bindingId.value
+  pageNotice.value = ''
+  resetFormFields()
+  formLoaded.value = true
+  formOpen.value = true
+  await nextTick()
+  formTitleInput.value?.focus()
+}
+
+/**
+ * 打开编辑草稿表单，先读取详情正文。
+ *
+ * 入口只按列表行判断，列表不返回正文，因此必须等服务端详情。详情迟到、
+ * 用户关闭表单或切班后，formSeq 与绑定快照共同阻止旧响应写入新表单。
+ *
+ * @param {object} row 公告列表行
+ * @returns {Promise<void>} 详情加载完成
+ */
+async function openEditForm(row) {
+  if (disposed || submitting.value || !canEditDraft(row)) return
+  const id = String(row?.id ?? '')
+  if (!id) return
+  const seq = ++formSeq
+  const atBinding = bindingId.value
+  formMode.value = 'edit'
+  formId.value = id
+  formBindingId = atBinding
+  pageNotice.value = ''
+  resetFormFields()
+  formLoading.value = true
+  formOpen.value = true
+  await nextTick()
+  if (seq !== formSeq || disposed || !formOpen.value) return
+  formDialog.value?.focus()
+
+  try {
+    const body = await getTeacherAnnouncementDetail(id)
+    if (seq !== formSeq || disposed || !formOpen.value || formMode.value !== 'edit'
+        || bindingId.value !== atBinding) return
+    const item = body?.data
+    if (!item || String(item.id) !== id
+        || typeof item.title !== 'string' || typeof item.body !== 'string') {
+      throw Object.assign(new Error('公告详情响应格式不正确'), { code: 500 })
+    }
+    if (item.status !== 'DRAFT') {
+      closeForm()
+      pageNotice.value = '该公告已发布或已归档，不能编辑；列表已刷新。'
+      await loadList()
+      return
+    }
+    formTitle.value = item.title
+    formBody.value = item.body
+    formOpensAt.value = toLocalInput(item.opensAt)
+    formClosesAt.value = toLocalInput(item.closesAt)
+    formOpensOriginal.value = item.opensAt || ''
+    formClosesOriginal.value = item.closesAt || ''
+    formOpensDirty.value = false
+    formClosesDirty.value = false
+    formLoaded.value = true
+    await nextTick()
+    formTitleInput.value?.focus()
+  } catch (error) {
+    if (seq !== formSeq || disposed || !formOpen.value || error?.cancelled) return
+    formError.value = formErrorMessage(error, 'load')
+  } finally {
+    if (seq === formSeq) formLoading.value = false
+  }
+}
+
+/**
+ * 表单失败的分类文案。
+ *
+ * 400 保留字段级服务端消息；403/404/409 与 503 分开说明；创建请求超时
+ * 或网络中断时无法确认服务端是否已经落库，只提示先查列表，不自动重试。
+ *
+ * @param {object} error 统一请求模块错误
+ * @param {'create'|'edit'|'load'} phase 当前操作阶段
+ * @returns {string} 表单内展示的错误文案
+ */
+function formErrorMessage(error, phase) {
+  const rawCode = error?.code
+  const code = Number(rawCode)
+  const message = typeof error?.message === 'string' ? error.message.trim() : ''
+  const networkFailure = rawCode === 'ECONNABORTED' || rawCode === 'ERR_NETWORK'
+    || error?.kind === 'network'
+  const ambiguousCreateFailure = phase === 'create'
+    && (networkFailure || code === 504 || code === 408)
+  if (ambiguousCreateFailure) {
+    formCheckList.value = true
+    return '请求超时或网络中断，无法确认草稿是否已保存。请先刷新列表确认，再决定是否重试；不要直接重复提交。'
+  }
+  if (networkFailure) {
+    return '请求超时或网络中断，尚未确认保存结果，请稍后重试。'
+  }
+  if (error?.forbidden || code === 403) {
+    return '没有该公告操作的权限，请联系管理员。' + (message ? `（${message}）` : '')
+  }
+  if (code === 404) {
+    return '公告或教学班不存在，或当前不可访问。' + (message ? `（${message}）` : '')
+  }
+  if (code === 409) {
+    return '公告状态已变化，不能保存。' + (message ? `（${message}）` : '')
+  }
+  if (code === 503) {
+    const prefix = classifyNotice503(error) === 'authorization'
+      ? '教学班授权服务暂不可用：'
+      : '服务暂不可用：'
+    return prefix + notice503Detail(error)
+  }
+  if (code === 400) return message || '标题、正文或时间不符合要求。'
+  return message || '保存失败，请稍后重试。'
+}
+
+/**
+ * 提交新建或编辑草稿。
+ *
+ * 提交期间禁用保存按钮并忽略重复点击。成功后才关闭表单并重拉当前列表；
+ * 请求在切班或关闭表单后返回时，序号检查保证不写旧表单、不影响新班级列表。
+ *
+ * TODO(6-04-create-idempotency)：创建接口暂无幂等键。解除条件：后端接受
+ * Idempotency-Key 并为同一教师/班级建立唯一约束后，可改为自动重试。
+ *
+ * @returns {Promise<void>} 提交完成
+ */
+async function submitForm() {
+  if (!formCanSave.value || disposed) return
+  const seq = formSeq
+  const mode = formMode.value
+  const id = formId.value
+  const atBinding = formBindingId
+  const title = formTitle.value.trim()
+  const bodyText = formBody.value
+  const opensAt = mode === 'edit' && !formOpensDirty.value
+    ? (formOpensOriginal.value || null)
+    : toUtcIso(formOpensAt.value)
+  const closesAt = mode === 'edit' && !formClosesDirty.value
+    ? (formClosesOriginal.value || null)
+    : toUtcIso(formClosesAt.value)
+  let problem = ''
+
+  if (!title) {
+    problem = '标题不能为空'
+  } else if (codePointLength(title) > 200) {
+    problem = '标题最多 200 字'
+  } else if (!bodyText.trim()) {
+    problem = '正文不能为空'
+  } else if (codePointLength(bodyText) > 20000) {
+    problem = '正文超过 20000 字'
+  } else if (utf8Length(bodyText) > 65535) {
+    problem = '正文 UTF-8 编码后超过 65535 字节'
+  } else if (opensAt && closesAt && new Date(closesAt) <= new Date(opensAt)) {
+    problem = '关闭时间必须晚于开放时间'
+  }
+
+  if (problem) {
+    formError.value = problem
+    return
+  }
+
+  formError.value = ''
+  formCheckList.value = false
+  submitting.value = true
+  const payload = { title, body: bodyText, opensAt, closesAt }
+
+  try {
+    const response = mode === 'edit'
+      ? await updateTeacherAnnouncement(id, payload)
+      : await createTeacherAnnouncement({ bindingId: atBinding, ...payload })
+    if (seq !== formSeq || disposed) return
+    const saved = response?.data
+    if (!saved || typeof saved !== 'object' || saved.id === undefined || saved.id === null
+        || String(saved.id) === '' || saved.status !== 'DRAFT'
+        || (mode === 'edit' && String(saved.id) !== id)
+        || (mode === 'create' && String(saved.bindingId ?? '') !== atBinding)) {
+      throw Object.assign(new Error('公告保存响应格式不正确'), { code: 500 })
+    }
+    closeForm()
+    pageNotice.value = mode === 'edit' ? '公告草稿已保存。' : '公告草稿已创建。'
+    if (mode === 'create') pageNum.value = 1
+    await loadList()
+  } catch (error) {
+    if (seq !== formSeq || disposed || error?.cancelled) return
+    submitting.value = false
+    formError.value = formErrorMessage(error, mode)
+    if (Number(error?.code) === 409) {
+      await loadList()
+    }
+  }
+}
+
+/**
+ * 创建超时后由用户确认列表，再决定是否重试；不自动重发没有幂等键的创建请求。
+ *
+ * @returns {Promise<void>} 列表刷新完成
+ */
+async function refreshListAfterCreateTimeout() {
+  if (submitting.value) return
+  closeForm()
+  pageNotice.value = ''
+  await loadList()
+}
+
+function handleFormEscape() {
+  if (submitting.value) return
+  closeForm()
+}
+
 function changeStatus(event) {
   statusFilter.value = event.target.value
   pageNum.value = 1
+  pageNotice.value = ''
   loadList()
 }
 
@@ -192,6 +564,8 @@ function formatTime(value) {
 
 watch(bindingId, () => {
   closeDetail()
+  closeForm()
+  pageNotice.value = ''
   pageNum.value = 1
   loadList()
 }, { immediate: true })
@@ -200,6 +574,7 @@ onBeforeUnmount(() => {
   disposed = true
   listSeq++
   detailSeq++
+  formSeq++
   listController?.abort()
   detailController?.abort()
 })
@@ -210,7 +585,7 @@ onBeforeUnmount(() => {
     <header class="ann-head">
       <div>
         <h2>班级消息 / 公告</h2>
-        <p class="sub">只读查看本教学班公告；发布、编辑和归档不在本轮范围。</p>
+        <p class="sub">本班公告按教学班授权；本轮支持草稿新建和编辑，发布与归档留给下一轮。</p>
       </div>
       <span class="scope">{{ bindingId ? `当前教学班：${bindingId}` : '未选择教学班' }}</span>
     </header>
@@ -222,7 +597,12 @@ onBeforeUnmount(() => {
         <option value="PUBLISHED">已发布</option>
         <option value="ARCHIVED">已归档</option>
       </select>
+      <button v-if="canCreateDraft" type="button" class="ann-create" @click="openCreateForm">
+        新建公告草稿
+      </button>
     </div>
+
+    <p v-if="pageNotice" class="ann-notice" role="status">{{ pageNotice }}</p>
 
     <div v-if="listState === 'need-binding'" class="state state-info" role="status">
       <strong>请先选择有效教学班</strong>
@@ -263,6 +643,15 @@ onBeforeUnmount(() => {
             <span class="ann-title">{{ row.title }}</span>
             <span class="ann-status">{{ visibilityLabel(row) }}</span>
             <span class="ann-meta">开放：{{ formatTime(row.opensAt) }} · 关闭：{{ formatTime(row.closesAt) }}</span>
+          </button>
+          <button
+            v-if="canEditDraft(row)"
+            type="button"
+            class="ann-edit"
+            :data-id="row.id"
+            @click="openEditForm(row)"
+          >
+            编辑草稿
           </button>
         </li>
       </ul>
@@ -318,6 +707,94 @@ onBeforeUnmount(() => {
         </footer>
       </section>
     </div>
+
+    <div
+      v-if="formOpen"
+      class="ann-overlay"
+      @click.self="!submitting && closeForm()"
+      @keydown.esc.stop.prevent="handleFormEscape"
+    >
+      <section
+        ref="formDialog"
+        class="ann-dialog ann-form-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="teacher-ann-form-title"
+        tabindex="-1"
+      >
+        <header class="ann-dialog-head">
+          <h3 id="teacher-ann-form-title">{{ formMode === 'edit' ? '编辑公告草稿' : '新建公告草稿' }}</h3>
+          <button type="button" class="ann-close" :disabled="submitting" @click="closeForm">关闭</button>
+        </header>
+
+        <div v-if="formLoading" class="state" role="status">正在读取公告草稿…</div>
+
+        <div v-if="formError" class="ann-form-error" role="alert">{{ formError }}</div>
+        <button
+          v-if="formCheckList"
+          type="button"
+          class="ann-check-list"
+          @click="refreshListAfterCreateTimeout"
+        >
+          刷新列表确认
+        </button>
+
+        <div v-if="formLoaded" class="ann-form">
+          <label class="ann-field" for="ann-form-title">
+            <span>标题</span>
+            <input
+              id="ann-form-title"
+              ref="formTitleInput"
+              v-model="formTitle"
+              type="text"
+              placeholder="1–200 字"
+              :disabled="submitting"
+            >
+            <em class="ann-count" :class="{ over: titleCodePoints > 200 }">
+              {{ titleCodePoints }} / 200 字
+            </em>
+          </label>
+
+          <label class="ann-field" for="ann-form-body">
+            <span>正文</span>
+            <textarea
+              id="ann-form-body"
+              v-model="formBody"
+              rows="8"
+              placeholder="公告正文"
+              :disabled="submitting"
+            ></textarea>
+            <em class="ann-count" :class="{ over: bodyCodePoints > 20000 || bodyBytes > 65535 }">
+              {{ bodyCodePoints }} / 20000 字 · {{ bodyBytes }} / 65535 字节
+            </em>
+          </label>
+
+          <div class="ann-field-row">
+            <label class="ann-field" for="ann-form-opens">
+              <span>开放时间（可空）</span>
+              <input id="ann-form-opens" v-model="formOpensAt" type="datetime-local" step="1"
+                :disabled="submitting" @input="formOpensDirty = true">
+            </label>
+            <label class="ann-field" for="ann-form-closes">
+              <span>关闭时间（可空）</span>
+              <input id="ann-form-closes" v-model="formClosesAt" type="datetime-local" step="1"
+                :disabled="submitting" @input="formClosesDirty = true">
+            </label>
+          </div>
+
+          <p class="ann-form-note">
+            时间为本机时区，提交时转换为 UTC；开放时间留空表示发布时取服务端当前时间，关闭时间留空表示不关闭。
+          </p>
+        </div>
+
+        <footer class="ann-actions">
+          <button type="button" class="ann-close" :disabled="submitting" @click="closeForm">取消</button>
+          <button type="button" class="ann-save" :disabled="!formCanSave" @click="submitForm">
+            {{ submitting ? '提交中…' : '保存草稿' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -327,15 +804,20 @@ onBeforeUnmount(() => {
 .ann-head h2 { margin: 0 0 6px; font-size: 20px; color: #1f2d3d; }
 .sub { margin: 0; color: #909399; font-size: 13px; }
 .scope { padding: 6px 12px; border-radius: 999px; background: #f0f2f5; color: #606266; white-space: nowrap; }
-.ann-toolbar { margin: 16px 0; }
+.ann-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0; }
 .status-filter { padding: 5px 8px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; }
+.ann-create { padding: 6px 14px; border: 1px solid #409eff; border-radius: 4px; background: #409eff; color: #fff; cursor: pointer; }
+.ann-create:hover { background: #66b1ff; border-color: #66b1ff; }
+.ann-notice { margin: 0 0 14px; padding: 9px 12px; border-radius: 4px; background: #f4f4f5; color: #606266; font-size: 13px; }
 .state { display: flex; flex-direction: column; gap: 6px; padding: 28px 20px; text-align: center; color: #606266; background: #fafafa; border-radius: 8px; }
 .state-info { background: #f4f4f5; }
 .state-error { background: #fef0f0; color: #c45656; }
 .state-warn { background: #fdf6ec; color: #b88230; }
 .ann-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid #ebeef5; }
-.ann-item { padding: 14px 4px; border-bottom: 1px solid #ebeef5; }
-.ann-main { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; flex-wrap: wrap; }
+.ann-item { display: flex; align-items: center; gap: 10px; padding: 14px 4px; border-bottom: 1px solid #ebeef5; }
+.ann-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; flex-wrap: wrap; }
+.ann-edit { flex: none; padding: 5px 10px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #409eff; cursor: pointer; }
+.ann-edit:hover { border-color: #409eff; }
 .ann-main:hover .ann-title { color: #409eff; }
 .ann-title { color: #303133; font-size: 15px; }
 .ann-status { padding: 1px 7px; border-radius: 4px; background: #ecf5ff; color: #409eff; font-size: 12px; }
@@ -349,8 +831,24 @@ onBeforeUnmount(() => {
 .ann-dialog-head h3 { margin: 0; font-size: 18px; color: #1f2d3d; }
 .ann-close { padding: 5px 12px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; cursor: pointer; }
 .ann-close:hover { color: #409eff; border-color: #409eff; }
+.ann-close:disabled { color: #c0c4cc; border-color: #ebeef5; cursor: not-allowed; }
 .ann-detail-title { margin: 0 0 8px; font-size: 17px; color: #303133; }
 .ann-detail-meta { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #909399; font-size: 12px; flex-wrap: wrap; }
 .ann-body { white-space: pre-wrap; line-height: 1.7; color: #303133; font-size: 14px; }
-.ann-actions { display: flex; justify-content: flex-end; padding-top: 18px; }
+.ann-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
+.ann-form-dialog:focus { outline: none; }
+.ann-form { display: flex; flex-direction: column; gap: 14px; }
+.ann-field { display: flex; flex-direction: column; gap: 6px; color: #606266; font-size: 13px; }
+.ann-field input, .ann-field textarea { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #303133; font: inherit; }
+.ann-field input:disabled, .ann-field textarea:disabled { background: #f5f7fa; cursor: not-allowed; }
+.ann-field textarea { resize: vertical; line-height: 1.6; }
+.ann-count { align-self: flex-end; color: #909399; font-size: 12px; font-style: normal; }
+.ann-count.over { color: #c45656; }
+.ann-field-row { display: flex; gap: 14px; }
+.ann-field-row .ann-field { flex: 1; min-width: 0; }
+.ann-form-note { margin: 0; color: #909399; font-size: 12px; line-height: 1.6; }
+.ann-form-error { margin: 0 0 12px; padding: 9px 12px; border-radius: 4px; background: #fef0f0; color: #c45656; font-size: 13px; line-height: 1.5; }
+.ann-check-list { margin: 0 0 12px; padding: 5px 10px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #409eff; cursor: pointer; }
+.ann-save { padding: 5px 14px; border: 1px solid #409eff; border-radius: 4px; background: #409eff; color: #fff; cursor: pointer; }
+.ann-save:disabled { border-color: #a0cfff; background: #a0cfff; cursor: not-allowed; }
 </style>
