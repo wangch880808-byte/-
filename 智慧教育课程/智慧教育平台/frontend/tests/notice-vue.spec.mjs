@@ -30,7 +30,7 @@ function json(route, body) {
   })
 }
 
-function contextOptions() {
+function contextOptions(role = 'student') {
   return {
     code: 200,
     msg: '操作成功',
@@ -40,8 +40,14 @@ function contextOptions() {
         courseSpaceId: '101',
         title: '课程一',
         classes: [
-          { classId: '201', className: '一班', termId: '1', bindingId: '9001', memberRole: 'student' },
-          { classId: '202', className: '二班', termId: '1', bindingId: '9002', memberRole: 'student' }
+          {
+            classId: '201', className: '一班', termId: '1', bindingId: '9001',
+            memberRole: role, canPublish: role === 'teacher'
+          },
+          {
+            classId: '202', className: '二班', termId: '1', bindingId: '9002',
+            memberRole: role, canPublish: role === 'teacher'
+          }
         ]
       }]
     }
@@ -51,6 +57,7 @@ function contextOptions() {
 function contextCheck(url) {
   const bindingId = url.searchParams.get('bindingId')
   const classId = url.searchParams.get('classId')
+  const role = url.searchParams.get('role') || 'student'
   return {
     code: 200,
     msg: '操作成功',
@@ -59,16 +66,19 @@ function contextCheck(url) {
       classId,
       termId: '1',
       bindingId,
-      memberRole: 'student',
-      canPublish: false,
+      memberRole: role,
+      canPublish: role === 'teacher',
       canGrade: false
     }
   }
 }
 
-function routers(includeNoticeRoute) {
+function routers(includeNoticeRoute, includeTeacherAnnouncementRoute = true) {
   const notices = includeNoticeRoute
     ? [{ path: 'notices', component: 'education/student/StudentNotices' }]
+    : []
+  const teacherAnnouncements = includeTeacherAnnouncementRoute
+    ? [{ path: 'announcements', component: 'education/teacher/TeacherAnnouncements' }]
     : []
   return {
     code: 200,
@@ -76,7 +86,11 @@ function routers(includeNoticeRoute) {
     data: [{
       path: 'education',
       component: 'Layout',
-      children: [...notices, { path: 'course', component: 'education/CourseListPage' }]
+      children: [
+        ...notices,
+        ...teacherAnnouncements,
+        { path: 'course', component: 'education/CourseListPage' }
+      ]
     }]
   }
 }
@@ -99,6 +113,7 @@ function info(role, permissions) {
 const NOTICE_ID = '30001'
 const LARGE_NOTICE_ID = '820000000000000001'
 const ANNOUNCEMENT_ID = '70001'
+const TEACHER_ANNOUNCEMENT_ID = '80001'
 const READ_AT = '2026-11-17T03:00:00.000Z'
 
 function noticeRow(id, title, bindingId = '9001') {
@@ -166,6 +181,38 @@ function announcementDetailBody(id = ANNOUNCEMENT_ID, overrides = {}) {
   }
 }
 
+function teacherAnnouncementRow(
+  id = TEACHER_ANNOUNCEMENT_ID,
+  bindingId = '9001',
+  visibilityState = 'OPEN',
+  title = `教师公告-${id}`
+) {
+  return {
+    id,
+    bindingId,
+    title,
+    status: visibilityState === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
+    visibilityState,
+    opensAt: '2026-11-17T02:00:00.000Z',
+    closesAt: '2026-11-18T02:00:00.000Z',
+    createdByUserId: '9002',
+    publishedByUserId: visibilityState === 'DRAFT' ? null : '9002',
+    createdAt: '2026-11-17T01:00:00.000Z'
+  }
+}
+
+function teacherAnnouncementDetailBody(id = TEACHER_ANNOUNCEMENT_ID, overrides = {}) {
+  return {
+    code: 200,
+    msg: '操作成功',
+    data: {
+      ...teacherAnnouncementRow(id),
+      body: `教师公告正文-${id}`,
+      ...overrides
+    }
+  }
+}
+
 /**
  * 让列表响应反映夹具内存中的已读状态。
  *
@@ -193,6 +240,7 @@ async function installFixture(page, options = {}) {
     role: 'student',
     permissions: ['education:notice:list', 'education:scope:read'],
     includeNoticeRoute: true,
+    includeTeacherAnnouncementRoute: true,
     list: null,
     listAfterRead: null,
     listAfterReadDelay: 0,
@@ -208,6 +256,10 @@ async function installFixture(page, options = {}) {
     announcementListDelays: {},
     announcementDetail: null,
     announcementDetailDelays: {},
+    teacherAnnouncementList: null,
+    teacherAnnouncementListDelays: {},
+    teacherAnnouncementDetail: null,
+    teacherAnnouncementDetailDelays: {},
     delayByBinding: {},
     ...options
   }
@@ -216,9 +268,51 @@ async function installFixture(page, options = {}) {
   let allRead = false
 
   await page.route('**/getInfo', route => json(route, info(opts.role, opts.permissions)))
-  await page.route('**/getRouters', route => json(route, routers(opts.includeNoticeRoute)))
-  await page.route('**/education/context/options*', route => json(route, opts.contextOptions || contextOptions()))
+  await page.route('**/getRouters', route => json(route,
+    routers(opts.includeNoticeRoute, opts.includeTeacherAnnouncementRoute)))
+  await page.route('**/education/context/options*', route => json(route,
+    opts.contextOptions || contextOptions(opts.role)))
   await page.route('**/education/context/check*', route => json(route, contextCheck(new URL(route.request().url()))))
+  await page.route('**/education/teacher/announcements/*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const announcementId = decodeURIComponent(url.pathname.split('/').pop())
+    requests.push({ path: url.pathname, query: url.search, teacherAnnouncementDetailId: announcementId })
+    try {
+      await sleep(opts.teacherAnnouncementDetailDelays[announcementId] || 0)
+      const body = typeof opts.teacherAnnouncementDetail === 'function'
+        ? opts.teacherAnnouncementDetail(announcementId)
+        : (opts.teacherAnnouncementDetail || teacherAnnouncementDetailBody(announcementId))
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
+  await page.route('**/education/teacher/announcements*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const bindingId = url.searchParams.get('bindingId') || ''
+    requests.push({
+      path: url.pathname,
+      query: url.search,
+      teacherAnnouncementBindingId: bindingId,
+      teacherAnnouncementStatus: url.searchParams.get('status') || ''
+    })
+    try {
+      await sleep(opts.teacherAnnouncementListDelays[bindingId] || 0)
+      const body = typeof opts.teacherAnnouncementList === 'function'
+        ? opts.teacherAnnouncementList(bindingId)
+        : (opts.teacherAnnouncementList || {
+          code: 200,
+          msg: '查询成功',
+          total: 1,
+          rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, bindingId || '9001')]
+        })
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
   await page.route('**/education/student/announcements/*', async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -1361,6 +1455,142 @@ await run('筛选状态下全部已读仍为无参数全教学班范围', async 
   assert.ok(put)
   assert.equal(put.query, '')
   assert.ok(put.body === null || put.body === '')
+  await context.close()
+})
+
+await run('学生从通知打开公告后关闭并切班，不重发不重开', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    announcementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [announcementRow(ANNOUNCEMENT_ID, bindingId || '9001', `公告-${bindingId || 'ALL'}`)]
+    })
+  })
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-link', { hasText: '查看公告' }).click()
+  await page.waitForSelector('.ann-dialog', { timeout: 15000 })
+  const detailRequestsBefore = requests.filter(item => item.announcementDetailId === ANNOUNCEMENT_ID).length
+  assert.equal(detailRequestsBefore, 1)
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('.ann-dialog'), null, { timeout: 10000 })
+  await page.locator('.workspace-context select').selectOption('101:202')
+  await page.waitForFunction(() => document.querySelector('.ann-main')?.innerText.includes('公告-9002'), null, { timeout: 15000 })
+  await page.waitForTimeout(1200)
+  assert.equal(await page.locator('.ann-dialog').count(), 0, '切班后不得重开旧公告')
+  assert.equal(requests.filter(item => item.announcementDetailId === ANNOUNCEMENT_ID).length,
+    detailRequestsBefore, '切班后不得重发旧公告详情')
+  assert.equal(await page.getByRole('tab', { name: '课程公告' }).getAttribute('aria-selected'), 'true')
+  assert.ok(requests.some(item => item.announcementBindingId === '9002'))
+  await context.close()
+})
+
+await run('教师未选教学班时提示选择班级且零列表请求', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: ['education:announcement:list', 'education:scope:read']
+  })
+  await openHash(page, '/teacher?section=notice')
+  await page.waitForSelector('.teacher-announcements', { timeout: 15000 })
+  assert.match(await text(page), /请先选择有效教学班/)
+  assert.equal(requests.filter(item => item.teacherAnnouncementBindingId !== undefined).length, 0)
+  await context.close()
+})
+
+await run('教师缺公告权限或缺服务端路由时直达被拦截', async () => {
+  const permissionContext = await newContext(browser, 'teacher')
+  const permissionPage = await permissionContext.newPage()
+  await installFixture(permissionPage, {
+    role: 'teacher',
+    permissions: ['education:scope:read']
+  })
+  await openHash(permissionPage, '/teacher/announcements')
+  await permissionPage.waitForFunction(() => !location.hash.includes('/teacher/announcements'), null, { timeout: 10000 })
+  assert.equal(await permissionPage.locator('.teacher-announcements').count(), 0)
+  assert.match(await text(permissionPage), /没有访问权限|未开放/)
+  await permissionContext.close()
+
+  const routeContext = await newContext(browser, 'teacher')
+  const routePage = await routeContext.newPage()
+  await installFixture(routePage, {
+    role: 'teacher',
+    permissions: ['education:announcement:list', 'education:scope:read'],
+    includeTeacherAnnouncementRoute: false
+  })
+  await openHash(routePage, '/teacher/announcements')
+  await routePage.waitForFunction(() => !location.hash.includes('/teacher/announcements'), null, { timeout: 10000 })
+  assert.equal(await routePage.locator('.teacher-announcements').count(), 0)
+  assert.match(await text(routePage), /没有访问权限|未开放/)
+  await routeContext.close()
+})
+
+await run('教师按班级查询公告、状态筛选并展示 visibilityState 详情', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: ['education:announcement:list', 'education:scope:read'],
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, bindingId || '9001', 'OPEN', '教师公告-OPEN')]
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements', { timeout: 15000 })
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  assert.ok(requests.some(item => item.teacherAnnouncementBindingId === '9001'))
+  const statusRequest = page.waitForRequest(request => {
+    const url = new URL(request.url())
+    return url.pathname.endsWith('/education/teacher/announcements')
+      && url.searchParams.get('status') === 'PUBLISHED'
+      && url.searchParams.get('pageNum') === '1'
+  }, { timeout: 10000 })
+  await page.locator('.teacher-announcements .status-filter').selectOption('PUBLISHED')
+  await statusRequest
+  await page.locator('.teacher-announcements .ann-main').first().click()
+  await page.waitForSelector('.teacher-announcements .ann-dialog', { timeout: 10000 })
+  const detailText = await page.locator('.teacher-announcements .ann-dialog').innerText()
+  assert.match(detailText, new RegExp(`教师公告-${TEACHER_ANNOUNCEMENT_ID}`))
+  assert.match(detailText, new RegExp(`教师公告正文-${TEACHER_ANNOUNCEMENT_ID}`))
+  assert.match(detailText, /展示中/)
+  assert.ok(requests.some(item => item.teacherAnnouncementDetailId === TEACHER_ANNOUNCEMENT_ID))
+  await context.close()
+})
+
+await run('教师切班后旧公告列表迟到响应不覆盖新班级', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    role: 'teacher',
+    permissions: ['education:announcement:list', 'education:scope:read'],
+    teacherAnnouncementListDelays: { 9001: 1200, 9002: 50 },
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, bindingId || '9001', 'OPEN',
+        `教师公告-${bindingId || 'ALL'}`)]
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements', { timeout: 15000 })
+  await page.evaluate(() => {
+    location.hash = '#/teacher/announcements?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements .ann-main')?.innerText.includes('教师公告-9002'), null, { timeout: 15000 })
+  await page.waitForTimeout(1500)
+  const body = await page.locator('.teacher-announcements').innerText()
+  assert.match(body, /教师公告-9002/)
+  assert.doesNotMatch(body, /教师公告-9001/)
   await context.close()
 })
 

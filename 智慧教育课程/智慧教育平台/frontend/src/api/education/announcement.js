@@ -71,3 +71,53 @@ export function getStudentAnnouncement(announcementId, options = {}) {
     signal: options.signal
   })
 }
+
+/**
+ * 查询教师公告列表。
+ *
+ * 教师公告必须带 bindingId；未选有效教学班时调用方不应发请求。
+ * status 为空时省略；列表不返回正文。
+ *
+ * @param {{bindingId: string, status?: string, pageNum?: number, pageSize?: number}} query 查询条件
+ * @param {{signal?: AbortSignal}} [options] 取消信号；切班/筛选/卸载时中止旧请求
+ * @returns {Promise<{total: number, rows: Array<object>}>} 公告摘要分页响应
+ */
+export function listTeacherAnnouncements(query = {}, options = {}) {
+  return edu({
+    url: '/education/teacher/announcements',
+    method: 'get',
+    params: compactParams({
+      bindingId: query.bindingId,
+      status: query.status,
+      pageNum: query.pageNum ?? 1,
+      pageSize: query.pageSize ?? 10
+    }),
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
+ * 查询教师公告详情。
+ *
+ * 详情返回正文和 visibilityState 可见性快照；服务端会重新校验绑定、教学班和
+ * 当前任课权限。列表只用作索引，详情才是正文事实源。
+ *
+ * @param {string} announcementId 公告 ID 字符串
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: {id: string, bindingId?: string, title: string,
+ *   body: string, status: string, visibilityState: string, opensAt: string,
+ *   closesAt?: string, createdAt: string}}>} 公告详情响应
+ */
+export function getTeacherAnnouncementDetail(announcementId, options = {}) {
+  const id = String(announcementId ?? '')
+  if (!/^[1-9]\d*$/.test(id)) {
+    return Promise.reject(new Error('announcementId 必须为正整数字符串'))
+  }
+  return edu({
+    url: '/education/teacher/announcements/' + encodeURIComponent(id),
+    method: 'get',
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}

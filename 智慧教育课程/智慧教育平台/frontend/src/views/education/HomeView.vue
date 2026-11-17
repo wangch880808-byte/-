@@ -5,11 +5,14 @@ import { canOpen, session } from '@/education/session.js'
 import { pages } from '@/education/ui-pages.js'
 import { workbenchSections } from '@/education/course-menu.js'
 import StudentNotices from '@/views/education/student/StudentNotices.vue'
+import TeacherAnnouncements from '@/views/education/teacher/TeacherAnnouncements.vue'
 const route = useRoute()
 const available = computed(() => pages.filter(canOpen))
 const sectionKey = computed(() => String(route.query.section || 'overview'))
 const section = computed(() => (workbenchSections[session.role] || []).find(item => item.key === sectionKey.value))
 const noticePage = computed(() => pages.find(page => page.id === 'student-notices' && canOpen(page)))
+const teacherAnnouncementPage = computed(() =>
+  pages.find(page => page.id === 'teacher-announcements' && canOpen(page)))
 </script>
 <template>
   <div class="panel">
@@ -23,6 +26,10 @@ const noticePage = computed(() => pages.find(page => page.id === 'student-notice
     </template>
     <template v-else-if="sectionKey === 'notice' && session.role === 'student'">
       <student-notices v-if="noticePage" />
+      <p v-else class="state" role="status">该功能未开放或没有访问权限。</p>
+    </template>
+    <template v-else-if="sectionKey === 'notice' && session.role === 'teacher'">
+      <teacher-announcements v-if="teacherAnnouncementPage" />
       <p v-else class="state" role="status">该功能未开放或没有访问权限。</p>
     </template>
     <p v-else class="state" role="status">该功能尚未开放。</p>

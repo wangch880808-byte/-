@@ -46,16 +46,38 @@ const router = useRouter()
 
 /**
  * 当前页签由显式路由参数表达，避免 sessionStorage 旧选择盖过本次入口意图。
- * 顶栏「通知」固定带 tab=notices；通知来源跳转带 tab=announcements
- * 和 announcementId。
+ * 顶栏「通知」固定带 tab=notices；通知来源跳转带 tab=announcements。
+ *
+ * announcementId 是一次性打开意图，不放进路由：页面在路由守卫/切班时会重挂载，
+ * 放进路由会导致关闭后再次打开。用 sessionStorage 只跨一次重挂载传递，公告页
+ * 打开后立即清除；关闭、切班也会清除。
  */
+const PENDING_ANNOUNCEMENT_KEY = 'zhijiao.pendingAnnouncementId'
+function readPendingAnnouncementId() {
+  try {
+    return sessionStorage.getItem(PENDING_ANNOUNCEMENT_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+function setPendingAnnouncementId(announcementId) {
+  requestedAnnouncementId.value = announcementId
+  try {
+    sessionStorage.setItem(PENDING_ANNOUNCEMENT_KEY, announcementId)
+  } catch {
+    /* 存储不可用时仍可用当前页面的 ref 打开一次 */
+  }
+}
+function clearPendingAnnouncementId() {
+  requestedAnnouncementId.value = ''
+  try {
+    sessionStorage.removeItem(PENDING_ANNOUNCEMENT_KEY)
+  } catch {
+    /* 存储不可用只影响一次跳转，不阻断关闭 */
+  }
+}
 const activeTab = computed(() => route.query.tab === 'announcements' ? 'announcements' : 'notices')
-const requestedAnnouncementId = computed(() => {
-  const value = route.query.announcementId
-  if (typeof value === 'string') return value
-  if (Array.isArray(value)) return String(value[0] || '')
-  return ''
-})
+const requestedAnnouncementId = ref(readPendingAnnouncementId())
 
 let listSeq = 0
 let unreadSeq = 0
@@ -514,6 +536,7 @@ async function switchTab(tab) {
   if (tab === 'announcements') {
     cancelNoticeRequests()
   }
+  clearPendingAnnouncementId()
   const query = { ...route.query, tab }
   delete query.announcementId
   await router.replace({ path: route.path, query })
@@ -534,10 +557,10 @@ async function openAnnouncementFromNotice() {
   closeDetail()
   resetReadAllState()
   cancelNoticeRequests()
-  await router.replace({
-    path: route.path,
-    query: { ...route.query, tab: 'announcements', announcementId: sourceId }
-  })
+  setPendingAnnouncementId(sourceId)
+  const query = { ...route.query, tab: 'announcements' }
+  delete query.announcementId
+  await router.replace({ path: route.path, query })
 }
 
 /**
@@ -590,7 +613,12 @@ function kindLabel(kind) {
 }
 
 // 班级上下文变化后关闭旧详情并重新加载；pageNum 回到第一页，避免新班级落在旧页码。
+let bindingWatchInitialized = false
 watch(bindingId, () => {
+  // 首次挂载可能正是通知来源跳转的落地页，不能清掉一次性 announcementId；
+  // 只有后续班级变化才使旧公告打开意图失效。
+  if (bindingWatchInitialized) clearPendingAnnouncementId()
+  bindingWatchInitialized = true
   closeDetail()
   resetReadAllState()
   pageNum.value = 1
@@ -808,6 +836,7 @@ onBeforeUnmount(() => {
       v-else
       :binding-id="bindingId"
       :open-announcement-id="requestedAnnouncementId"
+      @opened="clearPendingAnnouncementId"
     />
   </section>
 </template>

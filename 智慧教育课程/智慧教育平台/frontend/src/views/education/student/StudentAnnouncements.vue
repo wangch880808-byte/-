@@ -14,6 +14,7 @@ const props = defineProps({
   bindingId: { type: String, default: '' },
   openAnnouncementId: { type: String, default: '' }
 })
+const emit = defineEmits(['opened'])
 
 const rows = ref([])
 const total = ref(0)
@@ -101,6 +102,7 @@ async function openDetail(announcementId, event) {
   detailState.value = 'loading'
   detail.value = null
   detailMessage.value = ''
+  emit('opened')
   await nextTick()
   detailCloseButton.value?.focus()
 
