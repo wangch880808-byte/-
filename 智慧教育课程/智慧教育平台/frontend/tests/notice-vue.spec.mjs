@@ -98,6 +98,7 @@ function info(role, permissions) {
 
 const NOTICE_ID = '30001'
 const LARGE_NOTICE_ID = '820000000000000001'
+const READ_AT = '2026-11-17T03:00:00.000Z'
 
 function noticeRow(id, title, bindingId = '9001') {
   return {
@@ -137,6 +138,21 @@ function detailBody(noticeId, overrides = {}) {
 }
 
 /**
+ * 让列表响应反映夹具内存中的已读状态。
+ *
+ * 只改夹具响应，不代表前端本地减一；前端仍必须重新请求服务端。
+ */
+function applyReadState(body, readState) {
+  if (!body || !Array.isArray(body.rows)) return body
+  return {
+    ...body,
+    rows: body.rows.map(row => (readState.has(row.id)
+      ? { ...row, isRead: true, readAt: row.readAt || READ_AT }
+      : row))
+  }
+}
+
+/**
  * 安装浏览器夹具。
  *
  * 所有 /getInfo、/getRouters、/education/context/*、/education/student/notices*
@@ -149,18 +165,48 @@ async function installFixture(page, options = {}) {
     permissions: ['education:notice:list', 'education:scope:read'],
     includeNoticeRoute: true,
     list: null,
+    listAfterRead: null,
     unread: null,
+    unreadAfterRead: null,
     detail: null,
     detailDelays: {},
+    read: null,
+    readDelays: {},
     delayByBinding: {},
     ...options
   }
   const requests = []
+  const readState = new Set()
 
   await page.route('**/getInfo', route => json(route, info(opts.role, opts.permissions)))
   await page.route('**/getRouters', route => json(route, routers(opts.includeNoticeRoute)))
   await page.route('**/education/context/options*', route => json(route, opts.contextOptions || contextOptions()))
   await page.route('**/education/context/check*', route => json(route, contextCheck(new URL(route.request().url()))))
+  await page.route('**/education/student/notices/*/read', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const noticeId = decodeURIComponent(url.pathname.split('/').slice(-2)[0])
+    requests.push({ method: 'POST', path: url.pathname, readId: noticeId })
+    try {
+      await sleep(opts.readDelays[noticeId] ?? opts.readDelay ?? 0)
+      if (opts.rawRead) {
+        return route.fulfill(opts.rawRead)
+      }
+      const body = typeof opts.read === 'function'
+        ? opts.read(noticeId, readState)
+        : (opts.read || {
+          code: 200,
+          msg: '操作成功',
+          data: { id: noticeId, readAt: READ_AT, alreadyRead: false }
+        })
+      if (body?.code === 200 && body.data) {
+        readState.add(noticeId)
+      }
+      return json(route, body)
+    } catch {
+      return undefined
+    }
+  })
   await page.route('**/education/student/notices/*', async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -171,9 +217,15 @@ async function installFixture(page, options = {}) {
       if (opts.rawDetail) {
         return route.fulfill(opts.rawDetail)
       }
-      const body = typeof opts.detail === 'function'
+      let body = typeof opts.detail === 'function'
         ? opts.detail(noticeId)
         : (opts.detail || detailBody(noticeId))
+      if (body?.code === 200 && body.data && readState.has(noticeId)) {
+        body = {
+          ...body,
+          data: { ...body.data, isRead: true, readAt: body.data.readAt || READ_AT }
+        }
+      }
       return json(route, body)
     } catch {
       return undefined
@@ -184,7 +236,11 @@ async function installFixture(page, options = {}) {
     const url = new URL(request.url())
     requests.push({ path: url.pathname, query: url.search })
     try {
-      const unread = opts.unread || { code: 200, msg: '操作成功', data: { unreadCount: 3, asOf: '2026-11-17T02:00:00.000Z' } }
+      const unread = (readState.size > 0 && opts.unreadAfterRead) || opts.unread || {
+        code: 200,
+        msg: '操作成功',
+        data: { unreadCount: Math.max(0, 3 - readState.size), asOf: '2026-11-17T02:00:00.000Z' }
+      }
       await sleep(opts.unreadDelay || 0)
       return json(route, unread)
     } catch {
@@ -198,7 +254,11 @@ async function installFixture(page, options = {}) {
     requests.push({ path: url.pathname, query: url.search })
     try {
       if (url.pathname.endsWith('/unread-count')) {
-        const unread = opts.unread || { code: 200, msg: '操作成功', data: { unreadCount: 3, asOf: '2026-11-17T02:00:00.000Z' } }
+        const unread = (readState.size > 0 && opts.unreadAfterRead) || opts.unread || {
+          code: 200,
+          msg: '操作成功',
+          data: { unreadCount: Math.max(0, 3 - readState.size), asOf: '2026-11-17T02:00:00.000Z' }
+        }
         await sleep(opts.unreadDelay || 0)
         return json(route, unread)
       }
@@ -208,9 +268,10 @@ async function installFixture(page, options = {}) {
       if (opts.rawList) {
         return route.fulfill(opts.rawList)
       }
-      const body = opts.list || (opts.listRows
-        ? { code: 200, msg: '查询成功', total: opts.listRows.length, rows: opts.listRows }
-        : listBody(bindingId))
+      const body = applyReadState((readState.size > 0 && opts.listAfterRead)
+        || opts.list || (opts.listRows
+          ? { code: 200, msg: '查询成功', total: opts.listRows.length, rows: opts.listRows }
+          : listBody(bindingId)), readState)
       return json(route, body)
     } catch {
       // 请求已被切班 abort 时，Playwright 可能拒绝 fulfill；测试以 DOM 代际为准。
@@ -585,6 +646,205 @@ await run('离开通知页后迟到详情不重新打开', async () => {
   await page.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
   await page.waitForTimeout(1500)
   assert.equal(await page.locator('.detail-dialog').count(), 0)
+  await context.close()
+})
+
+await run('打开详情零写请求，标为已读单次 POST 并同步列表和角标', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, { readDelays: { [NOTICE_ID]: 250 } })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  assert.equal(requests.filter(item => item.readId).length, 0, '打开详情不应产生写请求')
+  const readButton = page.locator('.detail-read')
+  assert.equal(await readButton.innerText(), '标为已读')
+  const postRequest = page.waitForRequest(request => request.method() === 'POST', { timeout: 10000 })
+  await readButton.click()
+  await postRequest
+  assert.equal(await readButton.isDisabled(), true, '提交中按钮应禁用')
+  await page.waitForFunction(() => document.body.innerText.includes('已标记为已读'), null, { timeout: 10000 })
+  await page.waitForFunction(() => document.querySelector('.header-right .notice-count')?.textContent.trim() === '2', null, { timeout: 10000 })
+  assert.equal(requests.filter(item => item.readId).length, 1, '只应发送一次 POST')
+  const detailText = await page.locator('.detail-dialog').innerText()
+  assert.match(detailText, /已标记为已读/)
+  assert.match(detailText, /已读/)
+  assert.match(await page.locator('.notice-item').first().innerText(), /已读/)
+  await context.close()
+})
+
+await run('alreadyRead=true 按成功处理', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    read: {
+      code: 200,
+      msg: '操作成功',
+      data: { id: NOTICE_ID, readAt: READ_AT, alreadyRead: true }
+    }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-read').click()
+  await page.waitForFunction(() => document.body.innerText.includes('已标记为已读'), null, { timeout: 10000 })
+  assert.equal(requests.filter(item => item.readId).length, 1)
+  assert.match(await page.locator('.detail-dialog').innerText(), /已读/)
+  await page.waitForFunction(() => document.querySelector('.header-right .notice-count')?.textContent.trim() === '2', null, { timeout: 10000 })
+  await context.close()
+})
+
+await run('标为已读 404 提示不可访问并清除旧详情、刷新列表和角标', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    read: { code: 404, msg: '通知不存在或当前不可访问' }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  const listRequestsBefore = requests.filter(item => item.path.endsWith('/student/notices')).length
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-read').click()
+  await page.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('通知不存在或不可访问'), null, { timeout: 10000 })
+  const detailText = await page.locator('.detail-dialog').innerText()
+  assert.doesNotMatch(detailText, /详情-30001/)
+  assert.equal(requests.filter(item => item.readId).length, 1)
+  await page.waitForFunction(
+    count => document.querySelectorAll('.notice-item').length > 0
+      && document.querySelector('.header-right .notice-count')?.textContent.trim() === '3',
+    listRequestsBefore,
+    { timeout: 10000 }
+  )
+  await context.close()
+})
+
+await run('标为已读 503 区分授权与通用故障', async () => {
+  const authContext = await newContext(browser)
+  const authPage = await authContext.newPage()
+  await installFixture(authPage, {
+    read: { code: 503, msg: '学生教学班授权服务尚未接入' }
+  })
+  await openHash(authPage, '/student/notices')
+  await authPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await authPage.locator('.notice-main').first().click()
+  await authPage.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await authPage.locator('.detail-read').click()
+  await authPage.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('教学班授权服务暂不可用'), null, { timeout: 10000 })
+  await authContext.close()
+
+  const genericContext = await newContext(browser)
+  const genericPage = await genericContext.newPage()
+  await installFixture(genericPage, {
+    read: { code: 503, msg: '服务端暂时不可用' }
+  })
+  await openHash(genericPage, '/student/notices')
+  await genericPage.waitForSelector('.student-notices', { timeout: 15000 })
+  await genericPage.locator('.notice-main').first().click()
+  await genericPage.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await genericPage.locator('.detail-read').click()
+  await genericPage.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('服务暂不可用'), null, { timeout: 10000 })
+  assert.doesNotMatch(await genericPage.locator('.detail-dialog').innerText(), /教学班授权服务暂不可用/)
+  await genericContext.close()
+})
+
+await run('写入成功后列表与未读数刷新失败分别提示', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, {
+    listAfterRead: { code: 503, msg: '服务端暂时不可用' },
+    unreadAfterRead: { code: 503, msg: '服务端暂时不可用' }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-read').click()
+  await page.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('通知列表刷新失败'), null, { timeout: 10000 })
+  const detailText = await page.locator('.detail-dialog').innerText()
+  assert.match(detailText, /通知列表刷新失败/)
+  assert.match(detailText, /未读数刷新失败/)
+  assert.match(detailText, /已标记为已读/)
+  await context.close()
+})
+
+await run('关闭并切换通知后迟到写响应不覆盖新详情', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    listRows: [noticeRow('30001', '通知-A'), noticeRow('30002', '通知-B')],
+    readDelays: { 30001: 1200, 30002: 50 }
+  })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-read').click()
+  await page.locator('.detail-dialog .detail-close').first().click()
+  await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
+  await page.locator('.notice-main').nth(1).click()
+  await page.waitForFunction(() => document.querySelector('.detail-dialog')?.innerText.includes('详情-30002'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  const detailText = await page.locator('.detail-dialog').innerText()
+  assert.match(detailText, /详情-30002/)
+  assert.doesNotMatch(detailText, /详情-30001/)
+  assert.doesNotMatch(detailText, /已标记为已读/)
+  assert.equal(requests.filter(item => item.readId).length, 1)
+  await context.close()
+})
+
+await run('切班后迟到写响应不更新新班级状态', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, { readDelays: { [NOTICE_ID]: 1200 } })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-read').click()
+  await page.evaluate(() => {
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002'
+  })
+  await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.detail-dialog').count(), 0)
+  assert.doesNotMatch(await text(page), /已标记为已读/)
+  await context.close()
+})
+
+await run('离开通知页后迟到写响应不更新新页面', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page, { readDelays: { [NOTICE_ID]: 1200 } })
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  await page.locator('.detail-read').click()
+  await page.evaluate(() => { location.hash = '#/student' })
+  await page.waitForFunction(() => !document.querySelector('.student-notices'), null, { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  assert.equal(await page.locator('.detail-dialog').count(), 0)
+  assert.doesNotMatch(await text(page), /已标记为已读/)
+  await context.close()
+})
+
+await run('详情弹窗打开聚焦、Esc 关闭并归还焦点', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  await installFixture(page)
+  await openHash(page, '/student/notices')
+  await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const focusedInside = await page.evaluate(() => Boolean(document.activeElement?.closest('.detail-dialog')))
+  assert.equal(focusedInside, true, '打开后焦点应进入弹窗')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('.detail-dialog'), null, { timeout: 10000 })
+  const focusedId = await page.evaluate(() => document.activeElement?.getAttribute('data-notice-id'))
+  assert.equal(focusedId, NOTICE_ID, '关闭后焦点应回到触发按钮')
   await context.close()
 })
 

@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getNoticeDetail, getUnreadCount, listNotices } from '@/api/education/notice'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { getNoticeDetail, getUnreadCount, listNotices, markNoticeRead } from '@/api/education/notice'
 import { context } from '@/education/context'
 
 /**
@@ -24,6 +24,11 @@ const detailOpen = ref(false)
 const detailState = ref('idle')
 const detail = ref(null)
 const detailMessage = ref('')
+const detailCloseButton = ref(null)
+const readSubmitting = ref(false)
+const readMessage = ref('')
+const readError = ref('')
+const readWarnings = ref([])
 
 let listSeq = 0
 let unreadSeq = 0
@@ -31,6 +36,8 @@ let detailSeq = 0
 let listController = null
 let unreadController = null
 let detailController = null
+let readController = null
+let detailTrigger = null
 let disposed = false
 
 /**
@@ -60,10 +67,10 @@ const unreadTone = computed(() => ({
  * 切班时先 abort 旧请求，再用序号丢弃迟到响应；两者同时存在，
  * 是因为 axios 取消和响应到达可能落在同一事件循环窗口。
  *
- * @returns {Promise<void>} 列表加载完成；失败时写入页面状态，不抛出到全局
+ * @returns {Promise<boolean>} 是否完成当前列表刷新；失败或已被更新的请求取代返回 false
  */
 async function loadList() {
-  if (disposed) return
+  if (disposed) return false
   const seq = ++listSeq
   listController?.abort()
   const controller = new AbortController()
@@ -88,8 +95,9 @@ async function loadList() {
     rows.value = body.rows
     total.value = body.total
     listState.value = body.rows.length === 0 ? 'empty' : 'ready'
+    return true
   } catch (error) {
-    if (seq !== listSeq || disposed || error?.cancelled) return
+    if (seq !== listSeq || disposed || error?.cancelled) return false
     rows.value = []
     total.value = 0
     listMessage.value = typeof error?.message === 'string' ? error.message : ''
@@ -105,6 +113,7 @@ async function loadList() {
     } else {
       listState.value = 'error'
     }
+    return false
   }
 }
 
@@ -113,10 +122,10 @@ async function loadList() {
  *
  * 未读数失败只影响角标/本页提示，不能把列表失败化，也不能显示 0。
  *
- * @returns {Promise<void>} 未读数加载完成
+ * @returns {Promise<boolean>} 是否完成当前未读数刷新；失败或已被更新的请求取代返回 false
  */
 async function loadUnread() {
-  if (disposed) return
+  if (disposed) return false
   const seq = ++unreadSeq
   unreadController?.abort()
   const controller = new AbortController()
@@ -127,18 +136,20 @@ async function loadUnread() {
 
   try {
     const body = await getUnreadCount(bindingId.value || undefined, { signal: controller.signal })
-    if (seq !== unreadSeq || disposed) return
+    if (seq !== unreadSeq || disposed) return false
     const count = body?.data?.unreadCount
     if (!Number.isSafeInteger(count) || count < 0) {
       throw new Error('未读数响应不完整')
     }
     unreadCount.value = count
     unreadState.value = 'ready'
+    return true
   } catch (error) {
-    if (seq !== unreadSeq || disposed || error?.cancelled) return
+    if (seq !== unreadSeq || disposed || error?.cancelled) return false
     unreadCount.value = null
     unreadState.value = 'unavailable'
     unreadMessage.value = typeof error?.message === 'string' ? error.message : '未读数暂不可用'
+    return false
   }
 }
 
@@ -177,25 +188,38 @@ function notice503Detail(error) {
 /**
  * 打开通知详情。
  *
- * 每次打开/切换通知都递增 detailSeq 并 abort 上一次请求；关闭、切班和卸载也会
- * 递增序号。只有同时满足“序号未变、未卸载、详情仍打开”的响应才能写入，
+ * 每次打开/切换通知都递增 detailSeq 并 abort 上一次详情/已读请求；关闭、切班和
+ * 卸载也会递增序号。只有同时满足“序号未变、未卸载、详情仍打开”的响应才能写入，
  * 防止迟到响应重新打开已关闭详情或覆盖新通知。
  *
  * @param {string} noticeId 通知 ID 字符串
+ * @param {Event} [event] 触发按钮事件；用于关闭后把焦点还给仍存在的按钮
  * @returns {Promise<void>} 详情加载完成；失败写入详情错误态
  */
-async function openDetail(noticeId) {
+async function openDetail(noticeId, event) {
   if (disposed) return
   const id = String(noticeId ?? '')
   if (!id) return
   const seq = ++detailSeq
   detailController?.abort()
+  detailController = null
+  readController?.abort()
+  readController = null
+  readSubmitting.value = false
+  readMessage.value = ''
+  readError.value = ''
+  readWarnings.value = []
+  detailTrigger = event?.currentTarget instanceof HTMLElement
+    ? event.currentTarget
+    : (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const controller = new AbortController()
   detailController = controller
   detailOpen.value = true
   detailState.value = 'loading'
   detailMessage.value = ''
   detail.value = null
+  await nextTick()
+  detailCloseButton.value?.focus()
 
   try {
     const body = await getNoticeDetail(id, { signal: controller.signal })
@@ -223,7 +247,7 @@ async function openDetail(noticeId) {
 }
 
 /**
- * 关闭详情并使在途详情响应失效。
+ * 关闭详情并使在途详情/已读响应失效，然后把焦点还给仍存在的触发按钮。
  *
  * @returns {void}
  */
@@ -231,10 +255,97 @@ function closeDetail() {
   detailSeq++
   detailController?.abort()
   detailController = null
+  readController?.abort()
+  readController = null
+  readSubmitting.value = false
+  readMessage.value = ''
+  readError.value = ''
+  readWarnings.value = []
   detailOpen.value = false
   detailState.value = 'idle'
   detail.value = null
   detailMessage.value = ''
+  const trigger = detailTrigger
+  detailTrigger = null
+  nextTick(() => {
+    if (trigger?.isConnected) trigger.focus()
+  })
+}
+
+/**
+ * 写入成功后刷新当前列表、未读数和顶栏角标。
+ *
+ * 列表与未读数分别记录失败，详情保持打开并逐项提示；不能用其中一个成功
+ * 掩盖另一个失败。顶栏通过现有 EduVue.refreshHeader() 统一刷新。
+ *
+ * @param {number} seq 发起刷新时的详情序号；关闭/切换后不再写入提示
+ * @returns {Promise<void>} 刷新完成
+ */
+async function refreshAfterRead(seq) {
+  const [listOk, unreadOk] = await Promise.all([loadList(), loadUnread()])
+  window.EduVue?.refreshHeader?.()
+  if (disposed || seq !== detailSeq || !detailOpen.value) return
+  const warnings = []
+  if (!listOk) warnings.push('通知列表刷新失败，当前列表可能不是最新。')
+  if (!unreadOk) warnings.push('未读数刷新失败，顶栏角标可能不是最新。')
+  readWarnings.value = warnings
+}
+
+/**
+ * 标记当前详情为已读。
+ *
+ * 写请求与当前详情序号、通知 ID、班级绑定三者绑定；关闭、切换通知或切班后
+ * 即使服务端已处理，迟到响应也不能更新新详情或新班级状态。成功不本地减一，
+ * 统一重拉列表和未读数；alreadyRead=true 按成功处理。
+ *
+ * @returns {Promise<void>} 已读处理完成
+ */
+async function markDetailRead() {
+  if (disposed || !detailOpen.value || readSubmitting.value || !detail.value || detail.value.isRead) return
+  const id = String(detail.value.id ?? '')
+  if (!id) return
+  const seq = detailSeq
+  const bindingAtStart = bindingId.value
+  readController?.abort()
+  const controller = new AbortController()
+  readController = controller
+  readSubmitting.value = true
+  readMessage.value = ''
+  readError.value = ''
+  readWarnings.value = []
+
+  try {
+    const body = await markNoticeRead(id, { signal: controller.signal })
+    if (seq !== detailSeq || disposed || !detailOpen.value
+        || bindingId.value !== bindingAtStart || detail.value?.id !== id) return
+    const data = body?.data
+    if (!data || data.id !== id || typeof data.readAt !== 'string'
+        || typeof data.alreadyRead !== 'boolean') {
+      throw Object.assign(new Error('已读响应格式不正确'), { code: 500 })
+    }
+    detail.value = { ...detail.value, isRead: true, readAt: data.readAt }
+    readSubmitting.value = false
+    readMessage.value = '已标记为已读'
+    await refreshAfterRead(seq)
+  } catch (error) {
+    if (seq !== detailSeq || disposed || !detailOpen.value
+        || bindingId.value !== bindingAtStart || error?.cancelled) return
+    readSubmitting.value = false
+    if (error?.code === 404) {
+      detail.value = null
+      detailState.value = 'notfound'
+      detailMessage.value = '通知不存在或不可访问'
+      await refreshAfterRead(seq)
+    } else if (error?.code === 503) {
+      detail.value = null
+      detailState.value = classifyNotice503(error) === 'authorization'
+        ? 'unavailable-auth'
+        : 'unavailable'
+      detailMessage.value = notice503Detail(error)
+    } else {
+      readError.value = typeof error?.message === 'string' ? error.message : '标记已读失败，请稍后重试。'
+    }
+  }
 }
 
 function changePage(next) {
@@ -278,6 +389,8 @@ onBeforeUnmount(() => {
   listController?.abort()
   unreadController?.abort()
   detailController?.abort()
+  readController?.abort()
+  detailTrigger = null
 })
 </script>
 
@@ -325,7 +438,7 @@ onBeforeUnmount(() => {
     <template v-else-if="listState === 'ready'">
       <ul class="notice-list">
         <li v-for="row in rows" :key="row.id" class="notice-item">
-          <button type="button" class="notice-main" @click="openDetail(row.id)">
+          <button type="button" class="notice-main" :data-notice-id="row.id" @click="openDetail(row.id, $event)">
             <strong class="notice-title">{{ row.title }}</strong>
             <span class="notice-kind">{{ kindLabel(row.kind) }}</span>
             <span class="notice-read" :class="{ 'is-unread': !row.isRead }">{{ row.isRead ? '已读' : '未读' }}</span>
@@ -344,12 +457,16 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <div v-if="detailOpen" class="detail-overlay" @click.self="closeDetail">
+    <div v-if="detailOpen" class="detail-overlay" @click.self="closeDetail" @keydown.esc.stop.prevent="closeDetail">
       <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="notice-detail-title">
         <header class="detail-head">
           <h3 id="notice-detail-title">通知详情</h3>
-          <button type="button" class="detail-close" aria-label="关闭通知详情" @click="closeDetail">关闭</button>
+          <button ref="detailCloseButton" type="button" class="detail-close" aria-label="关闭通知详情" @click="closeDetail">关闭</button>
         </header>
+
+        <ul v-if="readWarnings.length" class="detail-warnings" role="status">
+          <li v-for="warning in readWarnings" :key="warning">{{ warning }}</li>
+        </ul>
 
         <div v-if="detailState === 'loading'" class="state" role="status">正在读取通知详情…</div>
 
@@ -392,6 +509,13 @@ onBeforeUnmount(() => {
               </dd>
             </div>
           </dl>
+          <div v-if="!detail.isRead" class="detail-read-actions">
+            <button type="button" class="detail-read" :disabled="readSubmitting" @click="markDetailRead">
+              {{ readSubmitting ? '处理中…' : '标为已读' }}
+            </button>
+          </div>
+          <p v-if="readMessage" class="read-success" role="status">{{ readMessage }}</p>
+          <p v-if="readError" class="read-error" role="alert">{{ readError }}</p>
           <p class="detail-note">通知详情只包含元数据，正文由来源页面提供。</p>
         </div>
 
@@ -444,6 +568,15 @@ onBeforeUnmount(() => {
 .detail-meta > div { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f2f3f5; }
 .detail-meta dt { min-width: 72px; color: #909399; }
 .detail-meta dd { margin: 0; color: #303133; }
+.detail-warnings { margin: 0 0 12px; padding: 10px 12px; border-radius: 6px; background: #fdf6ec; color: #b88230; font-size: 13px; list-style: disc inside; }
+.detail-read-actions { display: flex; justify-content: flex-start; padding-top: 14px; }
+.detail-read {
+  padding: 6px 14px; border: 0; border-radius: 4px; background: #409eff; color: #fff;
+  cursor: pointer;
+}
+.detail-read:disabled { background: #a0cfff; cursor: not-allowed; }
+.read-success { margin: 12px 0 0; color: #67c23a; font-size: 13px; }
+.read-error { margin: 12px 0 0; color: #c45656; font-size: 13px; }
 .detail-note { margin: 14px 0 0; color: #909399; font-size: 12px; }
 .detail-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 18px; }
 .notice-title { color: #303133; font-size: 15px; }

@@ -102,6 +102,33 @@ export function getNoticeDetail(noticeId, options = {}) {
 }
 
 /**
+ * 标记单条通知为已读。
+ *
+ * 幂等语义：通知仍可见时重复调用返回同一 readAt 且 alreadyRead=true；
+ * 已退班或来源不可见时后端返回 404，不能复用旧 readAt。前端不本地减一，
+ * 成功后统一重拉列表、未读数和顶栏角标。
+ *
+ * TODO(6-04-notice-read-source)：本轮只接单条已读；全部已读、来源页跳转
+ * 和生产授权适配器不在范围。解除条件：全部已读/来源路由确认并完成联调。
+ *
+ * @param {string} noticeId 通知 ID 字符串
+ * @param {{signal?: AbortSignal}} [options] 取消信号；关闭/切换详情时中止旧写入
+ * @returns {Promise<{data: {id: string, readAt: string, alreadyRead: boolean}}>} 已读响应体
+ */
+export function markNoticeRead(noticeId, options = {}) {
+  const id = String(noticeId ?? '')
+  if (!/^[1-9]\d*$/.test(id)) {
+    return Promise.reject(new Error('noticeId 必须为正整数字符串'))
+  }
+  return edu({
+    url: '/education/student/notices/' + encodeURIComponent(id) + '/read',
+    method: 'post',
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
  * 顶栏未读角标读取器。
  *
  * 由 AppLayout 的 headerEntry 调用。优先使用 AppLayout 传入的 request，
