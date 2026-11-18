@@ -3,7 +3,7 @@
 -- Back up existing data first if this database is no longer empty.
 -- All user/organization IDs below are fictional logical IDs; no RuoYi accounts are created.
 -- File and AI object keys are placeholders; no files are uploaded and no model is called.
-USE zhijiao_m0;
+
 SET NAMES utf8mb4;
 
 DROP PROCEDURE IF EXISTS edu_demo_seed_20261022;
@@ -17,7 +17,7 @@ BEGIN
     DECLARE v_student_b BIGINT DEFAULT 930000000102;
     DECLARE v_student_c BIGINT DEFAULT 930000000103;
     DECLARE v_student_d BIGINT DEFAULT 930000000104;
-    DECLARE v_now DATETIME(3) DEFAULT UTC_TIMESTAMP(3);
+    DECLARE v_now DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3);
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;

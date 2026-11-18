@@ -31,7 +31,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <resultMap id="deptResult" type="SysDept">
         <id     property="deptId"    column="dept_id"     />
         <result property="parentId"  column="parent_id"   />
+        <result property="parentName" column="parent_name" />
         <result property="deptName"  column="dept_name"   />
+        <result property="deptType"  column="dept_type"   />
         <result property="ancestors" column="ancestors"   />
         <result property="orderNum"  column="order_num"   />
         <result property="leader"    column="leader"      />
@@ -86,6 +88,90 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		${params.dataScope}
 	</select>
 	
+    <sql id="hasStudentRole">
+        exists (
+            select 1
+            from sys_user_role ur
+            join sys_role r on r.role_id = ur.role_id
+            where ur.user_id = u.user_id and r.role_key = 'student' and r.status = '0' and r.del_flag = '0'
+        )
+    </sql>
+
+    <select id="selectStudentAccounts" parameterType="SysUser" resultMap="SysUserResult">
+        select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.phonenumber,
+               u.sex, u.status, u.create_time, u.remark, d.dept_name, d.dept_type
+        from sys_user u
+        left join sys_dept d on d.dept_id = u.dept_id and d.del_flag = '0'
+        where u.del_flag = '0' and <include refid="hasStudentRole"/>
+        <if test="userName != null and userName != ''">
+            and (u.user_name like concat('%', #{userName}, '%') or u.nick_name like concat('%', #{userName}, '%'))
+        </if>
+        <if test="deptId != null">
+            and (d.dept_id = #{deptId} or find_in_set(#{deptId}, d.ancestors))
+        </if>
+        ${params.dataScope}
+        order by u.user_id
+    </select>
+
+    <select id="selectAdministrativeRoster" parameterType="SysUser" resultMap="SysUserResult">
+        select u.user_id, u.dept_id, u.user_name, u.nick_name, u.phonenumber, d.dept_name,
+               d.dept_type, p.dept_id as parent_id, p.dept_name as parent_name
+        from sys_user u
+        join sys_dept d on d.dept_id = u.dept_id and d.del_flag = '0'
+        left join sys_dept p on p.dept_id = d.parent_id and p.del_flag = '0'
+        where u.del_flag = '0' and <include refid="hasStudentRole"/>
+        <choose>
+            <when test="params.members">
+                and d.dept_id = #{params.classId}
+            </when>
+            <otherwise>
+                and u.status = '0' and coalesce(d.dept_type, '') != 'CLASS'
+                and (d.dept_id = #{params.schoolId} or find_in_set(#{params.schoolId}, d.ancestors))
+            </otherwise>
+        </choose>
+        <if test="deptId != null">
+            and (d.dept_id = #{deptId} or find_in_set(#{deptId}, d.ancestors))
+        </if>
+        <if test="userName != null and userName != ''">
+            and (u.user_name like concat('%', #{userName}, '%') or u.nick_name like concat('%', #{userName}, '%')
+                 or u.phonenumber like concat('%', #{userName}, '%'))
+        </if>
+        <if test="params.grade != null">
+            and u.user_name regexp '^[0-9]{5,}$' and left(u.user_name, 4) = #{params.grade}
+        </if>
+        <if test="params.ids != null">
+            and u.user_id in
+            <foreach collection="params.ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        </if>
+        <if test="params.accounts != null">
+            and u.user_name in
+            <foreach collection="params.accounts" item="account" open="(" separator="," close=")">#{account}</foreach>
+        </if>
+        ${params.dataScope}
+        order by u.user_id desc
+    </select>
+
+    <update id="moveAdministrativeStudent">
+        update sys_user u
+        set dept_id = #{toId}, update_by = #{updateBy}, update_time = sysdate()
+        where u.user_id = #{userId} and u.dept_id = #{fromId}
+          and u.del_flag = '0' and <include refid="hasStudentRole"/>
+        <if test="adding">and u.status = '0'</if>
+    </update>
+
+    <update id="updateStudentAccount" parameterType="SysUser">
+        update sys_user u
+        set dept_id = #{deptId}, nick_name = #{nickName}, phonenumber = #{phonenumber}, email = #{email},
+            sex = #{sex}, remark = #{remark}, update_by = #{updateBy}, update_time = sysdate()
+        where u.user_id = #{userId} and u.del_flag = '0' and <include refid="hasStudentRole"/>
+    </update>
+
+    <update id="disableStudentAccount">
+        update sys_user u
+        set status = '1', update_by = #{updateBy}, update_time = sysdate()
+        where u.user_id = #{userId} and u.del_flag = '0' and u.status = '0' and <include refid="hasStudentRole"/>
+    </update>
+
 	<select id="selectAllocatedList" parameterType="SysUser" resultMap="SysUserResult">
 	    select distinct u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.phonenumber, u.status, u.create_time
 	    from sys_user u
@@ -197,6 +283,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
  		where user_id = #{userId}
 	</update>
 	
+	<update id="updateUserProfile" parameterType="SysUser">
+        update sys_user
+        <set>
+            <if test="nickName != null">nick_name = #{nickName},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="phonenumber != null">phonenumber = #{phonenumber},</if>
+            <if test="sex != null">sex = #{sex},</if>
+            update_time = sysdate()
+        </set>
+        where user_id = #{userId} and del_flag = '0' and status = '0'
+    </update>
+
 	<update id="updateUserStatus" parameterType="SysUser">
  		update sys_user set status = #{status}, update_time = sysdate() where user_id = #{userId}
 	</update>
@@ -213,6 +311,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
  		update sys_user set pwd_update_date = sysdate(), password = #{password}, update_time = sysdate() where user_id = #{userId}
 	</update>
 	
+    <update id="resetUserPwdIfCurrent">
+        update sys_user set pwd_update_date = sysdate(), password = #{password}, update_time = sysdate()
+        where user_id = #{userId} and del_flag = '0' and status = '0' and binary password = #{currentPassword}
+    </update>
+
 	<delete id="deleteUserById" parameterType="Long">
  		update sys_user set del_flag = '2' where user_id = #{userId}
  	</delete>
@@ -224,4 +327,4 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         </foreach> 
  	</delete>
 	
-</mapper> 
+</mapper>
