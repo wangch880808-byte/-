@@ -1,6 +1,6 @@
-# 6-04 学生通知 Vue 夹具
+# 6-04 通知 / 公告与 6-03 总览 Vue 夹具
 
-本目录是 6-04 学生通知、学生公告与教师公告新建/编辑/发布/归档前端原型的浏览器夹具，不连接后端、不写数据库。
+本目录是 6-04 学生通知、学生公告、教师公告，以及 6-03 教师/学生总览前端原型的浏览器夹具，不连接后端、不写数据库。
 
 ## 运行
 
@@ -10,6 +10,7 @@ npm run build
 node tests/serve-dist.mjs
 # 另开终端
 NOTICE_TEST_BASE=http://127.0.0.1:4174 node tests/notice-vue.spec.mjs
+OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
 ```
 
 `playwright` 使用本机 Edge 通道；未写入 `package.json`，按需临时安装：
@@ -58,13 +59,23 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 发布 503 状态重读期间重试成功时，旧详情迟到响应不覆盖新状态；
 - 操作发出后切班或离开页面，迟到响应不覆盖新班级列表、详情或成功提示；
 - 大整数公告 ID 发布路径保持字符串；
-- 通知与公告详情弹窗打开聚焦、Esc 关闭、关闭后焦点归还触发按钮。
+- 通知与公告详情弹窗打开聚焦、Esc 关闭、关闭后焦点归还触发按钮；
+- 6-03 教师 6 指标、学生 4 指标按 metricCode 渲染，真实零、NO_DATA、UNAVAILABLE 和混合三态分开；
+- 缺项、重复、非法 status/value、unit 非 COUNT、source 不匹配只降级对应卡片；
+- 顶层 data/items/asOf/window 异常显示响应异常，不伪装空数据；
+- 工作台入口和独立入口均按角色/权限/服务端路由门控，登录核验前零总览请求；
+- 教师仅发送 from/to/可选字符串 classId，学生仅发送 from/to，不携带身份或班级上下文；
+- 默认服务端窗口、from/to 成对/顺序校验、UTC 转换、筛选乱序和排队后失效；
+- 401 登录跳转，403 清除旧数据并提示无权限，网络/业务错误和刷新失败不保留旧值；
+- 390px 总览单列无横向溢出，离开总览后页面恢复。
 
 ## 说明
 
 夹具通过 Playwright 路由提供 `/getInfo`、`/getRouters`、`/education/context/*`、
 `/education/student/notices*`、`/education/student/announcements*` 与
 `/education/teacher/announcements*` 响应。教师写请求由夹具分别记录 GET 列表、
-GET 详情、POST 创建、PUT 编辑、POST 发布和 POST 归档。生产环境仍需
-`education:notice:list`、`education:announcement:list/add/edit/publish/archive`
-权限和对应服务端路由；当前 `sys_menu` 尚未配置。
+GET 详情、POST 创建、PUT 编辑、POST 发布和 POST 归档。`overview-vue.spec.mjs`
+另行提供 `/education/teacher/overview`、`/education/student/today-todos` 的夹具。
+生产环境仍需 `education:notice:list`、`education:announcement:list/add/edit/publish/archive`
+以及 `education:overview:teacher/student` 的菜单、角色授权和对应服务端路由；
+当前 `sys_menu` 尚未配置。夹具响应不代表真实后端、权限或数据库联调通过。
