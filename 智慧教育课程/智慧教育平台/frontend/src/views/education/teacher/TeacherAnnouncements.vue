@@ -1,11 +1,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
+  archiveTeacherAnnouncement,
   createTeacherAnnouncement,
   getTeacherAnnouncementDetail,
   listTeacherAnnouncements,
+  publishTeacherAnnouncement,
   updateTeacherAnnouncement
 } from '@/api/education/announcement'
+import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
 import { context } from '@/education/context'
 import { hasPermission, session } from '@/education/session'
 import { classifyNotice503, notice503Detail } from '@/views/education/student/notice-error'
@@ -13,11 +16,12 @@ import { classifyNotice503, notice503Detail } from '@/views/education/student/no
 /**
  * 教师工作台「班级消息 / 公告」视图（6-04 原型）。
  *
- * 列表必须带有效教学班 bindingId；未选班时不发请求。本轮接入草稿新建和编辑：
- * 新建要求当前班级 canPublish 且具备 education:announcement:add；编辑要求
- * education:announcement:edit、公告为 DRAFT，并满足“本人创建或本班可发布”的
- * 后端对象权限规则。入口隐藏只是交互约束，服务端仍会逐请求复核权限。
- * 发布与归档不在本轮范围。
+ * 列表必须带有效教学班 bindingId；未选班时不发请求。新建要求当前班级
+ * canPublish 且具备 education:announcement:add；编辑要求
+ * education:announcement:edit、公告为 DRAFT，并满足“本人创建或本班可发布”
+ * 的后端对象权限规则；发布要求 DRAFT + education:announcement:publish +
+ * canPublish；归档要求 PUBLISHED + education:announcement:archive + canPublish。
+ * 入口隐藏只是交互约束，服务端仍会逐请求复核对象权限和状态。
  */
 
 const rows = ref([])
@@ -52,12 +56,30 @@ const submitting = ref(false)
 const formTitleInput = ref(null)
 const formDialog = ref(null)
 
+const actionConfirmOpen = ref(false)
+const actionKind = ref('publish')
+const actionRow = ref(null)
+const actionBusy = ref(false)
+const actionError = ref('')
+const actionText = computed(() => {
+  const title = actionRow.value?.title ? `《${actionRow.value.title}》` : '该公告'
+  if (actionKind.value === 'publish') {
+    return `${title}发布后将按开放时间对学生生效；开放时间为空时取服务端发布时间。确定发布吗？`
+  }
+  return `${title}归档后学生将无法再查看，且已发布状态不可恢复。确定归档吗？`
+})
+const actionTitle = computed(() => actionKind.value === 'publish' ? '发布公告' : '归档公告')
+const actionOkText = computed(() => actionKind.value === 'publish' ? '发布' : '归档')
+
 let listSeq = 0
 let detailSeq = 0
 let formSeq = 0
+let actionSeq = 0
 let listController = null
 let detailController = null
+let detailTargetId = ''
 let formBindingId = ''
+let actionBindingId = ''
 let disposed = false
 
 /**
@@ -109,6 +131,35 @@ function canEditDraft(row) {
   if (!row || row.status !== 'DRAFT' || !hasPermission('education:announcement:edit')) return false
   if (canPublishInCurrentClass.value) return true
   return Boolean(currentUserId.value) && String(row.createdByUserId ?? '') === currentUserId.value
+}
+
+/**
+ * 是否显示发布入口。
+ *
+ * 服务端发布接口要求当前任课教师具备 canPublish；前端同时要求 DRAFT 和
+ * education:announcement:publish。已归档公告不能再发布，重复发布已发布公告
+ * 由服务端幂等处理，不会出现在本入口。
+ *
+ * @param {object} row 公告行或详情
+ * @returns {boolean} 是否显示发布入口
+ */
+function canPublishDraft(row) {
+  return Boolean(row) && row.status === 'DRAFT' && canPublishInCurrentClass.value
+    && hasPermission('education:announcement:publish')
+}
+
+/**
+ * 是否显示归档入口。
+ *
+ * 仅 PUBLISHED 可归档；草稿归档会触发服务端 409。归档不可恢复，确认文案必须
+ * 明确告知学生不再可见。服务端仍会复核当前任课与 canPublish。
+ *
+ * @param {object} row 公告行或详情
+ * @returns {boolean} 是否显示归档入口
+ */
+function canArchiveRow(row) {
+  return Boolean(row) && row.status === 'PUBLISHED' && canPublishInCurrentClass.value
+    && hasPermission('education:announcement:archive')
 }
 
 /**
@@ -253,6 +304,7 @@ async function openDetail(announcementId) {
   detailController?.abort()
   const controller = new AbortController()
   detailController = controller
+  detailTargetId = id
   detailOpen.value = true
   detailState.value = 'loading'
   detail.value = null
@@ -288,6 +340,7 @@ function closeDetail() {
   detailSeq++
   detailController?.abort()
   detailController = null
+  detailTargetId = ''
   detailOpen.value = false
   detailState.value = 'idle'
   detail.value = null
@@ -540,6 +593,216 @@ function handleFormEscape() {
   closeForm()
 }
 
+/**
+ * 关闭发布/归档确认框并作废迟到响应。
+ *
+ * actionSeq 前进后，已发出的写请求即使返回 200/403/409/503，也不能再刷新
+ * 当前班级列表、详情或页面提示。切班和卸载复用本函数。
+ */
+function resetActionConfirm() {
+  actionSeq++
+  actionConfirmOpen.value = false
+  actionBusy.value = false
+  actionKind.value = 'publish'
+  actionRow.value = null
+  actionBindingId = ''
+  actionError.value = ''
+}
+
+/**
+ * 用户关闭确认框。
+ *
+ * 提交中允许关闭，但只关闭 UI 并作废响应处理；已发出的写请求仍可能在服务端
+ * 完成。因此关闭后不自动重试，也不根据迟到响应补写提示或列表，教师需重新
+ * 读取公告状态确认结果。
+ */
+function closeActionConfirm() {
+  resetActionConfirm()
+}
+
+/**
+ * 打开发布/归档确认框。点击时重新检查状态、权限和当前班级。
+ *
+ * @param {object} row 公告行或详情
+ * @param {'publish'|'archive'} kind 操作类型
+ */
+function openActionConfirm(row, kind) {
+  if (disposed || actionBusy.value) return
+  if (!bindingId.value) return
+  if (kind === 'publish' && !canPublishDraft(row)) return
+  if (kind === 'archive' && !canArchiveRow(row)) return
+  const id = String(row?.id ?? '')
+  if (!id) return
+  actionSeq++
+  actionKind.value = kind
+  actionRow.value = {
+    id,
+    title: typeof row.title === 'string' ? row.title : '',
+    status: row.status
+  }
+  actionBindingId = bindingId.value
+  actionBusy.value = false
+  actionError.value = ''
+  actionConfirmOpen.value = true
+  pageNotice.value = ''
+}
+
+function isNetworkFailure(error) {
+  return error?.code === 'ECONNABORTED' || error?.code === 'ERR_NETWORK'
+    || error?.kind === 'network'
+}
+
+/**
+ * 发布/归档失败的分类文案。
+ *
+ * 403 保留对象权限提示；404、409 与 503 分开说明；503 必须保留服务端消息，
+ * 不能把授权故障显示成成功。网络超时或中断无法确认服务端是否已提交，提示
+ * 重新读取列表和详情后再决定，不自动重试。
+ *
+ * @param {object} error 统一请求模块错误
+ * @param {'publish'|'archive'} kind 操作类型
+ * @returns {string} 确认框内错误文案
+ */
+function actionErrorMessage(error, kind) {
+  const code = Number(error?.code)
+  const message = typeof error?.message === 'string' ? error.message.trim() : ''
+  const label = kind === 'publish' ? '发布' : '归档'
+  if (isNetworkFailure(error)) {
+    return `请求超时或网络中断，未确认${label}结果；请刷新列表和详情后确认公告状态。`
+  }
+  if (error?.forbidden || code === 403) {
+    return `没有${label}公告的权限，请联系管理员。` + (message ? `（${message}）` : '')
+  }
+  if (code === 404) {
+    return '公告不存在或不属于当前班级，或当前不可访问。' + (message ? `（${message}）` : '')
+  }
+  if (code === 409) {
+    return `公告状态已变化，不能${label}。` + (message ? `（${message}）` : '')
+  }
+  if (code === 503) {
+    const prefix = classifyNotice503(error) === 'authorization'
+      ? '教学班授权服务暂不可用：'
+      : '服务暂不可用：'
+    return prefix + notice503Detail(error)
+  }
+  return message || `${label}失败，请稍后重试。`
+}
+
+/**
+ * 判断失败后是否需要重新读取公告状态。
+ *
+ * 404/409/503、网络中断和响应形状不一致都可能意味着服务端状态与页面快照
+ * 不同；403 没有对象状态变化，不额外刷新。发布 503 时保留确认框错误，
+ * 同时重读列表/详情，让教师看到事务回滚后的真实状态。
+ *
+ * @param {object} error 统一请求模块错误
+ * @returns {boolean} 是否重读
+ */
+function shouldRefreshAction(error) {
+  const code = Number(error?.code)
+  if (error?.forbidden || code === 403) return false
+  return [404, 409, 503].includes(code) || isNetworkFailure(error) || error?.refresh === true
+}
+
+/**
+ * 用发布/归档响应刷新仍打开的同一公告详情。
+ *
+ * 写入前推进 detailSeq 并中止旧详情 GET：发布 503 后的状态重读可能仍在
+ * 飞行，重试成功响应必须先作废旧读，否则旧快照会在稍后覆盖 PUBLISHED/
+ * ARCHIVED 状态。详情仍在加载（detail.value 为空）时也允许按操作响应写入。
+ *
+ * @param {object} item 服务端返回的公告详情
+ * @param {string} rowId 操作前的公告 ID
+ * @returns {boolean} 是否已用响应更新详情
+ */
+function applyActionDetail(item, rowId) {
+  if (!detailOpen.value || detailTargetId !== rowId) return false
+  if (typeof item.title !== 'string' || typeof item.body !== 'string') return false
+  detailSeq++
+  detailController?.abort()
+  detailController = null
+  detail.value = item
+  detailState.value = 'ready'
+  detailMessage.value = ''
+  return true
+}
+
+/**
+ * 失败后重读当前列表，并在同一公告详情仍打开时重读详情。
+ *
+ * @param {string} rowId 公告 ID
+ * @param {number} seq 操作代际
+ * @param {string} atBinding 操作时的班级 bindingId
+ * @returns {Promise<void>} 重读完成
+ */
+async function refreshActionStateAfterFailure(rowId, seq, atBinding) {
+  await loadList()
+  if (disposed || seq !== actionSeq || bindingId.value !== atBinding) return
+  if (!detailOpen.value || detailTargetId !== rowId) return
+  await openDetail(rowId)
+}
+
+/**
+ * 确认发布或归档。
+ *
+ * 请求发出前再次校验班级、状态和权限；请求发出后切换班级或卸载会推进
+ * actionSeq，迟到响应不得刷新新班级列表、详情或提示。成功时先按服务端对象
+ * 更新仍打开的详情，再关闭确认框并重拉列表；已发布/已归档的重复操作由
+ * 服务端幂等返回对象，前端按同一成功路径处理。
+ *
+ * @returns {Promise<void>} 操作完成
+ */
+async function confirmAnnouncementAction() {
+  if (disposed || actionBusy.value || !actionConfirmOpen.value || !actionRow.value) return
+  const kind = actionKind.value
+  const row = { ...actionRow.value }
+  const atBinding = actionBindingId
+  if (!atBinding || bindingId.value !== atBinding) {
+    resetActionConfirm()
+    return
+  }
+  const allowed = kind === 'publish' ? canPublishDraft(row) : canArchiveRow(row)
+  if (!allowed) {
+    actionError.value = '当前班级、公告状态或权限已变化，请关闭确认框并刷新列表。'
+    return
+  }
+
+  // 每次真正发请求都推进代际：上一次失败后的状态重读若仍在飞行，不能再
+  // 启动详情读取或写页面；本次响应以新 seq 为准。
+  const seq = ++actionSeq
+  actionBusy.value = true
+  actionError.value = ''
+  try {
+    const response = kind === 'publish'
+      ? await publishTeacherAnnouncement(row.id)
+      : await archiveTeacherAnnouncement(row.id)
+    if (seq !== actionSeq || disposed || bindingId.value !== atBinding) return
+    const expectedStatus = kind === 'publish' ? 'PUBLISHED' : 'ARCHIVED'
+    const item = response?.data
+    if (!item || typeof item !== 'object' || String(item.id) !== row.id
+        || item.status !== expectedStatus) {
+      throw Object.assign(new Error('公告操作响应格式不正确'), { code: 500, refresh: true })
+    }
+    if (!applyActionDetail(item, row.id)
+        && detailOpen.value && detailTargetId === row.id) {
+      await openDetail(row.id)
+      if (seq !== actionSeq || disposed || bindingId.value !== atBinding) return
+    }
+    resetActionConfirm()
+    pageNotice.value = kind === 'publish'
+      ? '公告已发布，开放时间按公告设置生效。'
+      : '公告已归档，学生将无法查看。'
+    await loadList()
+  } catch (error) {
+    if (seq !== actionSeq || disposed || bindingId.value !== atBinding || error?.cancelled) return
+    actionBusy.value = false
+    actionError.value = actionErrorMessage(error, kind)
+    if (shouldRefreshAction(error)) {
+      await refreshActionStateAfterFailure(row.id, seq, atBinding)
+    }
+  }
+}
+
 function changeStatus(event) {
   statusFilter.value = event.target.value
   pageNum.value = 1
@@ -565,6 +828,7 @@ function formatTime(value) {
 watch(bindingId, () => {
   closeDetail()
   closeForm()
+  resetActionConfirm()
   pageNotice.value = ''
   pageNum.value = 1
   loadList()
@@ -575,6 +839,7 @@ onBeforeUnmount(() => {
   listSeq++
   detailSeq++
   formSeq++
+  actionSeq++
   listController?.abort()
   detailController?.abort()
 })
@@ -585,7 +850,7 @@ onBeforeUnmount(() => {
     <header class="ann-head">
       <div>
         <h2>班级消息 / 公告</h2>
-        <p class="sub">本班公告按教学班授权；本轮支持草稿新建和编辑，发布与归档留给下一轮。</p>
+        <p class="sub">本班公告按教学班授权；支持草稿新建、编辑以及发布、归档。</p>
       </div>
       <span class="scope">{{ bindingId ? `当前教学班：${bindingId}` : '未选择教学班' }}</span>
     </header>
@@ -653,6 +918,24 @@ onBeforeUnmount(() => {
           >
             编辑草稿
           </button>
+          <button
+            v-if="canPublishDraft(row)"
+            type="button"
+            class="ann-publish"
+            :data-id="row.id"
+            @click="openActionConfirm(row, 'publish')"
+          >
+            发布
+          </button>
+          <button
+            v-if="canArchiveRow(row)"
+            type="button"
+            class="ann-archive"
+            :data-id="row.id"
+            @click="openActionConfirm(row, 'archive')"
+          >
+            归档
+          </button>
         </li>
       </ul>
 
@@ -703,6 +986,24 @@ onBeforeUnmount(() => {
         </div>
 
         <footer class="ann-actions">
+          <button
+            v-if="detailState === 'ready' && detail && canPublishDraft(detail)"
+            type="button"
+            class="ann-publish"
+            :data-id="detail.id"
+            @click="openActionConfirm(detail, 'publish')"
+          >
+            发布
+          </button>
+          <button
+            v-if="detailState === 'ready' && detail && canArchiveRow(detail)"
+            type="button"
+            class="ann-archive"
+            :data-id="detail.id"
+            @click="openActionConfirm(detail, 'archive')"
+          >
+            归档
+          </button>
           <button type="button" class="ann-close" @click="closeDetail">关闭</button>
         </footer>
       </section>
@@ -795,6 +1096,19 @@ onBeforeUnmount(() => {
         </footer>
       </section>
     </div>
+
+    <ConfirmDialog
+      v-if="actionConfirmOpen"
+      style="z-index: 3100"
+      :title="actionTitle"
+      :text="actionText"
+      :confirm-disabled="actionBusy"
+      :error="actionError"
+      :danger="actionKind === 'archive'"
+      :ok-text="actionBusy ? '提交中…' : actionOkText"
+      @close="closeActionConfirm"
+      @confirm="confirmAnnouncementAction"
+    />
   </div>
 </template>
 
@@ -814,10 +1128,13 @@ onBeforeUnmount(() => {
 .state-error { background: #fef0f0; color: #c45656; }
 .state-warn { background: #fdf6ec; color: #b88230; }
 .ann-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid #ebeef5; }
-.ann-item { display: flex; align-items: center; gap: 10px; padding: 14px 4px; border-bottom: 1px solid #ebeef5; }
+.ann-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 4px; border-bottom: 1px solid #ebeef5; }
 .ann-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; flex-wrap: wrap; }
-.ann-edit { flex: none; padding: 5px 10px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #409eff; cursor: pointer; }
-.ann-edit:hover { border-color: #409eff; }
+.ann-edit, .ann-publish, .ann-archive { flex: none; padding: 5px 10px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; cursor: pointer; }
+.ann-edit, .ann-publish { color: #409eff; }
+.ann-archive { color: #d4380d; }
+.ann-edit:hover, .ann-publish:hover { border-color: #409eff; }
+.ann-archive:hover { border-color: #d4380d; }
 .ann-main:hover .ann-title { color: #409eff; }
 .ann-title { color: #303133; font-size: 15px; }
 .ann-status { padding: 1px 7px; border-radius: 4px; background: #ecf5ff; color: #409eff; font-size: 12px; }

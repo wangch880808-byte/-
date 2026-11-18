@@ -1,6 +1,6 @@
 # 6-04 学生通知 Vue 夹具
 
-本目录是 6-04 学生通知、学生公告与教师公告草稿新建/编辑前端原型的浏览器夹具，不连接后端、不写数据库。
+本目录是 6-04 学生通知、学生公告与教师公告新建/编辑/发布/归档前端原型的浏览器夹具，不连接后端、不写数据库。
 
 ## 运行
 
@@ -50,6 +50,14 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 编辑先读详情，PUT 只提交 title/body/opensAt/closesAt，不提交 bindingId；未修改时间保留原毫秒；
 - 详情已非草稿时关闭表单并刷新列表；编辑保存 403/409/503 保留提示；
 - 切班、关闭表单或离开页面后，迟到的编辑详情和新建响应不重开旧表单、不覆盖新列表；
+- 发布入口要求 DRAFT、`education:announcement:publish` 和 canPublish；归档入口要求 PUBLISHED、`education:announcement:archive` 和 canPublish；
+- 发布/归档确认文案分别说明开放时间生效和归档后学生不可见；
+- 取消确认、确认前切班或离开页面零写请求；提交中禁用确认，重复点击只发一次；
+- 发布/归档成功重拉列表并刷新仍打开的详情；重复发布/归档成功按幂等成功处理；
+- 发布失败区分 403/404/409/授权 503/通用 503，发布 503 保留失败提示并重读公告状态；
+- 发布 503 状态重读期间重试成功时，旧详情迟到响应不覆盖新状态；
+- 操作发出后切班或离开页面，迟到响应不覆盖新班级列表、详情或成功提示；
+- 大整数公告 ID 发布路径保持字符串；
 - 通知与公告详情弹窗打开聚焦、Esc 关闭、关闭后焦点归还触发按钮。
 
 ## 说明
@@ -57,6 +65,6 @@ npm install --no-save --no-package-lock playwright@1.65.1
 夹具通过 Playwright 路由提供 `/getInfo`、`/getRouters`、`/education/context/*`、
 `/education/student/notices*`、`/education/student/announcements*` 与
 `/education/teacher/announcements*` 响应。教师写请求由夹具分别记录 GET 列表、
-GET 详情、POST 创建和 PUT 编辑。生产环境仍需 `education:notice:list`、
-`education:announcement:list/add/edit` 权限和对应服务端路由；当前 `sys_menu`
-尚未配置。
+GET 详情、POST 创建、PUT 编辑、POST 发布和 POST 归档。生产环境仍需
+`education:notice:list`、`education:announcement:list/add/edit/publish/archive`
+权限和对应服务端路由；当前 `sys_menu` 尚未配置。

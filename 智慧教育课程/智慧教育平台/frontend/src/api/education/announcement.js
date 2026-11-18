@@ -188,3 +188,59 @@ export function updateTeacherAnnouncement(announcementId, payload = {}, options 
     signal: options.signal
   })
 }
+
+/**
+ * 发布教师公告草稿。
+ *
+ * 服务端在同一事务内把 DRAFT 更新为 PUBLISHED，并按当前在班学生生成
+ * ANNOUNCEMENT 通知；通知授权或写入失败会回滚发布并返回 503。前端不能把
+ * 503 当真成功，也不能自动重试：重新读取列表/详情确认状态后再决定操作。
+ * 已处于 PUBLISHED 时服务端幂等返回当前对象，不重复 fan-out；调用方按成功
+ * 处理并刷新列表即可。
+ *
+ * @param {string} announcementId 公告 ID 字符串，作为路径段编码
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: object}>} 发布后的公告对象
+ */
+export function publishTeacherAnnouncement(announcementId, options = {}) {
+  return teacherAnnouncementAction(announcementId, 'publish', options)
+}
+
+/**
+ * 归档教师已发布公告。
+ *
+ * 只允许 PUBLISHED → ARCHIVED；已处于 ARCHIVED 时服务端幂等返回当前对象。
+ * 草稿归档或真实并发冲突返回 409，不存在/跨绑定返回 404。后端没有乐观锁，
+ * 条件更新 0 行时会重新读取并区分幂等、非法状态和并发冲突；前端不发送版本号，
+ * 收到 409 只保留提示并重新读取公告状态。
+ *
+ * @param {string} announcementId 公告 ID 字符串，作为路径段编码
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: object}>} 归档后的公告对象
+ */
+export function archiveTeacherAnnouncement(announcementId, options = {}) {
+  return teacherAnnouncementAction(announcementId, 'archive', options)
+}
+
+/**
+ * 发布/归档共用的 POST 入口。
+ *
+ * 请求体为空，服务端不读取；公告 ID 保持字符串并编码，避免大整数精度丢失。
+ *
+ * @param {string} announcementId 公告 ID 字符串
+ * @param {'publish'|'archive'} action 动作
+ * @param {{signal?: AbortSignal}} options 取消信号
+ * @returns {Promise<{data: object}>} 操作后的公告对象
+ */
+function teacherAnnouncementAction(announcementId, action, options = {}) {
+  const id = String(announcementId ?? '')
+  if (!/^[1-9]\d*$/.test(id)) {
+    return Promise.reject(new Error('announcementId 必须为正整数字符串'))
+  }
+  return edu({
+    url: '/education/teacher/announcements/' + encodeURIComponent(id) + '/' + action,
+    method: 'post',
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
