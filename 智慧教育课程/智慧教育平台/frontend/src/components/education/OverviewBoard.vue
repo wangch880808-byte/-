@@ -1,20 +1,28 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { getStudentTodayTodos, getTeacherOverview, isPositiveLongString } from '@/api/education/overview'
+import {
+  getAdminOverview,
+  getAdminTodos,
+  getStudentTodayTodos,
+  getTeacherOverview,
+  isPositiveLongString
+} from '@/api/education/overview'
 
 /**
  * 教师/学生总览共享展示组件。
  *
- * 只消费 #24 当前返回的 10 个指标；按 metricCode 映射，绝不按数组下标。
- * 单卡契约违约只降级当前卡片，顶层响应异常才显示整页错误。身份和权限由
- * Vue 路由守卫、canOpen 和服务端 @PreAuthorize 负责，本组件不补发身份、
- * 班级或组织参数。
+ * 消费 #24 当前返回的教师、学生和管理员指标；按 metricCode 映射，绝不按
+ * 数组下标。单卡契约违约只降级当前卡片，顶层响应异常才显示整页错误。
+ * 身份和权限由 Vue 路由守卫、canOpen 和服务端 @PreAuthorize 负责，本组件
+ * 不补发身份、班级或组织参数。
  */
 
 const props = defineProps({
   /**
    * 页面配置：endpoint、timeFilter、classFilter、groups、metrics。
-   * metrics[].code 必须与后端 metricCode 完全一致。
+   * endpoint 必须命中明确的端点映射；metrics[].code 必须与后端 metricCode
+   * 完全一致。管理员待办可额外声明 requireNoData/expectedSource/
+   * requireNullActionPath/requireNullSampleCount。
    */
   config: { type: Object, required: true }
 })
@@ -27,7 +35,8 @@ const SOURCE_LABEL = {
   classroom: '课堂',
   assignment: '任务',
   grade: '成绩',
-  notice: '通知'
+  notice: '通知',
+  pending_product_confirmation: '产品待确认'
 }
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/
 
@@ -50,7 +59,16 @@ let requestSeq = 0
 let controller = null
 let disposed = false
 
-const loader = props.config.endpoint === 'teacher' ? getTeacherOverview : getStudentTodayTodos
+const ENDPOINT_LOADERS = Object.freeze({
+  teacher: getTeacherOverview,
+  student: getStudentTodayTodos,
+  admin: getAdminOverview,
+  adminTodos: getAdminTodos
+})
+// 不使用三元表达式或默认学生端点：未知 endpoint 必须停止请求，避免把
+// 管理员配置误发到学生接口。
+const loader = ENDPOINT_LOADERS[props.config?.endpoint]
+
 
 const hasCustomWindow = computed(() => Boolean(appliedFrom.value && appliedTo.value))
 const windowHint = computed(() => hasCustomWindow.value
@@ -230,6 +248,12 @@ function refresh() {
  */
 async function load() {
   if (disposed) return
+  if (typeof loader !== 'function') {
+    invalidateRequest()
+    pageState.value = 'contract-error'
+    pageMessage.value = `未知总览端点：${props.config?.endpoint || '（空）'}，已停止请求。`
+    return
+  }
   const problem = validateFilters(appliedFrom.value, appliedTo.value, appliedClassId.value)
   if (problem) {
     filterError.value = problem
@@ -372,6 +396,18 @@ function normalizeMetric(metric, raw) {
   }
   if (typeof raw.source !== 'string' || raw.source !== metric.source) {
     return contractRow(metric, 'source 与页面配置不一致')
+  }
+  if (props.config.requireNoData && raw.status !== STATUS_NO_DATA) {
+    return contractRow(metric, '管理员待办当前只接受 NO_DATA')
+  }
+  if (props.config.expectedSource && raw.source !== props.config.expectedSource) {
+    return contractRow(metric, '来源不符合当前契约')
+  }
+  if (props.config.requireNullActionPath && raw.actionPath !== null) {
+    return contractRow(metric, '管理员待办 actionPath 必须为 null')
+  }
+  if (props.config.requireNullSampleCount && raw.sampleCount !== null) {
+    return contractRow(metric, '管理员待办 sampleCount 必须为 null')
   }
   return {
     config: metric,
