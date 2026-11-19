@@ -7,9 +7,12 @@
  *   OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
  */
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { chromium } from 'playwright'
 
 const BASE = process.env.OVERVIEW_TEST_BASE || 'http://127.0.0.1:4174'
+const SCREENSHOT_DIR = process.env.OVERVIEW_SCREENSHOT_DIR || ''
 const ROLE_COOKIE = 'Edu-Role'
 const TOKEN_COOKIE = 'Admin-Token'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -215,7 +218,10 @@ async function installFixture(page, options = {}) {
 }
 
 async function newContext(browser, role) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    timezoneId: 'Asia/Shanghai'
+  })
   await context.addCookies([
     { name: TOKEN_COOKIE, value: 'fixture-token', url: BASE },
     { name: ROLE_COOKIE, value: role, url: BASE }
@@ -225,6 +231,12 @@ async function newContext(browser, role) {
 
 async function openHash(page, hash) {
   await page.goto(`${BASE}/vue/#${hash}`, { waitUntil: 'domcontentloaded' })
+}
+
+async function takeScreenshot(page, filename) {
+  if (!SCREENSHOT_DIR) return
+  fs.mkdirSync(SCREENSHOT_DIR, { recursive: true })
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, filename), fullPage: true })
 }
 
 async function board(page) {
@@ -267,7 +279,7 @@ await run('教师工作台入口显示 6 个指标且不发送班级或身份参
   assert.match(await page.locator('.ov-window').innerText(), /课堂、作业指标/)
   assert.match(await page.locator('.ov-meta').innerText(), /响应时间/)
   await page.setViewportSize({ width: 1280, height: 1800 })
-  await page.screenshot({ path: 'G:/AI临时文件/6-03-overview-teacher.png', fullPage: true })
+  await takeScreenshot(page, '6-03-overview-teacher.png')
   await context.close()
 })
 
@@ -285,7 +297,7 @@ await run('学生工作台入口显示 4 个指标且只发送空查询', async 
   assert.equal(Object.hasOwn(requests[0].query, 'classId'), false)
   assert.equal(Object.hasOwn(requests[0].query, 'bindingId'), false)
   await page.setViewportSize({ width: 1280, height: 1600 })
-  await page.screenshot({ path: 'G:/AI临时文件/6-03-overview-student.png', fullPage: true })
+  await takeScreenshot(page, '6-03-overview-student.png')
   await context.close()
 })
 
@@ -394,6 +406,40 @@ await run('教师 classId 保持字符串和大整数，不发送 bindingId', as
   await context.close()
 })
 
+await run('教师 classId Long 上界、溢出和格式边界按字符串校验', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/teacher?section=overview')
+  await board(page)
+  const input = page.locator('#overview-class-id')
+  const apply = page.getByRole('button', { name: '应用筛选' })
+
+  const validMax = '9223372036854775807'
+  const maxRequest = page.waitForRequest(request => request.url().includes('classId=' + validMax), { timeout: 10000 })
+  await input.fill(validMax)
+  await apply.click()
+  await maxRequest
+  assert.equal(requests.filter(item => item.kind === 'teacher').at(-1).query.classId, validMax)
+
+  const afterMax = requests.length
+  for (const value of ['9223372036854775808', '9'.repeat(30), '0', '-1', 'abc']) {
+    await input.fill(value)
+    await apply.click()
+    await page.waitForFunction(() => document.querySelector('.ov-filter-error')?.textContent.includes('Long'), null, { timeout: 2000 })
+    await page.waitForTimeout(100)
+    assert.equal(requests.length, afterMax, value)
+  }
+
+  const normalLarge = '820000000000000001'
+  const largeRequest = page.waitForRequest(request => request.url().includes('classId=' + normalLarge), { timeout: 10000 })
+  await input.fill(normalLarge)
+  await apply.click()
+  await largeRequest
+  assert.equal(requests.filter(item => item.kind === 'teacher').at(-1).query.classId, normalLarge)
+  await context.close()
+})
+
 await run('学生筛选只发送 from/to，不携带班级或身份参数', async () => {
   const context = await newContext(browser, 'student')
   const page = await context.newPage()
@@ -406,8 +452,8 @@ await run('学生筛选只发送 from/to，不携带班级或身份参数', asyn
   await page.waitForTimeout(250)
   const filtered = requests.filter(item => item.kind === 'student').at(-1)
   assert.deepEqual(Object.keys(filtered.query).sort(), ['from', 'to'])
-  assert.equal(filtered.query.from, new Date('2026-11-19T09:00').toISOString())
-  assert.equal(filtered.query.to, new Date('2026-11-19T11:00').toISOString())
+  assert.equal(filtered.query.from, '2026-11-19T01:00:00.000Z')
+  assert.equal(filtered.query.to, '2026-11-19T03:00:00.000Z')
   await context.close()
 })
 
@@ -432,8 +478,8 @@ await run('时间筛选成对校验、顺序校验和 UTC 转换，非法输入�
   await page.getByRole('button', { name: '应用筛选' }).click()
   await page.waitForTimeout(250)
   const filtered = requests.filter(item => item.kind === 'teacher').at(-1)
-  assert.equal(filtered.query.from, new Date('2026-11-19T09:00').toISOString())
-  assert.equal(filtered.query.to, new Date('2026-11-19T11:00').toISOString())
+  assert.equal(filtered.query.from, '2026-11-19T01:00:00.000Z')
+  assert.equal(filtered.query.to, '2026-11-19T03:00:00.000Z')
   await context.close()
 })
 
@@ -481,6 +527,24 @@ await run('单卡缺项、重复、非法值、单位或来源违约只降级对
   await context.close()
 })
 
+await run('混合响应仅一张卡片违约时其余合法卡片保持正常', async () => {
+  const items = teacherItems()
+  const grade = items.find(item => item.metricCode === 'teacher.grade.pending')
+  grade.unit = 'PERCENT'
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, { teacherResponse: response(items) })
+  await openHash(page, '/teacher?section=overview')
+  await board(page)
+  assert.equal(await page.locator('.ov-card').count(), 6)
+  assert.equal(await page.locator('.ov-card .ov-state-text.error').count(), 1)
+  assert.match(await card(page, 'teacher.grade.pending').innerText(), /数据异常/)
+  assert.equal(await card(page, 'teacher.class.count').locator('.ov-value strong').innerText(), '3')
+  assert.match(await card(page, 'teacher.student.count').innerText(), /正常/)
+  assert.match(await page.locator('.ov-summary').innerText(), /5 正常/)
+  await context.close()
+})
+
 await run('顶层响应 data、items、asOf 或 window 异常显示响应异常', async () => {
   const cases = [
     { code: 200, msg: '操作成功', data: null },
@@ -498,6 +562,57 @@ await run('顶层响应 data、items、asOf 或 window 异常显示响应异常'
     assert.equal(await page.locator('.ov-card').count(), 0)
     await context.close()
   }
+})
+
+await run('非法日历 asOf 和窗口字段分别显示响应异常，不自动归一化', async () => {
+  const cases = [
+    { asOf: '2026-02-30T06:00:00Z', window: WINDOW },
+    { asOf: AS_OF, window: { startsAt: '2026-02-30T00:00:00Z', endsAt: WINDOW.endsAt } },
+    { asOf: AS_OF, window: { startsAt: WINDOW.startsAt, endsAt: '2026-02-30T00:00:00Z' } }
+  ]
+  for (const item of cases) {
+    const context = await newContext(browser, 'teacher')
+    const page = await context.newPage()
+    await installFixture(page, {
+      teacherResponse: {
+        code: 200,
+        msg: '操作成功',
+        data: { asOf: item.asOf, window: item.window, items: teacherItems() }
+      }
+    })
+    await openHash(page, '/teacher?section=overview')
+    await page.waitForSelector('.ov-state.error', { timeout: 2000 })
+    assert.match(await page.locator('.ov-state.error').innerText(), /总览响应异常/)
+    assert.equal(await page.locator('.ov-card').count(), 0)
+    assert.doesNotMatch(await page.locator('body').innerText(), /2026-03-02/)
+    await context.close()
+  }
+})
+
+await run('合法闰日、Z/偏移和不同小数秒精度仍可展示', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, {
+    teacherResponse: {
+      code: 200,
+      msg: '操作成功',
+      data: {
+        asOf: '2028-02-29T23:59:59.123456+08:00',
+        window: {
+          startsAt: '2028-02-29T00:00:00.123Z',
+          endsAt: '2028-03-01T00:00:00.123456789Z'
+        },
+        items: teacherItems()
+      }
+    }
+  })
+  await openHash(page, '/teacher?section=overview')
+  await board(page)
+  assert.equal(await page.locator('.ov-card').count(), 6)
+  assert.match(await page.locator('.ov-meta').innerText(), /响应时间/)
+  assert.match(await page.locator('.ov-window').innerText(), /统计窗口/)
+  assert.equal(await page.locator('.ov-state.error').count(), 0)
+  await context.close()
 })
 
 await run('403 清除旧数据并展示无权限', async () => {
@@ -657,7 +772,7 @@ await run('390px 总览单列无横向溢出，离开后页面恢复', async () 
   })
   assert.ok(overflow.boardScrollWidth <= overflow.boardClientWidth + 1, JSON.stringify(overflow))
   assert.ok(overflow.documentScrollWidth <= overflow.documentClientWidth + 1, JSON.stringify(overflow))
-  await page.screenshot({ path: 'G:/AI临时文件/6-03-overview-teacher-390.png', fullPage: true })
+  await takeScreenshot(page, '6-03-overview-teacher-390.png')
   await page.evaluate(() => { location.hash = '#/teacher/profile' })
   await page.waitForFunction(() => document.querySelector('.overview-board') === null, null, { timeout: 10000 })
   assert.equal(await page.locator('.app-shell').count(), 1)

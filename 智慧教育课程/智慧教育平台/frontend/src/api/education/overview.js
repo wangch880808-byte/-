@@ -32,19 +32,50 @@ function buildWindow(query) {
   return { from, to }
 }
 
+const CLASS_ID_MAX = '9223372036854775807'
+
+/**
+ * 判断是否为不超过 Long.MAX_VALUE 的正整数字符串。
+ *
+ * 使用十进制字符串长度和同长度字典序比较，不经过 Number/parseInt，避免
+ * 19 位 Long 在 JavaScript 中被舍入后再误判为合法。Long.MAX_VALUE 为
+ * 9223372036854775807，19 位；更短的正整数必然不大于它。
+ *
+ * @param {string} value 待校验字符串
+ * @returns {boolean} 是否为正 Long 范围内字符串
+ */
+export function isPositiveLongString(value) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return false
+  if (value.length !== 19) return value.length < 19
+  return value <= CLASS_ID_MAX
+}
+
 /**
  * 校验教师 classId。
  *
- * 只接受正整数字符串，保留原始字符串，避免超过 Number.MAX_SAFE_INTEGER 的
- * Long 精度损失。空值表示查询全部授权教学班，不把 bindingId 当 classId。
+ * 字符串保持原样，避免超过 Number.MAX_SAFE_INTEGER 的 Long 精度损失。
+ * number 入参只接受安全正整数，拒绝已舍入的非安全整数；空值表示查询全部
+ * 授权教学班，不把 bindingId 当 classId。
  *
  * @param {string|number|undefined|null} value 原始 classId
- * @returns {string} 空串或正整数字符串
+ * @returns {string} 空串或 Long 范围内正整数字符串
+ * @throws {Error} classId 格式或 Long 上界非法
  */
 function normalizeClassId(value) {
-  const classId = value === undefined || value === null ? '' : String(value)
-  if (classId && !/^[1-9]\d*$/.test(classId)) {
-    throw new Error('classId 必须是正整数字符串')
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error('classId 必须是安全正整数或正 Long 字符串')
+    }
+    const fromNumber = String(value)
+    if (!isPositiveLongString(fromNumber)) {
+      throw new Error('classId 必须是正 Long 字符串，最大 9223372036854775807')
+    }
+    return fromNumber
+  }
+  const classId = String(value)
+  if (classId && !isPositiveLongString(classId)) {
+    throw new Error('classId 必须是正 Long 字符串，最大 9223372036854775807')
   }
   return classId
 }

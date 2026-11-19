@@ -13,6 +13,15 @@ NOTICE_TEST_BASE=http://127.0.0.1:4174 node tests/notice-vue.spec.mjs
 OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
 ```
 
+总览截图默认跳过。需要留档时设置仓库外目录：
+
+```bash
+OVERVIEW_SCREENSHOT_DIR="$HOME/overview-shots" OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
+```
+
+截图目录由 `OVERVIEW_SCREENSHOT_DIR` 决定，不依赖固定盘符。浏览器上下文固定
+`timezoneId: 'Asia/Shanghai'`；输入和显示按本机时区，请求中的 `from/to` 转为 UTC。
+
 `playwright` 使用本机 Edge 通道；未写入 `package.json`，按需临时安装：
 
 ```bash
@@ -67,6 +76,9 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 教师仅发送 from/to/可选字符串 classId，学生仅发送 from/to，不携带身份或班级上下文；
 - 默认服务端窗口、from/to 成对/顺序校验、UTC 转换、筛选乱序和排队后失效；
 - 401 登录跳转，403 清除旧数据并提示无权限，网络/业务错误和刷新失败不保留旧值；
+- classId 以 Long 字符串边界校验，Long.MAX_VALUE 合法，MAX+1/超长/0/负数/非法格式零请求；
+- asOf、window.startsAt、window.endsAt 校验真实日历日期，非法日期不因 Date.parse 归一化而显示；
+- 合法闰日、Z、偏移和不同小数秒精度可展示；单卡违约不影响其余合法卡片；
 - 390px 总览单列无横向溢出，离开总览后页面恢复。
 
 ## 说明

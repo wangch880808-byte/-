@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { getStudentTodayTodos, getTeacherOverview } from '@/api/education/overview'
+import { getStudentTodayTodos, getTeacherOverview, isPositiveLongString } from '@/api/education/overview'
 
 /**
  * 教师/学生总览共享展示组件。
@@ -29,7 +29,7 @@ const SOURCE_LABEL = {
   grade: '成绩',
   notice: '通知'
 }
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/
 
 const draftFrom = ref('')
 const draftTo = ref('')
@@ -74,10 +74,56 @@ function isNonNegativeInteger(value) {
     && Math.floor(value) === value && value >= 0
 }
 
-function isRfc3339(value) {
-  return typeof value === 'string' && RFC3339.test(value) && !Number.isNaN(Date.parse(value))
+function isLeapYear(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
 }
 
+function daysInMonth(year, month) {
+  const days = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  return days[month - 1] || 0
+}
+
+/**
+ * 校验 RFC3339 时间并验证真实日历日期。
+ *
+ * Date.parse 会把 2026-02-30 归一化为 3 月 2 日，因此必须先按年月日、
+ * 时分秒和偏移逐项校验，再交给 Date 做最终解析。支持 Z、合法偏移、
+ * 闰日和 0-9 位小数秒；不硬编码三位毫秒。
+ *
+ * @param {*} value 响应中的时间字符串
+ * @returns {boolean} 是否为合法 RFC3339 日历时间
+ */
+function isRfc3339(value) {
+  if (typeof value !== 'string') return false
+  const match = RFC3339.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6])
+  const offset = match[8]
+  if (month < 1 || month > 12) return false
+  if (day < 1 || day > daysInMonth(year, month)) return false
+  if (hour > 23 || minute > 59 || second > 59) return false
+  if (offset !== 'Z') {
+    const offsetHour = Number(offset.slice(1, 3))
+    const offsetMinute = Number(offset.slice(4, 6))
+    if (offsetHour > 23 || offsetMinute > 59) return false
+  }
+  return !Number.isNaN(Date.parse(value))
+}
+
+/**
+ * 将服务端 UTC 时间按本机时区显示。
+ *
+ * 输入仍按本机时区的 datetime-local 读取，请求前 buildQuery 转成 UTC；
+ * 服务端默认窗口口径仍是 UTC 自然日，不在前端改写。
+ *
+ * @param {string} value 服务端 RFC3339 时间
+ * @returns {string} 本机时区的显示时间
+ */
 function formatTime(value) {
   if (!value) return '—'
   const date = new Date(value)
@@ -109,8 +155,8 @@ function validateFilters(from, to, classId) {
       return '结束时间必须晚于开始时间。'
     }
   }
-  if (props.config.classFilter && classId && !/^[1-9]\d*$/.test(classId)) {
-    return 'classId 必须是正整数字符串；它表示教学班 ID，不是 bindingId。'
+  if (props.config.classFilter && classId && !isPositiveLongString(classId)) {
+    return 'classId 必须是正 Long 字符串，最大 9223372036854775807；它表示教学班 ID，不是 bindingId。'
   }
   return ''
 }
