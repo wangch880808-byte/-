@@ -141,7 +141,10 @@ async function newContext(browser) {
     viewport: { width: 1280, height: 900 },
     timezoneId: 'Asia/Shanghai'
   })
-  await context.addCookies([{ name: 'Edu-Role', value: 'admin', url: ORIGIN }])
+  await context.addCookies([
+    { name: 'Edu-Role', value: 'admin', url: ORIGIN },
+    { name: 'Admin-Token', value: 'fixture-token', url: ORIGIN }
+  ])
   return context
 }
 
@@ -155,6 +158,24 @@ async function board(page) {
 
 function card(page, code) {
   return page.locator(`.ov-card[data-metric="${code}"]`)
+}
+
+/**
+ * 等待具体页面状态出现。
+ *
+ * 错误夹具故意延迟 700ms；不能只等 400ms 后看“没有卡片”就通过，否则加载中
+ * 也会误判成功。这里等待可见状态及其文案，状态未到达就会超时失败。
+ *
+ * @param {import('playwright').Page} page 浏览器页面
+ * @param {string} selector 状态节点选择器
+ * @param {RegExp} pattern 期望文案
+ * @returns {Promise<void>} 状态出现
+ */
+async function waitForStateText(page, selector, pattern) {
+  await page.waitForFunction(({ selector, source }) => {
+    const node = document.querySelector(selector)
+    return Boolean(node && new RegExp(source).test(node.textContent || ''))
+  }, { selector, source: pattern.source }, { timeout: 10000 })
 }
 
 async function takeScreenshot(page, filename) {
@@ -311,29 +332,65 @@ await run('管理员待办非法来源、value、actionPath、状态和 sampleCo
   }
 })
 
-await run('管理员待办顶层异常、401、403、503 和网络失败不落入固定空态', async () => {
+await run('管理员待办顶层异常、401、403、503 和网络失败等待具体结果', async () => {
   const cases = [
-    { label: '顶层异常', response: { code: 200, msg: '操作成功', data: null } },
-    { label: '401', response: { code: 401, msg: '登录已过期' } },
-    { label: '403', response: { code: 403, msg: '无权查看管理员待办' } },
-    { label: '503', response: { code: 503, msg: '服务暂不可用' } }
+    {
+      label: '顶层异常',
+      response: { code: 200, msg: '操作成功', data: null },
+      selector: '.ov-state.error',
+      text: /总览响应异常/
+    },
+    {
+      label: '403',
+      response: { code: 403, msg: '无权查看管理员待办' },
+      selector: '.ov-state.error',
+      text: /无权查看该总览/
+    },
+    {
+      label: '503',
+      response: { code: 503, msg: '服务暂不可用' },
+      selector: '.ov-state.warn',
+      text: /总览暂不可用/
+    }
   ]
   for (const item of cases) {
     const context = await newContext(browser)
     const page = await context.newPage()
-    await installFixture(page, { todosResponse: item.response })
+    const requests = await installFixture(page, {
+      todosResponse: item.response,
+      todosDelay: 700
+    })
     await openView(page, 'todos')
-    await page.waitForTimeout(400)
+    await waitForStateText(page, item.selector, item.text)
+    assert.equal(requests.length, 1, item.label + ' 应已发出请求')
     assert.equal(await page.locator('.ov-card').count(), 0, item.label)
     assert.doesNotMatch(await page.locator('body').innerText(), /待办口径待确认/, item.label)
     await context.close()
   }
 
+  const authContext = await newContext(browser)
+  const authPage = await authContext.newPage()
+  const authRequests = await installFixture(authPage, {
+    todosResponse: { code: 401, msg: '登录已过期' },
+    todosDelay: 700
+  })
+  await openView(authPage, 'todos')
+  // 401 由统一客户端处理：等待登录跳转意图，并确认本地令牌被清除。
+  await authPage.waitForFunction(() => location.hash.includes('/login'), null, { timeout: 10000 })
+  const cookies = await authContext.cookies()
+  assert.equal(cookies.some(cookie => cookie.name === 'Admin-Token'), false)
+  assert.equal(authRequests.length, 1)
+  assert.equal(await authPage.locator('.ov-card').count(), 0)
+  assert.doesNotMatch(await authPage.locator('body').innerText(), /待办口径待确认/)
+  await authContext.close()
+
   const context = await newContext(browser)
   const page = await context.newPage()
-  await installFixture(page, { todosAbort: 'failed' })
+  const requests = await installFixture(page, { todosDelay: 700, todosAbort: 'failed' })
   await openView(page, 'todos')
-  await page.waitForSelector('.ov-state.error', { timeout: 15000 })
+  await waitForStateText(page, '.ov-state.error', /网络异常/)
+  assert.equal(requests.length, 1)
+  assert.equal(await page.locator('.ov-card').count(), 0)
   assert.doesNotMatch(await page.locator('body').innerText(), /待办口径待确认/)
   await context.close()
 })

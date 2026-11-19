@@ -74,16 +74,18 @@ ADMIN_OVERVIEW_BASE=http://127.0.0.1:4175/tests/admin-overview.html \
 
 - 权限编码 `education:overview:admin` 已被 #24 `@PreAuthorize` 使用。
 - serviceRoute 候选：`education/admin/overview`、`education/admin/todos`。
-- `sys_menu`、角色授权和 `getRouters` 尚未配置，需第 1 组/负责人确认。
+- `sys_menu`、管理员角色授权和 `getRouters` 尚未配置，需第 1 组/负责人确认。
 
 ### 管理员路由守卫循环风险
 
-`frontend/src/permission.js` 当前会把管理员首页导向 `/admin/overview`。如果先注册管理员总览页面但 `canOpen` 为 false，守卫会再次导向 `/admin?denied=1`，可能形成重定向循环。接入生产页面前必须完成以下之一：
+`frontend/src/permission.js` 当前会把管理员首页导向 `/admin/overview`。如果先注册管理员总览页面但 `canOpen` 为 false，守卫会再次导向 `/admin?denied=1`，可能形成重定向循环。
 
-1. 第 1 组先配置权限和 `getRouters`，确保 `canOpen` 成功；或
-2. 修改管理员 denied/占位处理，确认不会循环后，再由公共外壳负责人复审。
+生产接入必须同时满足：
 
-本轮不替换 `BlankAdminView` 占位，不注册 `/admin/overview`、`/admin/todos`。
+1. 菜单、管理员角色授权和 `getRouters` 配置正确；
+2. `canOpen=false` 时拒绝路径不循环，覆盖缺权限、权限撤销、缺服务端路由等情况，并经公共外壳负责人复审。
+
+权限齐全时能进入页面，不能证明拒绝路径正确。本轮不修守卫、不替换 `BlankAdminView` 占位，也不注册 `/admin/overview`、`/admin/todos`。
 
 ### 适配器和联调
 
@@ -96,7 +98,7 @@ ADMIN_OVERVIEW_BASE=http://127.0.0.1:4175/tests/admin-overview.html \
 
 TODO(6-03-admin-route)：生产菜单、权限和 getRouters 尚未配置，且管理员 denied 守卫存在循环风险。解除条件：
 
-1. 第 1 组写入 `education:overview:admin` 菜单和角色授权；
+1. 第 1 组写入 `education:overview:admin` 管理员菜单和管理员角色授权；
 2. `getRouters` 返回 `education/admin/overview`、`education/admin/todos`；
 3. 管理员 denied/占位路由不循环，并由公共外壳负责人复审；
 4. 删除浏览器夹具补丁后，再注册生产页面。
