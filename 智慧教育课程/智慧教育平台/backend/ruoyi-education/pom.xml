@@ -16,6 +16,11 @@
     </description>
 
     <dependencies>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.3</version>
+        </dependency>
         <!-- 通用工具、身份上下文 -->
         <dependency>
             <groupId>com.ruoyi</groupId>
