@@ -20,6 +20,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.education.group3.contract.PreviewSubmissionHandler;
 import com.ruoyi.education.group3.contract.PreviewTaskProvider;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
+import com.ruoyi.education.group3.support.Group3Constants;
 import com.ruoyi.education.group3.support.Group3Requests;
 import com.ruoyi.education.group3.support.Group3Security;
 import com.ruoyi.education.group3.support.Group3Time;
@@ -83,7 +84,8 @@ public class Group3PrepareService implements PreviewTaskProvider
         Map<String, Object> version = insertQuestionVersion(
                 questionId, courseSpaceId, 1, request.questionKind(), request.stem(),
                 request.options(), request.answer(), request.explanation(),
-                request.scoringRubric(), request.maxScore());
+                request.scoringRubric(), request.maxScore(),
+                request.difficulty(), request.tags());
         linkKnowledgePoints(questionId, courseSpaceId, request.knowledgePointIds());
         version.put("questionId", questionId);
         version.put("title", title);
@@ -110,7 +112,8 @@ public class Group3PrepareService implements PreviewTaskProvider
         Map<String, Object> version = insertQuestionVersion(
                 questionId, courseSpaceId, versionNo, request.questionKind(), request.stem(),
                 request.options(), request.answer(), request.explanation(),
-                request.scoringRubric(), request.maxScore());
+                request.scoringRubric(), request.maxScore(),
+                request.difficulty(), request.tags());
         linkKnowledgePoints(questionId, courseSpaceId, request.knowledgePointIds());
         version.put("questionId", questionId);
         version.put("title", existing.get("title"));
@@ -289,7 +292,8 @@ public class Group3PrepareService implements PreviewTaskProvider
             Group3Requests.ReleaseResource release = new Group3Requests.ReleaseResource(
                     request.bindingId(), versionId,
                     opensAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                    closesAt.toInstant(java.time.ZoneOffset.UTC).toString());
+                    closesAt.toInstant(java.time.ZoneOffset.UTC).toString(),
+                    Group3Constants.RELEASE_PREPARE);
             resourceService.release(release);
         }
 
@@ -410,7 +414,8 @@ public class Group3PrepareService implements PreviewTaskProvider
                 Group3AccessService.asLong(task.get("targetId")));
         task.put("submitted", submission != null);
         task.put("submission", submission);
-        task.put("resources", resourceService.studentMaterials(bindingId));
+        // 预习详情只附带课前准备发布的资料，避免把课程建设资料越界带入课前学习。
+        task.put("resources", resourceService.studentPrepMaterials(bindingId));
         task.remove("opensAtRaw");
         task.remove("closesAtRaw");
         task.remove("answerOpensAtRaw");
@@ -487,7 +492,9 @@ public class Group3PrepareService implements PreviewTaskProvider
             JsonNode answer,
             String explanation,
             String scoringRubric,
-            BigDecimal maxScore)
+            BigDecimal maxScore,
+            String difficulty,
+            String tags)
     {
         String normalizedKind = questionKind == null ? null : questionKind.toUpperCase();
         Map<String, Object> row = new LinkedHashMap<>();
@@ -499,6 +506,8 @@ public class Group3PrepareService implements PreviewTaskProvider
         row.put("answerJson", toJson(answer));
         row.put("explanation", explanation == null ? "" : explanation.trim());
         row.put("rubricJson", serializeScoringRubric(scoringRubric, normalizedKind));
+        row.put("difficulty", normalizeDifficulty(difficulty));
+        row.put("tags", tags == null || tags.isBlank() ? null : tags.trim());
         row.put("maxScore", maxScore);
         row.put("userId", Group3Security.currentUserId());
         mapper.insertQuestionVersion(row);
@@ -508,7 +517,87 @@ public class Group3PrepareService implements PreviewTaskProvider
         row.put("options", options);
         row.put("answer", answer);
         row.put("answerVisible", true);
+        row.put("difficulty", normalizeDifficulty(difficulty));
+        row.put("tags", tags == null || tags.isBlank() ? null : tags.trim());
         return row;
+    }
+
+    private String normalizeDifficulty(String difficulty)
+    {
+        if (difficulty == null || difficulty.isBlank())
+        {
+            return "MEDIUM";
+        }
+        String value = difficulty.trim().toUpperCase();
+        if (!Set.of("EASY", "MEDIUM", "HARD").contains(value))
+        {
+            throw new ServiceException("难度取值无效", HttpStatus.BAD_REQUEST);
+        }
+        return value;
+    }
+
+    /** 组卷：按条件从当前教学班课程题库抽题，返回题目明细供教师编排，不落库。 */
+    public Map<String, Object> composePaper(Group3Requests.ComposePaper request)
+    {
+        if (request == null || request.bindingId() == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        Map<String, Object> binding = accessService.requireTeacherBinding(request.bindingId());
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+
+        int count = request.count() == null ? 10 : request.count();
+        if (count < 1 || count > 100)
+        {
+            throw new ServiceException("组卷题量须在 1 到 100 之间", HttpStatus.BAD_REQUEST);
+        }
+        String mode = request.mode() == null ? "" : request.mode().trim().toUpperCase();
+        if (!mode.isEmpty() && !Set.of("RANDOM", "SEQUENTIAL").contains(mode))
+        {
+            throw new ServiceException("组卷方式无效", HttpStatus.BAD_REQUEST);
+        }
+        String difficulty = request.difficulty() == null || request.difficulty().isBlank()
+                ? null : normalizeDifficulty(request.difficulty());
+        String questionKind = request.questionKind() == null || request.questionKind().isBlank()
+                ? null : request.questionKind().trim().toUpperCase();
+        if (questionKind != null && !Set.of("SINGLE", "MULTIPLE", "TRUE_FALSE", "SHORT_TEXT").contains(questionKind))
+        {
+            throw new ServiceException("题型无效", HttpStatus.BAD_REQUEST);
+        }
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("courseSpaceId", courseSpaceId);
+        row.put("questionKind", questionKind);
+        row.put("difficulty", difficulty);
+        row.put("knowledgePoint", request.knowledgePoint() == null || request.knowledgePoint().isBlank()
+                ? null : request.knowledgePoint().trim());
+        row.put("tag", request.tag() == null || request.tag().isBlank() ? null : request.tag().trim());
+        row.put("mode", mode);
+        row.put("count", count);
+
+        List<Map<String, Object>> questions = mapper.selectQuestionsForCompose(row);
+        questions.forEach(question -> {
+            parseJsonField(question, "optionsJson", "options");
+            parseJsonField(question, "answerJson", "answer");
+        });
+        BigDecimal totalScore = BigDecimal.ZERO;
+        for (Map<String, Object> question : questions)
+        {
+            Object score = question.get("maxScore");
+            if (score instanceof BigDecimal value)
+            {
+                totalScore = totalScore.add(value);
+            }
+            else if (score != null)
+            {
+                totalScore = totalScore.add(new BigDecimal(score.toString()));
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("questions", questions);
+        result.put("count", questions.size());
+        result.put("totalScore", totalScore);
+        return result;
     }
 
     private String serializeScoringRubric(String scoringRubric, String normalizedKind)

@@ -25,8 +25,11 @@ import com.ruoyi.education.course.api.EduClassBindingRef;
 import com.ruoyi.education.course.api.EduClassMembership;
 import com.ruoyi.education.course.api.EduClassRef;
 import com.ruoyi.education.course.api.EduCourseAccessService;
-import com.ruoyi.education.course.api.EduCourseRef;
+import com.ruoyi.education.domain.EduTerm;
+import com.ruoyi.education.exception.EduForbiddenException;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
+import com.ruoyi.education.service.IEduPortalService;
+import com.ruoyi.education.service.IEduTermService;
 
 class Group3AccessServiceTest
 {
@@ -37,6 +40,7 @@ class Group3AccessServiceTest
 
     private Group3Mapper mapper;
     private EduCourseAccessService access;
+    private IEduPortalService portal;
     private Group3AccessService service;
 
     @BeforeEach
@@ -44,7 +48,13 @@ class Group3AccessServiceTest
     {
         mapper = mock(Group3Mapper.class);
         access = mock(EduCourseAccessService.class);
-        service = new Group3AccessService(mapper, access);
+        portal = mock(IEduPortalService.class);
+        IEduTermService terms = mock(IEduTermService.class);
+        EduTerm term = new EduTerm();
+        term.setStartsOn(java.sql.Date.valueOf("2026-09-01"));
+        term.setEndsOn(java.sql.Date.valueOf("2027-01-15"));
+        when(terms.getById(5001L)).thenReturn(term);
+        service = new Group3AccessService(mapper, access, portal, terms);
     }
 
     @AfterEach
@@ -61,7 +71,7 @@ class Group3AccessServiceTest
         when(access.classesOfTeacher(USER_ID)).thenReturn(List.of(openClass));
         when(access.activeBindings(CLASS_ID)).thenReturn(List.of(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null)));
         when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, true));
-        when(access.courseRef(COURSE_ID)).thenReturn(courseRef());
+        when(portal.courseList(null)).thenReturn(List.of(course()));
 
         List<Map<String, Object>> contexts = service.contexts();
 
@@ -90,20 +100,19 @@ class Group3AccessServiceTest
     void requireTeacherBindingForbiddenWhenCannotPublish()
     {
         authenticate("teacher");
-        when(access.binding(BINDING_ID)).thenReturn(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null));
+        stubBinding(true);
         when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, false));
 
-        assertThrows(ServiceException.class, () -> service.requireTeacherBinding(BINDING_ID));
+        assertThrows(EduForbiddenException.class, () -> service.requireTeacherBinding(BINDING_ID));
     }
 
     @Test
     void requireTeacherBindingReturnsMapWhenAuthorized()
     {
         authenticate("teacher");
-        when(access.binding(BINDING_ID)).thenReturn(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null));
+        stubBinding(true);
         when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, true));
-        when(access.requireClass(CLASS_ID)).thenReturn(classRef(true));
-        when(access.courseRef(COURSE_ID)).thenReturn(courseRef());
+        when(portal.courseDetail(COURSE_ID)).thenReturn(course());
 
         Map<String, Object> binding = service.requireTeacherBinding(BINDING_ID);
 
@@ -118,20 +127,19 @@ class Group3AccessServiceTest
     void requireStudentBindingForbiddenWhenNotInClass()
     {
         authenticate("student");
-        when(access.binding(BINDING_ID)).thenReturn(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null));
+        stubBinding(false);
         when(access.isActiveStudent(CLASS_ID, USER_ID)).thenReturn(false);
 
-        assertThrows(ServiceException.class, () -> service.requireStudentBinding(BINDING_ID));
+        assertThrows(EduForbiddenException.class, () -> service.requireStudentBinding(BINDING_ID));
     }
 
     @Test
     void requireStudentBindingReturnsMapWhenInClass()
     {
         authenticate("student");
-        when(access.binding(BINDING_ID)).thenReturn(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null));
+        stubBinding(false);
         when(access.isActiveStudent(CLASS_ID, USER_ID)).thenReturn(true);
-        when(access.requireClass(CLASS_ID)).thenReturn(classRef(true));
-        when(access.courseRef(COURSE_ID)).thenReturn(courseRef());
+        when(portal.courseDetail(COURSE_ID)).thenReturn(course());
 
         Map<String, Object> binding = service.requireStudentBinding(BINDING_ID);
 
@@ -141,13 +149,44 @@ class Group3AccessServiceTest
     }
 
     @Test
+    void studentCannotReuseBindingAfterCourseMovesToDraft()
+    {
+        authenticate("student");
+        stubBinding(false);
+        when(access.isActiveStudent(CLASS_ID, USER_ID)).thenReturn(true);
+        when(portal.courseDetail(COURSE_ID)).thenReturn(Map.of("status", "DRAFT"));
+
+        assertThrows(EduForbiddenException.class, () -> service.requireStudentBinding(BINDING_ID));
+    }
+
+    @Test
+    void teacherCannotUseBindingAfterItEnds()
+    {
+        authenticate("teacher");
+        when(access.classesOfTeacher(USER_ID)).thenReturn(List.of(classRef(true)));
+        when(access.activeBindings(CLASS_ID)).thenReturn(List.of());
+
+        assertThrows(EduForbiddenException.class, () -> service.requireTeacherBinding(BINDING_ID));
+    }
+
+    @Test
+    void publishingPermissionDoesNotGrantBulkExport()
+    {
+        authenticate("teacher");
+        stubBinding(true);
+        when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, true));
+        when(portal.courseDetail(COURSE_ID)).thenReturn(course());
+
+        assertThrows(EduForbiddenException.class, () -> service.requireTeacherExportBinding(BINDING_ID));
+    }
+
+    @Test
     void teacherVersionReturnsDecoratedVersion()
     {
         authenticate("teacher");
-        when(access.binding(BINDING_ID)).thenReturn(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null));
+        stubBinding(true);
         when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, true));
-        when(access.requireClass(CLASS_ID)).thenReturn(classRef(true));
-        when(access.courseRef(COURSE_ID)).thenReturn(courseRef());
+        when(portal.courseDetail(COURSE_ID)).thenReturn(course());
         when(mapper.selectTeacherVersion(anyLong(), eq(COURSE_ID)))
                 .thenReturn(new java.util.LinkedHashMap<>(Map.of("versionId", 7L, "title", "课件")));
 
@@ -163,10 +202,9 @@ class Group3AccessServiceTest
     void teacherVersionThrowsWhenVersionMissing()
     {
         authenticate("teacher");
-        when(access.binding(BINDING_ID)).thenReturn(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null));
+        stubBinding(true);
         when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, true));
-        when(access.requireClass(CLASS_ID)).thenReturn(classRef(true));
-        when(access.courseRef(COURSE_ID)).thenReturn(courseRef());
+        when(portal.courseDetail(COURSE_ID)).thenReturn(course());
         when(mapper.selectTeacherVersion(anyLong(), eq(COURSE_ID))).thenReturn(null);
 
         assertThrows(ServiceException.class, () -> service.teacherVersion(BINDING_ID, 7L));
@@ -177,6 +215,7 @@ class Group3AccessServiceTest
         SysUser user = new SysUser(USER_ID);
         SysRole role = new SysRole();
         role.setRoleKey(roleKey);
+        role.setStatus("0");
         user.setRoles(List.of(role));
         LoginUser loginUser = new LoginUser(USER_ID, null, user, java.util.Set.of());
         SecurityContextHolder.getContext().setAuthentication(
@@ -185,13 +224,26 @@ class Group3AccessServiceTest
 
     private EduClassRef classRef(boolean active)
     {
-        return new EduClassRef(CLASS_ID, "班级A", "C001", 5001L, "2026秋", "2026-09-01", "2027-01-15",
+        return new EduClassRef(CLASS_ID, "班级A", "C001", 5001L, "2026秋",
                 100L, active ? "ACTIVE" : "INACTIVE", "TRIAL");
     }
 
-    private EduCourseRef courseRef()
+    private Map<String, Object> course()
     {
-        return new EduCourseRef(COURSE_ID, "课程A", "简介A", USER_ID, 100L, "ACTIVE");
+        return Map.of("id", COURSE_ID, "title", "课程A", "summary", "简介A", "status", "ACTIVE");
+    }
+
+    private void stubBinding(boolean teacher)
+    {
+        if (teacher)
+        {
+            when(access.classesOfTeacher(USER_ID)).thenReturn(List.of(classRef(true)));
+        }
+        else
+        {
+            when(access.classesOfStudent(USER_ID)).thenReturn(List.of(classRef(true)));
+        }
+        when(access.activeBindings(CLASS_ID)).thenReturn(List.of(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null)));
     }
 
     private EduClassMembership membership(boolean teacher, boolean canPublish)

@@ -3,7 +3,7 @@
 -- These fixed BCrypt hashes are for disposable test databases only.
 -- High demo IDs advance MySQL AUTO_INCREMENT counters; use only in a disposable test DB.
 -- No menu grants are added: role identity works, while getRouters may be empty.
--- 本脚本不切换数据库：执行前请先手动 USE 目标演示库。
+
 SET NAMES utf8mb4;
 
 DROP PROCEDURE IF EXISTS edu_demo_login_seed_20261022;
@@ -11,11 +11,11 @@ DELIMITER //
 CREATE PROCEDURE edu_demo_login_seed_20261022()
 BEGIN
     DECLARE v_admin_hash VARCHAR(100)
-        DEFAULT '$2b$10$QaxcBTxAlvHSAbK33KHoH.Q30Rf4yhj8IeFPsufeSwdvb3VOYlzzi';
+        DEFAULT '$2b$10$w.4XLiGxiarh2L5n4ro0oufPMTHjUNyWKJDZAoAAVEPLy5ORjbZh2';
     DECLARE v_teacher_hash VARCHAR(100)
-        DEFAULT '$2b$10$gFkWCmCTyHHA5.wcrJ3kr.C/fSwc936qP0232yeIxb3dWd0L9aynS';
+        DEFAULT '$2b$10$w.4XLiGxiarh2L5n4ro0oufPMTHjUNyWKJDZAoAAVEPLy5ORjbZh2';
     DECLARE v_student_hash VARCHAR(100)
-        DEFAULT '$2b$10$OCkGGRIGWzSNR267BBFea.a/DLdPXmPSATsjyF32X6KIbp/P6A9R2';
+        DEFAULT '$2b$10$w.4XLiGxiarh2L5n4ro0oufPMTHjUNyWKJDZAoAAVEPLy5ORjbZh2';
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
@@ -57,6 +57,8 @@ BEGIN
          status, del_flag, create_by, create_time)
     VALUES (920000000001, 0, '0', '演示学校', 1,
             '0', '0', 'demo-seed', NOW());
+
+    UPDATE sys_user SET dept_id=920000000001 WHERE user_id=1;
 
     -- Scope 5 is "self" in RuoYi. Teaching-class access remains a separate check.
     INSERT INTO sys_role

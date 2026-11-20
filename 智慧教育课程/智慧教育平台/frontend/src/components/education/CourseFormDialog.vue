@@ -98,7 +98,7 @@ function submit() {
         proxy.$modal.msgSuccess('已保存')
       } else {
         await addCourse(payload)
-        proxy.$modal.msgSuccess('课程已创建，绑定教学班后学生才能看到')
+        proxy.$modal.msgSuccess('课程已创建，可进入「班级管理」添加学生')
       }
       close()
       emit('saved')

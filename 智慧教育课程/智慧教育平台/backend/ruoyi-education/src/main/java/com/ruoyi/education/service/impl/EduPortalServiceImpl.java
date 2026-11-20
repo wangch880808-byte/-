@@ -1,5 +1,6 @@
 package com.ruoyi.education.service.impl;
 
+import com.github.pagehelper.PageHelper;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
@@ -15,6 +16,7 @@ import com.ruoyi.education.mapper.EduClassTeacherMapper;
 import com.ruoyi.education.mapper.EduCourseClassBindingMapper;
 import com.ruoyi.education.mapper.EduCourseSpaceMapper;
 import com.ruoyi.education.mapper.EduPortalMapper;
+import com.ruoyi.education.mapper.EduCourseManagementMapper;
 import com.ruoyi.education.mapper.EduTeachingClassMapper;
 import com.ruoyi.education.mapper.EduTermMapper;
 import com.ruoyi.education.domain.EduCourseClassBinding;
@@ -30,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class EduPortalServiceImpl implements IEduPortalService {
@@ -37,9 +40,12 @@ public class EduPortalServiceImpl implements IEduPortalService {
     private static final String ROLE_ADMIN = "admin";
     private static final String ROLE_TEACHER = "teacher";
     private static final String ROLE_STUDENT = "student";
+    private static final int MAX_ROSTER_BATCH = 1000;
 
     @Autowired
     private EduPortalMapper portalMapper;
+    @Autowired
+    private EduCourseManagementMapper management;
     @Autowired
     private EduTermMapper termMapper;
     @Autowired
@@ -99,10 +105,31 @@ public class EduPortalServiceImpl implements IEduPortalService {
     }
 
     @Override
+    public List<Map<String, Object>> termSchools() {
+        requireAdmin("新建学期");
+        Long schoolScope = SecurityUtils.isAdmin() ? null : organizationId();
+        return portalMapper.selectTermSchools(schoolScope);
+    }
+
+    @Override
     public Long createTerm(Map<String, Object> body) {
         requireAdmin("新建学期");
+        Long schoolScope = SecurityUtils.isAdmin() ? null : organizationId();
+        Long schoolId = longValue(optional(body, "organizationId"));
+        if (schoolId == null) {
+            schoolId = schoolScope != null ? schoolScope : portalMapper.selectOrganizationIdByUserId(currentUserId());
+        }
+        if (schoolId == null || schoolId <= 0) {
+            throw new ServiceException("请选择所属学校");
+        }
+        if (schoolScope != null && !schoolScope.equals(schoolId)) {
+            throw new EduForbiddenException("只能为所属学校新建学期");
+        }
+        if (portalMapper.selectTermSchools(schoolId).isEmpty()) {
+            throw new ServiceException("所选学校不存在或已停用，请重新选择");
+        }
         EduTerm term = new EduTerm();
-        term.setOrganizationId(organizationId());
+        term.setOrganizationId(schoolId);
         term.setName(required(body, "name", "学期名称不能为空"));
         term.setCode(required(body, "code", "学期编码不能为空"));
         term.setStartsOn(date(body, "startsOn", "开始日期不能为空"));
@@ -155,9 +182,20 @@ public class EduPortalServiceImpl implements IEduPortalService {
     /* ================= 教学班 ================= */
 
     @Override
-    public List<Map<String, Object>> teachingClassList(String keyword, Long termId, String status) {
+    public List<Map<String, Object>> teachingClassList(String keyword, Long termId, String status, Long deptId) {
         requireAdmin("查看教学班");
-        return portalMapper.selectTeachingClassList(keyword, termId, status);
+        return portalMapper.selectTeachingClassList(keyword, termId, status, deptId);
+    }
+
+    @Override
+    public List<Map<String, Object>> majorClasses(Long majorId, String keyword) {
+        requireAdmin("查看专业班级");
+        return portalMapper.selectMajorClasses(majorId, keyword);
+    }
+
+    @Override
+    public boolean hasOrganizationReferences(List<Long> organizationIds) {
+        return !organizationIds.isEmpty() && portalMapper.hasOrganizationReferences(organizationIds);
     }
 
     @Override
@@ -175,7 +213,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
     @Override
     public List<Map<String, Object>> myTeachingClasses() {
         if (isAdmin()) {
-            return portalMapper.selectTeachingClassList(null, null, "ACTIVE");
+            return portalMapper.selectTeachingClassList(null, null, "ACTIVE", null);
         }
         if (!hasRole(ROLE_TEACHER)) {
             throw new EduForbiddenException("当前账号没有教师身份");
@@ -251,22 +289,27 @@ public class EduPortalServiceImpl implements IEduPortalService {
             throw new EduForbiddenException("仅任课教师可以操作教学班名单");
         }
         EduClassTeacher teacher = classTeacherMapper.selectActive(classId, currentUserId());
-        if (teacher == null) {
+        Map<String, Object> team = management.teamClassAccess(classId, currentUserId());
+        if (teacher == null && team == null) {
             throw new EduForbiddenException("你没有这个教学班的任课授权");
         }
         EduTeachingClass teachingClass = teachingClassMapper.selectById(classId);
         boolean canImport = teachingClass != null && "ACTIVE".equals(teachingClass.getStatus())
-                && "LEAD".equals(teacher.getTeacherRole());
-        return Map.of("canImport", canImport, "canExport", Boolean.TRUE.equals(teacher.getCanExport()));
+                && ((teacher != null && "LEAD".equals(teacher.getTeacherRole()))
+                    || (team != null && flag(team.get("canManageStudents")) == 1));
+        boolean canExport = (teacher != null && Boolean.TRUE.equals(teacher.getCanExport()))
+                || (team != null && flag(team.get("canExport")) == 1);
+        return Map.of("canImport", canImport, "canExport", canExport);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String importRoster(Long classId, Map<Integer, String> accountRows) {
+        management.lockClass(classId);
         if (!rosterPermissions(classId).get("canImport")) {
             throw new EduForbiddenException("仅开放教学班的主讲教师可以导入名单");
         }
-        if (accountRows.isEmpty() || accountRows.size() > 1000) {
+        if (accountRows.isEmpty() || accountRows.size() > MAX_ROSTER_BATCH) {
             throw new ServiceException("每批需要填写 1 至 1000 条学生账号");
         }
         Long organizationId = portalMapper.selectOrganizationIdByClassId(classId);
@@ -281,10 +324,14 @@ public class EduPortalServiceImpl implements IEduPortalService {
             }
         }
 
+        int added = insertRosterStudents(classId, new ArrayList<>(studentIds.values()));
+        return rosterResult(added, accountRows.size());
+    }
+
+    private int insertRosterStudents(Long classId, List<Long> studentIds) {
         int added = 0;
         Long operatorId = currentUserId();
-        for (String account : uniqueAccounts) {
-            Long studentId = studentIds.get(account);
+        for (Long studentId : studentIds.stream().sorted().toList()) {
             if (classStudentMapper.selectActive(classId, studentId) != null) continue;
             try {
                 added += portalMapper.insertClassStudent(classId, studentId, operatorId);
@@ -292,7 +339,11 @@ public class EduPortalServiceImpl implements IEduPortalService {
                 // 同时导入时，由数据库的在班唯一约束保护。
             }
         }
-        return "新增 " + added + " 名学生，跳过 " + (accountRows.size() - added) + " 条重复记录";
+        return added;
+    }
+
+    private String rosterResult(int added, int requested) {
+        return "新增 " + added + " 名学生，跳过 " + (requested - added) + " 条重复记录";
     }
 
     @Override
@@ -393,9 +444,9 @@ public class EduPortalServiceImpl implements IEduPortalService {
     }
 
     @Override
-    public List<Map<String, Object>> studentList(String keyword) {
+    public List<Map<String, Object>> studentList(String keyword, Long deptId) {
         requireAdmin("查看学生");
-        return portalMapper.selectStudentList(keyword);
+        return portalMapper.selectStudentList(keyword, deptId);
     }
 
     @Override
@@ -405,9 +456,9 @@ public class EduPortalServiceImpl implements IEduPortalService {
     }
 
     @Override
-    public List<Map<String, Object>> deptTree() {
+    public List<Map<String, Object>> deptTree(boolean teacherOnly) {
         requireAdmin("查看组织架构");
-        return portalMapper.selectDeptTree();
+        return portalMapper.selectDeptTree(teacherOnly);
     }
 
     @Override
@@ -426,7 +477,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
         }
         if (hasRole(ROLE_TEACHER)) {
             List<Map<String,Object>> rows=portalMapper.selectCourseList(userId,null,keyword);
-            rows.forEach(row -> row.put("canDelete", true));
+            rows.forEach(row -> row.put("canDelete", userId.equals(longValue(row.get("ownerUserId")))));
             return rows;
         }
         if (hasRole(ROLE_STUDENT)) {
@@ -452,7 +503,8 @@ public class EduPortalServiceImpl implements IEduPortalService {
         Long userId = currentUserId();
         boolean admin = isAdmin();
         boolean owner = hasRole(ROLE_TEACHER) && userId.equals(longValue(course.get("ownerUserId")));
-        if (!admin && !owner) {
+        boolean teammate = hasRole(ROLE_TEACHER) && management.teamAccess(id, userId) != null;
+        if (!admin && !owner && !teammate) {
             boolean studentCanRead = hasRole(ROLE_STUDENT)
                     && "ACTIVE".equals(String.valueOf(course.get("status")))
                     && portalMapper.countStudentInCourse(id, userId) > 0;
@@ -472,6 +524,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
             course.put("semesterName",ownClasses.isEmpty()?null:ownClasses.get(0).get("termName"));
         }
         course.put("canManage", admin || owner);
+        course.put("canManageRoster", owner || (teammate && flag(management.teamAccess(id, userId).get("canManageStudents")) == 1));
         course.put("canDelete", admin || owner);
         return course;
     }
@@ -521,12 +574,170 @@ public class EduPortalServiceImpl implements IEduPortalService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public Long createCourseClass(Long courseId, String name, Long termId) {
+        EduCourseSpace course = courseSpaceMapper.selectByIdForUpdate(courseId);
+        requireTeacherCourse(course);
+        String className = name == null ? "" : name.strip();
+        if (className.isEmpty() || className.length() > 160) {
+            throw new ServiceException("班级名称须为 1 至 160 个字符");
+        }
+        if (portalMapper.countCourseClassByName(courseId, className) > 0) {
+            throw new ServiceException("这门课程已有同名教学班");
+        }
+        Long selectedTerm = portalMapper.selectCourseClassTermId(course.getOrganizationId(), termId);
+        if (selectedTerm == null) {
+            throw new ServiceException(termId == null ? "本校尚未设置可用的当前学期，请在设置学期后重试"
+                    : "所选学期不属于本校或已经结束");
+        }
+
+        EduTeachingClass teachingClass = new EduTeachingClass();
+        teachingClass.setOrganizationId(course.getOrganizationId());
+        teachingClass.setTermId(selectedTerm);
+        teachingClass.setOfficialCourseId(course.getOfficialCourseId());
+        teachingClass.setName(className);
+        teachingClass.setCode("TC-" + UUID.randomUUID());
+        teachingClass.setClassKind(course.getOfficialCourseId() == null ? "TRIAL" : "FORMAL");
+        teachingClass.setStatus("ACTIVE");
+        teachingClassMapper.insert(teachingClass);
+
+        Long classId = teachingClass.getId();
+        Long teacherId = currentUserId();
+        portalMapper.insertClassTeacher(classId, teacherId, "LEAD", 1, 1, 1, null, teacherId);
+        insertCourseBinding(course.getOrganizationId(), courseId, classId);
+        return classId;
+    }
+
+    @Override
+    public List<Map<String, Object>> courseRosterSources(Long courseId, Long classId) {
+        EduCourseSpace course = courseSpaceMapper.selectById(courseId);
+        requireCourseRosterAccess(course, classId);
+        return portalMapper.selectCourseRosterSources(course.getOrganizationId(), currentUserId(), classId, null, null);
+    }
+
+    @Override
+    public List<Map<String, Object>> courseRosterOrganizations(Long courseId, Long classId) {
+        EduCourseSpace course = courseSpaceMapper.selectById(courseId);
+        requireCourseRosterAccess(course, classId);
+        return portalMapper.selectCourseRosterOrganizations(course.getOrganizationId());
+    }
+
+    @Override
+    public List<Map<String, Object>> courseRosterCandidates(Long courseId, Long classId, String keyword,
+            Long sourceCourseId, Long sourceClassId, Long sourceDeptId, boolean includeDescendants,
+            int pageNum, int pageSize) {
+        EduCourseSpace course = courseSpaceMapper.selectById(courseId);
+        requireCourseRosterAccess(course, classId);
+        requireCourseRosterSource(course, classId, sourceCourseId, sourceClassId);
+        String deptType = requireRosterDepartment(course, sourceCourseId, sourceDeptId);
+        String search = keyword == null ? "" : keyword.strip();
+        if (search.length() > 100) {
+            throw new ServiceException("搜索关键词不能超过 100 个字符");
+        }
+        PageHelper.startPage(Math.max(1, pageNum), Math.max(1, Math.min(pageSize, 100)));
+        return portalMapper.selectCourseRosterCandidates(course.getOrganizationId(), classId, sourceClassId,
+                sourceDeptId, includeDescendants && !"CLASS".equals(deptType), search);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String addCourseRosterStudents(Long courseId, Long classId, List<Long> studentIds,
+            Long sourceCourseId, Long sourceClassId, Long sourceDeptId, boolean includeDescendants, boolean wholeClass) {
+        EduCourseSpace course = courseSpaceMapper.selectByIdForUpdate(courseId);
+        management.lockClass(classId);
+        requireCourseRosterAccess(course, classId);
+        requireCourseRosterSource(course, classId, sourceCourseId, sourceClassId);
+        String deptType = requireRosterDepartment(course, sourceCourseId, sourceDeptId);
+        if (wholeClass) {
+            if (!"CLASS".equals(deptType)) {
+                throw new ServiceException("请选择一个行政班后再整班添加");
+            }
+            PageHelper.startPage(1, MAX_ROSTER_BATCH + 1, false);
+            List<Long> eligibleIds = portalMapper.selectCourseRosterStudentIds(
+                    course.getOrganizationId(), classId, null, sourceDeptId, false, null);
+            if (eligibleIds.size() > MAX_ROSTER_BATCH) {
+                throw new ServiceException("可添加学生超过 1000 人，请分批选择");
+            }
+            return rosterResult(insertRosterStudents(classId, eligibleIds), eligibleIds.size());
+        }
+        if (studentIds == null || studentIds.isEmpty() || studentIds.size() > MAX_ROSTER_BATCH
+                || studentIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new ServiceException("每批请选择 1 至 1000 名有效学生");
+        }
+        List<Long> uniqueIds = new ArrayList<>(new LinkedHashSet<>(studentIds));
+        List<Long> eligibleIds = portalMapper.selectCourseRosterStudentIds(
+                course.getOrganizationId(), classId, sourceClassId, sourceDeptId,
+                includeDescendants && !"CLASS".equals(deptType), uniqueIds);
+        if (eligibleIds.size() != uniqueIds.size()) {
+            throw new ServiceException("部分学生已不在可添加范围，请刷新名单后重试");
+        }
+        return rosterResult(insertRosterStudents(classId, eligibleIds), studentIds.size());
+    }
+
+    private String requireRosterDepartment(EduCourseSpace course, Long sourceCourseId, Long sourceDeptId) {
+        if (sourceDeptId == null) {
+            return null;
+        }
+        if (sourceCourseId != null) {
+            throw new ServiceException("请只选择一种学生来源");
+        }
+        String type = portalMapper.selectCourseRosterDepartmentType(course.getOrganizationId(), sourceDeptId);
+        if (type == null) {
+            throw new EduForbiddenException("该组织已停用或不在本校学生库内");
+        }
+        return type;
+    }
+
+    private void requireTeacherCourse(EduCourseSpace course) {
+        if (!hasRole(ROLE_TEACHER)) {
+            throw new EduForbiddenException("只有课程负责人可以管理教学班");
+        }
+        requireCourseOwner(course, "管理教学班");
+        if ("ARCHIVED".equals(course.getStatus())) {
+            throw new ServiceException("已归档课程只允许查看");
+        }
+        if (!course.getOrganizationId().equals(organizationId())) {
+            throw new EduForbiddenException("这门课程不属于你当前所在的学校");
+        }
+    }
+
+    private void requireCourseRosterAccess(EduCourseSpace course, Long classId) {
+        if (course == null) throw new ServiceException("课程不存在");
+        Map<String, Object> team = management.teamAccess(course.getId(), currentUserId());
+        if (!hasRole(ROLE_TEACHER) || team == null) {
+            requireTeacherCourse(course);
+        } else if ("ARCHIVED".equals(course.getStatus())) {
+            throw new ServiceException("已归档课程只允许查看");
+        }
+        if (portalMapper.countActiveBinding(course.getId(), classId) == 0) {
+            throw new EduForbiddenException("该教学班不属于这门课程");
+        }
+        if (!rosterPermissions(classId).get("canImport")) {
+            throw new EduForbiddenException("仅开放教学班的主讲教师可以添加学生");
+        }
+    }
+
+    private void requireCourseRosterSource(EduCourseSpace course, Long classId, Long sourceCourseId, Long sourceClassId) {
+        if (sourceCourseId == null && sourceClassId == null) {
+            return;
+        }
+        if (sourceCourseId == null || sourceClassId == null) {
+            throw new ServiceException("请选择来源课程和教学班");
+        }
+        if (portalMapper.selectCourseRosterSources(
+                course.getOrganizationId(), currentUserId(), classId, sourceCourseId, sourceClassId).isEmpty()) {
+            throw new EduForbiddenException("所选班级不属于你可复制名单的课程范围");
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void bindClass(Long courseId, Long classId, String publishedAt) {
         if (classId == null) {
             throw new ServiceException("教学班不能为空");
         }
         EduCourseSpace space = courseSpaceMapper.selectByIdForUpdate(courseId);
         requireCourseOwner(space, "绑定教学班");
+        management.lockClass(classId);
         if ("ARCHIVED".equals(space.getStatus())) throw new ServiceException("已归档课程只允许查看");
         Map<String, Object> teachingClass = portalMapper.selectTeachingClassById(classId);
         if (teachingClass == null) {
@@ -540,16 +751,20 @@ public class EduPortalServiceImpl implements IEduPortalService {
         if (portalMapper.countActiveBinding(courseId, classId) > 0) {
             throw new ServiceException("该课程已绑定这个教学班");
         }
-        EduCourseClassBinding binding = new EduCourseClassBinding();
-        binding.setCourseSpaceId(courseId);
-        binding.setTeachingClassId(classId);
-        binding.setOrganizationId(space.getOrganizationId());
-        binding.setBoundByUserId(currentUserId());
         try {
-            bindingMapper.insert(binding);
+            insertCourseBinding(space.getOrganizationId(), courseId, classId);
         } catch (DuplicateKeyException e) {
             throw new ServiceException("该课程已绑定此教学班，请刷新后重试");
         }
+    }
+
+    private void insertCourseBinding(Long organizationId, Long courseId, Long classId) {
+        EduCourseClassBinding binding = new EduCourseClassBinding();
+        binding.setCourseSpaceId(courseId);
+        binding.setTeachingClassId(classId);
+        binding.setOrganizationId(organizationId);
+        binding.setBoundByUserId(currentUserId());
+        bindingMapper.insert(binding);
     }
 
     @Override

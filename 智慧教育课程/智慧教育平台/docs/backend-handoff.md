@@ -1,6 +1,4 @@
 > 当前第一组交付以 [group1-delivery.md](group1-delivery.md) 为准。本文保留早期记录；受限管理员已取消，旧待办不代表当前实现。
->
-> **历史快照（2026-11-16 更新）**：本文中的工程路径、启动入口与账号已过期。当前前端工程根为 `frontend/`（非 `frontend/vue/`），登录入口为 `/vue/#/login`（非 `login.html`），演示账号口令统一为 `Edu@123456`，后端本地配置通过 `backend/.env` 载入（`run-local.ps1` 不支持 `RUOYI_JAVA_HOME`）。运行与构建以根目录 [运行说明.md](../运行说明.md) 和 [CONTRIBUTING.md](../CONTRIBUTING.md) 为准。
 
 # 后端交接说明
 

@@ -35,7 +35,7 @@
             <div class="edu-course-body">
               <div class="edu-course-name">{{ row.name }}</div>
               <div class="edu-course-meta">
-                {{ row.semesterName || '未指定学期' }} · {{ row.classCount || 0 }} 个班 ·
+                {{ row.classCount || 0 }} 个班 ·
                 {{ row.studentCount || 0 }} 名学生
               </div>
               <div class="edu-course-foot">
@@ -51,7 +51,7 @@
 
       <el-empty v-else-if="!loading" description="你还没有创建课程">
         <el-button type="primary" @click="openCreate">新建第一门课程</el-button>
-        <p class="edu-empty-hint">建好课程后绑定教学班，学生才能看到。</p>
+        <p class="edu-empty-hint">建好课程后，可在「班级管理」中新建教学班并添加学生。</p>
       </el-empty>
     </div>
 

@@ -3,6 +3,7 @@ package com.ruoyi.system.service.impl;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import jakarta.validation.Validator;
 import org.slf4j.Logger;
@@ -13,9 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import com.ruoyi.common.annotation.DataScope;
 import com.ruoyi.common.constant.Constants;
+import com.ruoyi.common.constant.SysDeptType;
 import com.ruoyi.common.constant.UserConstants;
+import com.ruoyi.common.core.domain.entity.SysDept;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
+import com.ruoyi.common.exception.ForbiddenException;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
@@ -32,6 +36,7 @@ import com.ruoyi.system.mapper.SysUserRoleMapper;
 import com.ruoyi.system.service.ISysConfigService;
 import com.ruoyi.system.service.ISysDeptService;
 import com.ruoyi.system.service.ISysUserService;
+import com.ruoyi.system.service.SysTeacherAffiliation;
 
 /**
  * 用户 业务层处理
@@ -65,6 +70,9 @@ public class SysUserServiceImpl implements ISysUserService
     private ISysDeptService deptService;
 
     @Autowired
+    private SysTeacherAffiliation teacherAffiliation;
+
+    @Autowired
     protected Validator validator;
 
     /**
@@ -78,6 +86,13 @@ public class SysUserServiceImpl implements ISysUserService
     public List<SysUser> selectUserList(SysUser user)
     {
         return userMapper.selectUserList(user);
+    }
+
+    @Override
+    @DataScope(deptAlias = "d", userAlias = "u", permission = "education:directory:list")
+    public List<SysUser> selectStudentAccounts(SysUser filter)
+    {
+        return userMapper.selectStudentAccounts(filter);
     }
 
     /**
@@ -262,6 +277,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Transactional
     public int insertUser(SysUser user)
     {
+        checkNewUserRoleAndDepartment(user);
         // 新增用户信息
         int rows = userMapper.insertUser(user);
         // 新增用户岗位关联
@@ -269,6 +285,106 @@ public class SysUserServiceImpl implements ISysUserService
         // 新增用户与角色管理
         insertUserRole(user);
         return rows;
+    }
+
+    private void checkNewUserRoleAndDepartment(SysUser user)
+    {
+        Long[] roleIds = user.getRoleIds();
+        if (roleIds == null || roleIds.length != 1 || roleIds[0] == null || roleIds[0] <= 0)
+        {
+            throw new ServiceException("新增用户时请选择一个角色", 400);
+        }
+        SysRole role = roleMapper.selectRoleById(roleIds[0]);
+        if (role == null || !"0".equals(role.getDelFlag()) || !UserConstants.ROLE_NORMAL.equals(role.getStatus()))
+        {
+            throw new ServiceException("所选角色不存在或已停用，请重新选择", 400);
+        }
+        if ((role.isAdmin() || Constants.SUPER_ADMIN.equals(role.getRoleKey())) && !SecurityUtils.isAdmin())
+        {
+            throw new ForbiddenException("没有分配管理员角色的权限");
+        }
+        if ("teacher".equals(role.getRoleKey()))
+        {
+            teacherAffiliation.requireCollege(user.getDeptId());
+        }
+        if ("student".equals(role.getRoleKey()))
+        {
+            requireStudentClass(user.getDeptId());
+        }
+    }
+
+    private void requireStudentClass(Long deptId)
+    {
+        SysDept classDept = enabledDepartment(deptId);
+        if (classDept != null && SysDeptType.CLASS.name().equals(classDept.getDeptType()))
+        {
+            SysDept parent = enabledDepartment(classDept.getParentId());
+            SysDept college = parent != null && SysDeptType.MAJOR.name().equals(parent.getDeptType())
+                    ? enabledDepartment(parent.getParentId()) : parent;
+            SysDept school = college == null ? null : enabledDepartment(college.getParentId());
+            if (school != null && Long.valueOf(0L).equals(school.getParentId())
+                    && SysDeptType.effectiveType(school, null) == SysDeptType.SCHOOL
+                    && SysDeptType.effectiveType(college, school) == SysDeptType.COLLEGE)
+            {
+                return;
+            }
+        }
+        throw new ServiceException("请选择已开启的所属班级", 400);
+    }
+
+    private SysDept enabledDepartment(Long deptId)
+    {
+        if (deptId == null || deptId <= 0) return null;
+        SysDept dept = deptService.selectDeptById(deptId);
+        return dept != null && "0".equals(dept.getDelFlag()) && UserConstants.DEPT_NORMAL.equals(dept.getStatus())
+                ? dept : null;
+    }
+
+    @Override
+    @Transactional
+    public int updateStudentAccount(SysUser student)
+    {
+        SysUser current = checkStudentAccountAccess(student.getUserId());
+        if (!Objects.equals(current.getDeptId(), student.getDeptId()))
+        {
+            if (current.getRoles().stream().anyMatch(role -> "teacher".equals(role.getRoleKey())))
+            {
+                throw new ServiceException("该账号同时拥有教师角色，不能将所属组织改为班级", 400);
+            }
+            deptService.checkDeptDataScope(student.getDeptId());
+            requireStudentClass(student.getDeptId());
+        }
+        if (StringUtils.isNotEmpty(student.getPhonenumber()) && !checkPhoneUnique(student))
+        {
+            throw new ServiceException("手机号码已存在", 400);
+        }
+        if (StringUtils.isNotEmpty(student.getEmail()) && !checkEmailUnique(student))
+        {
+            throw new ServiceException("邮箱已存在", 400);
+        }
+        return userMapper.updateStudentAccount(student);
+    }
+
+    @Override
+    public int disableStudentAccount(Long userId, String operator)
+    {
+        checkStudentAccountAccess(userId);
+        return userMapper.disableStudentAccount(userId, operator);
+    }
+
+    private SysUser checkStudentAccountAccess(Long userId)
+    {
+        checkUserDataScope(userId);
+        SysUser current = userMapper.selectUserById(userId);
+        if (current == null || !"0".equals(current.getDelFlag()) || current.getRoles() == null
+                || current.getRoles().stream().noneMatch(role ->
+                        "student".equals(role.getRoleKey()) && UserConstants.ROLE_NORMAL.equals(role.getStatus())))
+        {
+            throw new ForbiddenException("没有权限操作该学生账号");
+        }
+        checkUserAllowed(current);
+        checkSelfMutation(userId);
+        return current;
     }
 
     /**
@@ -294,6 +410,7 @@ public class SysUserServiceImpl implements ISysUserService
     public int updateUser(SysUser user)
     {
         checkSelfMutation(user.getUserId());
+        teacherAffiliation.checkUserEdit(user);
         Long userId = user.getUserId();
         // 删除用户与角色关联
         userRoleMapper.deleteUserRoleByUserId(userId);
@@ -317,6 +434,7 @@ public class SysUserServiceImpl implements ISysUserService
     public void insertUserAuth(Long userId, Long[] roleIds)
     {
         checkSelfMutation(userId);
+        teacherAffiliation.checkRoleGrant(userId, roleIds);
         userRoleMapper.deleteUserRoleByUserId(userId);
         insertUserRole(userId, roleIds);
     }

@@ -42,6 +42,16 @@ export function getVersionPage(versionId, pageNo, bindingId) {
   })
 }
 
+/** 在线播放资料版本（返回 Blob，不受下载开关限制） */
+export function getVersionMedia(versionId, bindingId) {
+  return request({
+    url: `/education/group3/versions/${versionId}/media`,
+    method: 'get',
+    params: { bindingId },
+    responseType: 'blob'
+  })
+}
+
 /** 下载资料版本原文件（返回 Blob） */
 export function downloadVersion(versionId, bindingId) {
   return request({
@@ -50,6 +60,11 @@ export function downloadVersion(versionId, bindingId) {
     params: { bindingId },
     responseType: 'blob'
   })
+}
+
+/** 转换失败的版本基于原文件重新转换 */
+export function retryVersionConversion(versionId, bindingId) {
+  return request({ url: `/education/group3/versions/${versionId}/retry-conversion`, method: 'post', params: { bindingId } })
 }
 
 /** 发布资料版本到教学班（bindingId、resourceVersionId、opensAt、closesAt） */
@@ -94,6 +109,36 @@ export function updateQuestionStatus(questionId, bindingId, data) {
   return request({ url: `/education/group3/questions/${questionId}/status`, method: 'patch', params: { bindingId }, data })
 }
 
+/** 智能组卷：按题型/难度/知识点/标签筛选并抽题 */
+export function composeQuestions(data) {
+  return request({ url: '/education/group3/questions/compose', method: 'post', data })
+}
+
+/** 修改资料增强设置：下载开关、水印、任务点（body：bindingId 等） */
+export function updateResourceEnhance(resourceId, data) {
+  return request({ url: `/education/group3/resources/${resourceId}/enhance`, method: 'patch', data })
+}
+
+/** 查询学生在本教学班的观看进度 */
+export function listWatchProgress(bindingId) {
+  return request({ url: '/education/group3/student/progress', method: 'get', params: { bindingId } })
+}
+
+/** 上报学生视频观看进度（body：bindingId、watchedSeconds） */
+export function reportWatchProgress(resourceId, data) {
+  return request({ url: `/education/group3/student/materials/${resourceId}/watch`, method: 'post', data })
+}
+
+/** 查询学生学习进度看板（任务点、完成率、待办） */
+export function getStudentDashboard(bindingId) {
+  return request({ url: '/education/group3/student/dashboard', method: 'get', params: { bindingId } })
+}
+
+/** 查询作答回看与错题本（仅解析已公布的提交） */
+export function getStudentAnswerReview(bindingId) {
+  return request({ url: '/education/group3/student/answer-review', method: 'get', params: { bindingId } })
+}
+
 /* ---------- 备课方案 ---------- */
 
 /** 查询备课方案列表 */
@@ -118,11 +163,58 @@ export function createPreviewTask(data) {
   return request({ url: '/education/group3/preview-tasks', method: 'post', data })
 }
 
+/* ---------- 课堂讨论 ---------- */
+
+/** 查询教学班讨论话题列表（params：view、keyword、folderId、sort、scope） */
+export function listDiscussions(bindingId, params) {
+  return request({ url: '/education/group3/discussions', method: 'get', params: { bindingId, ...(params || {}) } })
+}
+
+/** 获取讨论话题详情（含帖子与楼中楼） */
+export function getDiscussion(topicId, bindingId) {
+  return request({ url: `/education/group3/discussions/${topicId}`, method: 'get', params: { bindingId } })
+}
+
+/** 发布讨论话题 */
+export function createDiscussion(data) {
+  return request({ url: '/education/group3/discussions', method: 'post', data })
+}
+
+/** 在话题下发帖 / 回复（parentPostId 为空时为主帖） */
+export function createDiscussionPost(topicId, data) {
+  return request({ url: `/education/group3/discussions/${topicId}/posts`, method: 'post', data })
+}
+
+/** 讨论话题 / 帖子操作，action 取 pin、feature、unpin、unfeature、archive、restore、remove-post、like、folder、move、score */
+export function discussionAction(data) {
+  return request({ url: '/education/group3/discussions/action', method: 'post', data })
+}
+
+/** 查询讨论文件夹列表 */
+export function listDiscussionFolders(bindingId) {
+  return request({ url: '/education/group3/discussion-folders', method: 'get', params: { bindingId } })
+}
+
+/** 新建讨论文件夹（body：bindingId、name） */
+export function createDiscussionFolder(data) {
+  return request({ url: '/education/group3/discussion-folders', method: 'post', data })
+}
+
+/** 修改环节设置（body：bindingId、kind、id、title、instructions、privateNotes、opensAt、closesAt、answerOpensAt） */
+export function updateStage(data) {
+  return request({ url: '/education/group3/stages/update', method: 'post', data })
+}
+
 /* ---------- 学生端 ---------- */
 
-/** 查询学生可见的资料列表 */
+/** 查询学生可见的资料列表（课程建设发布） */
 export function listStudentMaterials(bindingId) {
   return request({ url: '/education/group3/student/materials', method: 'get', params: { bindingId } })
+}
+
+/** 查询学生可见的课前准备资料列表 */
+export function listStudentPrepMaterials(bindingId) {
+  return request({ url: '/education/group3/student/prep-materials', method: 'get', params: { bindingId } })
 }
 
 /** 查询学生可见的预习任务列表 */

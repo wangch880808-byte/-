@@ -23,6 +23,7 @@ import com.ruoyi.system.mapper.SysRoleMapper;
 import com.ruoyi.system.mapper.SysRoleMenuMapper;
 import com.ruoyi.system.mapper.SysUserRoleMapper;
 import com.ruoyi.system.service.ISysRoleService;
+import com.ruoyi.system.service.SysTeacherAffiliation;
 
 /**
  * 角色 业务层处理
@@ -43,6 +44,9 @@ public class SysRoleServiceImpl implements ISysRoleService
 
     @Autowired
     private SysRoleDeptMapper roleDeptMapper;
+
+    @Autowired
+    private SysTeacherAffiliation teacherAffiliation;
 
     /**
      * 根据条件分页查询角色数据
@@ -419,6 +423,7 @@ public class SysRoleServiceImpl implements ISysRoleService
         List<SysUserRole> list = new ArrayList<SysUserRole>();
         for (Long userId : userIds)
         {
+            teacherAffiliation.checkRoleGrant(userId, new Long[] { roleId });
             SysUserRole ur = new SysUserRole();
             ur.setUserId(userId);
             ur.setRoleId(roleId);

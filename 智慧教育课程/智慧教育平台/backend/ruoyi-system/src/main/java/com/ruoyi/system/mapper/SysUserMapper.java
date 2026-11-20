@@ -20,6 +20,17 @@ public interface SysUserMapper
      */
     public List<SysUser> selectUserList(SysUser sysUser);
 
+    public List<SysUser> selectStudentAccounts(SysUser filter);
+
+    public List<SysUser> selectAdministrativeRoster(SysUser filter);
+
+    public int moveAdministrativeStudent(@Param("userId") Long userId, @Param("fromId") Long fromId,
+            @Param("toId") Long toId, @Param("adding") boolean adding, @Param("updateBy") String updateBy);
+
+    public int updateStudentAccount(SysUser student);
+
+    public int disableStudentAccount(@Param("userId") Long userId, @Param("updateBy") String updateBy);
+
     /**
      * 根据条件分页查询已配用户角色列表
      * 

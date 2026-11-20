@@ -22,6 +22,7 @@ import com.ruoyi.education.mapper.EduClassTeacherMapper;
 import com.ruoyi.education.mapper.EduCourseClassBindingMapper;
 import com.ruoyi.education.mapper.EduCourseSpaceMapper;
 import com.ruoyi.education.mapper.EduPortalMapper;
+import com.ruoyi.education.mapper.EduCourseManagementMapper;
 import com.ruoyi.education.exception.EduForbiddenException;
 import com.ruoyi.education.security.EduActor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +49,8 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
     @Autowired
     private EduPortalMapper portalMapper;
     @Autowired
+    private EduCourseManagementMapper management;
+    @Autowired
     private EduClassTeacherMapper classTeacherMapper;
     @Autowired
     private EduClassStudentMapper classStudentMapper;
@@ -73,8 +76,6 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                 text(row.get("code")),
                 number(row.get("termId")),
                 text(row.get("termName")),
-                text(row.get("termStartsOn")),
-                text(row.get("termEndsOn")),
                 portalMapper.selectOrganizationIdByClassId(classId),
                 text(row.get("status")),
                 text(row.get("classKind")));
@@ -109,6 +110,16 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
     public EduClassMembership membership(Long classId, Long userId) {
         requireClass(classId);
         EduClassTeacher teacher = classTeacherMapper.selectActive(classId, userId);
+        if (teacher == null) {
+            Map<String, Object> team = management.teamClassAccess(classId, userId);
+            if (team != null) {
+                teacher = new EduClassTeacher();
+                teacher.setTeacherRole("CO_TEACHER");
+                teacher.setCanPublish(false);
+                teacher.setCanGrade(false);
+                teacher.setCanExport(number(team.get("canExport")) == 1L);
+            }
+        }
         EduClassStudent student = classStudentMapper.selectActive(classId, userId);
         if (teacher == null && student == null) {
             throw new EduForbiddenException("你不是该教学班的成员");
@@ -143,6 +154,22 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
     }
 
     @Override
+    public List<EduTeacherRef> activeTeachers(Long classId) {
+        String role = EduActor.role();
+        EduClassMembership member = membership(classId, SecurityUtils.getUserId());
+        if (!("teacher".equals(role) && member.teacher()) && !("student".equals(role) && member.student())) {
+            throw new EduForbiddenException("当前身份不是该教学班的成员");
+        }
+        return portalMapper.selectClassTeachers(classId).stream()
+                .filter(row -> truthy(row.get("active")))
+                .map(row -> new EduTeacherRef(classId, number(row.get("id")), number(row.get("userId")),
+                        text(row.get("userName")), text(row.get("nickName")), text(row.get("teacherRole")),
+                        truthy(row.get("canPublish")), truthy(row.get("canGrade")), truthy(row.get("canExport")),
+                        text(row.get("validTo"))))
+                .toList();
+    }
+
+    @Override
     public List<EduClassRef> classesOfTeacher(Long userId) {
         List<Map<String, Object>> rows = portalMapper.selectTeachingClassByTeacher(userId);
         List<EduClassRef> classes = new ArrayList<>(rows.size());
@@ -153,8 +180,6 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                     text(row.get("code")),
                     number(row.get("termId")),
                     text(row.get("termName")),
-                    text(row.get("termStartsOn")),
-                    text(row.get("termEndsOn")),
                     number(row.get("organizationId")),
                     text(row.get("status")),
                     text(row.get("classKind"))));
@@ -176,8 +201,6 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                     text(row.get("code")),
                     number(row.get("termId")),
                     text(row.get("termName")),
-                    text(row.get("termStartsOn")),
-                    text(row.get("termEndsOn")),
                     number(row.get("organizationId")),
                     text(row.get("classStatus")),
                     text(row.get("classKind"))));
@@ -199,50 +222,13 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
                         binding.getCourseSpaceId(), date(binding.getPublishedAt()))).toList();
     }
 
-    @Override
-    public List<EduTeacherRef> activeTeachers(Long classId) {
-        List<Map<String, Object>> rows = portalMapper.selectClassTeachers(classId);
-        List<EduTeacherRef> teachers = new ArrayList<>(rows.size());
-        for (Map<String, Object> row : rows) {
-            teachers.add(new EduTeacherRef(
-                    classId,
-                    number(row.get("id")),
-                    number(row.get("userId")),
-                    text(row.get("userName")),
-                    text(row.get("nickName")),
-                    text(row.get("teacherRole")),
-                    truthy(row.get("canPublish")),
-                    truthy(row.get("canGrade")),
-                    truthy(row.get("canExport")),
-                    text(row.get("validTo"))));
-        }
-        return teachers;
-    }
-
-    @Override
-    public EduClassBindingRef binding(Long bindingId) {
-        if (bindingId == null) {
-            return null;
-        }
-        EduCourseClassBinding binding = bindingMapper.selectById(bindingId);
-        if (binding == null || binding.getEndedAt() != null) {
-            return null;
-        }
-        return new EduClassBindingRef(binding.getId(), binding.getTeachingClassId(),
-                binding.getCourseSpaceId(), date(binding.getPublishedAt()));
-    }
-
-    @Override
-    public EduCourseRef courseRef(Long courseSpaceId) {
-        return toRef(loadCourse(courseSpaceId));
-    }
-
     /* ================= 课程 ================= */
 
     @Override
     public EduCourseRef requireCourseReadable(Long courseSpaceId, Long userId) {
         EduCourseSpace space = loadCourse(courseSpaceId);
-        if (isAdmin() || ("teacher".equals(EduActor.role()) && userId.equals(space.getOwnerUserId()))) {
+        if (isAdmin() || ("teacher".equals(EduActor.role())
+                && (userId.equals(space.getOwnerUserId()) || management.teamAccess(courseSpaceId, userId) != null))) {
             return toRef(space);
         }
         boolean studentReadable = "student".equals(EduActor.role())
@@ -275,7 +261,7 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
     }
 
     private EduCourseRef toRef(EduCourseSpace space) {
-        return new EduCourseRef(space.getId(), space.getTitle(), space.getSummary(), space.getOwnerUserId(),
+        return new EduCourseRef(space.getId(), space.getTitle(), space.getOwnerUserId(),
                 space.getOrganizationId(), space.getStatus());
     }
 

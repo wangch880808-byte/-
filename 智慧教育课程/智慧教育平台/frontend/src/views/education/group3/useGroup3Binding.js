@@ -35,7 +35,7 @@ export function useGroup3Binding(fixedBindingId) {
       if (!matched) bindingId.value = list.value.length ? String(list.value[0].bindingId) : ''
       if (bindingId.value) sessionStorage.setItem(storageKey(role), bindingId.value)
     } catch (e) {
-      error.value = e.message || '课程上下文加载失败'
+      if (!e?.cancelled) error.value = e.message || '课程上下文加载失败'
     } finally {
       loading.value = false
     }

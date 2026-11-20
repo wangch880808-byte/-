@@ -5,6 +5,10 @@ export function listTeachingClass(query) {
   return edu({ url: '/education/teaching-class/list', method: 'get', params: query })
 }
 
+export function listMajorClasses(majorId, query) {
+  return edu({ url: '/education/teaching-class/major/' + majorId + '/classes', method: 'get', params: query })
+}
+
 export function getTeachingClass(id) {
   return edu({ url: '/education/teaching-class/' + id, method: 'get' })
 }

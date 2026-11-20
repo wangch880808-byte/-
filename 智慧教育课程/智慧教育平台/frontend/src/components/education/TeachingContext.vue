@@ -4,7 +4,7 @@
   <el-select aria-label="当前课程" :model-value="context.current?.courseSpaceId || context.pending?.courseSpaceId" placeholder="请选择课程" clearable :disabled="loading" @change="course">
    <el-option v-for="item in context.courses" :key="item.courseSpaceId" :value="item.courseSpaceId" :label="item.title" />
   </el-select>
-  <el-select aria-label="当前教学班" :model-value="context.current?.classId" placeholder="请选择教学班" clearable :disabled="loading || !current" @change="klass">
+  <el-select v-if="user.role === 'teacher'" aria-label="当前教学班" :model-value="context.current?.classId" placeholder="请选择教学班" clearable :disabled="loading || !current" @change="klass">
    <el-option v-for="item in current?.classes || []" :key="item.classId" :value="item.classId" :label="item.className" />
   </el-select>
   <span role="status">{{context.message}}</span><el-button v-if="['error','unavailable'].includes(context.status)" link type="primary" @click="prepareContext(user,true)">重试</el-button>
