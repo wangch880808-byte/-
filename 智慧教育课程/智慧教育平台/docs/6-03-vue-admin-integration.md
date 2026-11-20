@@ -1,8 +1,10 @@
 # 6-03 管理员 Vue 总览交接记录
 
-日期：2026-11-19
+日期：2026-11-20
 状态：**组件与隔离测试已完成；生产菜单、路由和权限入口未接入。**
-依据：#24 `feature/6-01-overview-api@233ee45a2af2d73e96fe09f110a87bcb39362df2`；#36 基线 `5213604d4a21768366c8e972ce349ae8b1b43b79`。
+依据：#24 `feature/6-01-overview-api@233ee45a2af2d73e96fe09f110a87bcb39362df2`；#36 同步基线 `fe4f4f228a8a16a13bd0f7c36c619fba4223a2fb`；main `232f463f73800a40d6b8e48b8b4f6b47b78a3170`。
+
+同步说明：管理员组件已预合并到 #36 同步结果，但仍只保留隔离测试入口。#24 仍为 Draft，其接口、Controller 和后端实现未合入 main；本文的后端依据是合同与实现分支，不代表这些接口已在 main 可用。
 
 ## 1. 本轮范围
 
@@ -72,6 +74,7 @@ ADMIN_OVERVIEW_BASE=http://127.0.0.1:4175/tests/admin-overview.html \
 
 ### 权限和路由候选
 
+- 当前教师/学生总览由 #36 工作台快捷入口进入独立路由；管理员页面仍没有生产路由或快捷入口。
 - 权限编码 `education:overview:admin` 已被 #24 `@PreAuthorize` 使用。
 - serviceRoute 候选：`education/admin/overview`、`education/admin/todos`。
 - `sys_menu`、管理员角色授权和 `getRouters` 尚未配置，需第 1 组/负责人确认。

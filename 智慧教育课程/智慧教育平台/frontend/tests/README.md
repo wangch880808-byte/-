@@ -87,7 +87,7 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 6-03 教师 6 指标、学生 4 指标按 metricCode 渲染，真实零、NO_DATA、UNAVAILABLE 和混合三态分开；
 - 缺项、重复、非法 status/value、unit 非 COUNT、source 不匹配只降级对应卡片；
 - 顶层 data/items/asOf/window 异常显示响应异常，不伪装空数据；
-- 工作台入口和独立入口均按角色/权限/服务端路由门控，登录核验前零总览请求；
+- 工作台快捷入口和独立入口均按角色/权限/服务端路由门控，登录核验前零总览请求；
 - 教师仅发送 from/to/可选字符串 classId，学生仅发送 from/to，不携带身份或班级上下文；
 - 默认服务端窗口、from/to 成对/顺序校验、UTC 转换、筛选乱序和排队后失效；
 - 401 登录跳转，403 清除旧数据并提示无权限，网络/业务错误和刷新失败不保留旧值；
