@@ -12,7 +12,7 @@ if (-not (Test-Path -LiteralPath $jarPath -PathType Leaf)) {
 $allowed = @(
     'RUOYI_DB_URL', 'RUOYI_DB_USERNAME', 'RUOYI_DB_PASSWORD', 'RUOYI_TOKEN_SECRET',
     'RUOYI_REDIS_HOST', 'RUOYI_REDIS_PORT', 'RUOYI_REDIS_DATABASE', 'RUOYI_REDIS_PASSWORD',
-    'RUOYI_JAVA_UNIXDOMAIN_TMPDIR', 'RUOYI_PROFILE'
+    'RUOYI_JAVA_UNIXDOMAIN_TMPDIR', 'RUOYI_UPLOAD_PATH'
 )
 $values = @{}
 foreach ($line in Get-Content -LiteralPath $configPath -Encoding UTF8) {

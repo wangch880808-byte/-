@@ -41,7 +41,7 @@
   <delete id="deleteAttachment">
     DELETE FROM edu_outline_attachment WHERE <include refid="attachmentScope" /> AND id = #{fileId}
   </delete>
-  <insert id="insertUnit">
+  <insert id="insertUnit" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO edu_course_unit(course_space_id,parent_unit_id,unit_kind,title,sort_order)
     VALUES(#{courseId},#{parentUnitId},#{unitKind},#{title},#{sortOrder})
   </insert>
@@ -50,7 +50,7 @@
     WHERE course_space_id=#{courseId} AND id=#{id}
   </update>
   <delete id="deleteUnit">DELETE FROM edu_course_unit WHERE course_space_id=#{courseId} AND id=#{id}</delete>
-  <insert id="insertPoint">
+  <insert id="insertPoint" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO edu_knowledge_point(course_space_id,unit_id,code,name) VALUES(#{courseId},#{unitId},#{code},#{name})
   </insert>
   <update id="updatePoint">

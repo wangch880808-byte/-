@@ -43,7 +43,7 @@ import com.ruoyi.education.group3.support.Group3Requests;
 public class Group3TransferService
 {
     private static final String[] QUESTION_HEADERS = {
-            "题目名称", "题型", "满分", "题干", "选项", "正确答案", "解析", "评分标准", "知识点"
+            "题目名称", "题型", "满分", "题干", "选项", "正确答案", "解析", "评分标准", "知识点", "难度", "标签"
     };
 
     // 与 application.yml 的单文件上传上限 200MB 保持一致
@@ -79,7 +79,7 @@ public class Group3TransferService
 
     public byte[] exportQuestions(Long bindingId)
     {
-        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Map<String, Object> binding = accessService.requireTeacherExportBinding(bindingId);
         Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
         List<Map<String, Object>> questions = mapper.selectQuestions(bindingId, courseSpaceId);
 
@@ -108,6 +108,8 @@ public class Group3TransferService
                 row.createCell(6).setCellValue(text(question.get("explanation")));
                 row.createCell(7).setCellValue("");
                 row.createCell(8).setCellValue(text(question.get("knowledgePoints")));
+                row.createCell(9).setCellValue(difficultyLabel(text(question.get("difficulty"))));
+                row.createCell(10).setCellValue(text(question.get("tags")));
             }
             workbook.write(out);
             return out.toByteArray();
@@ -184,7 +186,9 @@ public class Group3TransferService
                             text(row.get("explanation")),
                             text(row.get("scoringRubric")),
                             new BigDecimal(defaultText(row.get("maxScore"), "10")),
-                            longList(row.get("knowledgePointIds")));
+                            longList(row.get("knowledgePointIds")),
+                            text(row.get("difficulty")),
+                            text(row.get("tags")));
                     prepareService.createQuestion(request);
                     imported++;
                 }
@@ -209,7 +213,7 @@ public class Group3TransferService
 
     public byte[] exportResources(Long bindingId)
     {
-        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Map<String, Object> binding = accessService.requireTeacherExportBinding(bindingId);
         Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
         List<Map<String, Object>> resources = mapper.selectTeacherResources(bindingId, courseSpaceId);
 
@@ -351,6 +355,8 @@ public class Group3TransferService
         String explanation = cell(row, formatter, columns, "解析");
         String rubric = cell(row, formatter, columns, "评分标准");
         String pointText = cell(row, formatter, columns, "知识点");
+        String difficulty = parseDifficulty(cell(row, formatter, columns, "难度"));
+        String tags = cell(row, formatter, columns, "标签");
 
         List<String> errors = new ArrayList<>();
         if (title.isBlank())
@@ -425,6 +431,8 @@ public class Group3TransferService
         item.put("scoringRubric", rubric);
         item.put("knowledgePointIds", linkedPointIds);
         item.put("knowledgePoints", String.join("、", splitList(pointText)));
+        item.put("difficulty", difficulty);
+        item.put("tags", tags);
         item.put("errors", errors);
         item.put("valid", errors.isEmpty());
         return item;
@@ -714,6 +722,36 @@ public class Group3TransferService
             return "SHORT_TEXT";
         }
         return null;
+    }
+
+    private String parseDifficulty(String raw)
+    {
+        String value = raw == null ? "" : raw.trim();
+        if (value.isEmpty())
+        {
+            return "MEDIUM";
+        }
+        String upper = value.toUpperCase(Locale.ROOT);
+        if ("EASY".equals(upper) || value.contains("简单") || value.contains("易"))
+        {
+            return "EASY";
+        }
+        if ("HARD".equals(upper) || value.contains("困难") || value.contains("难"))
+        {
+            return "HARD";
+        }
+        return "MEDIUM";
+    }
+
+    private String difficultyLabel(String difficulty)
+    {
+        return switch (difficulty == null ? "" : difficulty)
+        {
+            case "EASY" -> "简单";
+            case "MEDIUM" -> "中等";
+            case "HARD" -> "困难";
+            default -> "中等";
+        };
     }
 
     private String kindLabel(String kind)

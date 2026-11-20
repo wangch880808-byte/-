@@ -5,7 +5,6 @@ package com.ruoyi.education.course.api;
  *
  * @param courseSpaceId  课程空间 ID
  * @param title          课程名称
- * @param summary        课程简介（展示用，可为空）
  * @param ownerUserId    课程负责人（建课教师）
  * @param organizationId 所属组织
  * @param status         DRAFT / ACTIVE / ARCHIVED，只有 ACTIVE 对学生可见
@@ -13,7 +12,6 @@ package com.ruoyi.education.course.api;
 public record EduCourseRef(
         Long courseSpaceId,
         String title,
-        String summary,
         Long ownerUserId,
         Long organizationId,
         String status) {

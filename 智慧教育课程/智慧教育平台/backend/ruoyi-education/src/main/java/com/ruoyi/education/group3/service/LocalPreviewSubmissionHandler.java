@@ -3,7 +3,6 @@ package com.ruoyi.education.group3.service;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -13,15 +12,13 @@ import com.ruoyi.education.group3.contract.PreviewSubmissionHandler;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
 
 /**
- * 预习提交本地默认实现，直接写入共享作业表。
+ * 预习提交默认实现，直接写入共享作业表。
  * <p>
- * 仅在 Spring 容器中没有其他 {@link PreviewSubmissionHandler} 实现时生效；
- * 第五组统一作业服务提供 {@code @Primary} 实现后，本类通过
- * {@link ConditionalOnMissingBean} 自动退避，预习提交即移交统一作业服务。
+ * 第五组统一作业服务提供 {@code @Primary} 的 PreviewSubmissionHandler
+ * 实现后，本类会被优先 bean 覆盖；届时移除本类即可。
  * </p>
  */
 @Component
-@ConditionalOnMissingBean(PreviewSubmissionHandler.class)
 public class LocalPreviewSubmissionHandler implements PreviewSubmissionHandler
 {
     private final Group3Mapper mapper;

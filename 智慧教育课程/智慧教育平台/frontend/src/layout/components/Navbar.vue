@@ -8,7 +8,7 @@
       <top-bar id="topbar-container" class="topbar-container" />
     </template>
 
-    <div class="right-menu"><header-entries /><span class="right-menu-item">{{ {admin:"管理员",teacher:"教师",student:"学生"}[userStore.role] }}</span>
+    <div class="right-menu"><header-entries /><current-term /><span class="right-menu-item">{{ {admin:"管理员",teacher:"教师",student:"学生"}[userStore.role] }}</span>
       <template v-if="appStore.device !== 'mobile'">
         <header-search id="header-search" class="right-menu-item" />
 
@@ -55,6 +55,7 @@
 <script setup>
 import { ElMessageBox } from 'element-plus'
 import HeaderEntries from '@/components/education/HeaderEntries.vue'
+import CurrentTerm from '@/components/education/CurrentTerm.vue'
 import Breadcrumb from '@/components/Breadcrumb'
 import TopNav from './TopNav'
 import TopBar from './TopBar'

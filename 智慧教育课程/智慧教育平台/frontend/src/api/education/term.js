@@ -5,6 +5,10 @@ export function listTerm(query) {
   return edu({ url: '/education/term/list', method: 'get', params: query })
 }
 
+export function listTermSchools() {
+  return edu({ url: '/education/term/schools', method: 'get' })
+}
+
 export function addTerm(data) {
   return edu({ url: '/education/term', method: 'post', data })
 }

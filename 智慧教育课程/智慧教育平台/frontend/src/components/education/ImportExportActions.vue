@@ -62,7 +62,7 @@ async function submit() {
     <p>请使用模板填写数据，支持 .xls / .xlsx，单个文件不超过 10MB、最多 1000 条。</p>
     <button class="ui-btn" type="button" :disabled="state.downloading || state.busy" @click="download('importTemplate')">下载{{ label }}导入模板</button>
     <p><input type="file" :aria-label="label + '导入文件'" accept=".xls,.xlsx" :disabled="state.busy" @change="choose" /></p>
-    <p v-if="resource === 'user'" class="hint">仅新增账号，不覆盖已有用户。初始密码取自系统参数；导入后可在编辑用户中分配角色。用户导入逐行处理，失败时请按结果核对已成功的行。</p>
+    <p v-if="resource === 'user'" class="hint">新版模板必填账号、昵称、初始密码和角色。每行填一个角色。教师填所属学院，学生填所属班级，可填写组织名称或编号。新版模板用于批量新增，任一条失败时整批回滚。旧版模板仍可上传。</p>
     <p v-else class="hint">仅新增角色，重名或重复权限字符会拒绝整批导入。新角色默认为仅本人数据权限；菜单权限在编辑角色中配置。</p>
     <pre v-if="state.error" class="transfer-result error" role="alert">{{ state.error }}</pre>
     <pre v-if="state.result" class="transfer-result" role="status">{{ state.result }}</pre>

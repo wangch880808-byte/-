@@ -7,7 +7,7 @@ ruoyi:
   # 版权年份
   copyrightYear: 2026
   # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: ${RUOYI_PROFILE:D:/ruoyi/uploadPath}
+  profile: ${RUOYI_UPLOAD_PATH:./data/uploads}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证
@@ -57,9 +57,9 @@ spring:
   servlet:
     multipart:
       # 单个文件大小
-      max-file-size: 200MB
+      max-file-size: 10MB
       # 设置总上传的文件大小
-      max-request-size: 220MB
+      max-request-size: 20MB
   # 服务模块
   devtools:
     restart:
@@ -94,7 +94,7 @@ token:
   # 令牌自定义标识
   header: Authorization
   # 令牌密钥
-  secret: ${RUOYI_TOKEN_SECRET:abcdefghijklmnopqrstuvwxyz}
+  secret: ${RUOYI_TOKEN_SECRET}
   # 令牌有效期（默认30分钟）
   expireTime: 30
 
@@ -142,14 +142,3 @@ xss:
   excludes: /system/notice
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*
-
-# 第三组资源与保留策略
-group3:
-  retention:
-    # 是否开启定时清理（每天 03:00 执行）
-    enabled: true
-    # FAILED 资源版本保留天数，超过后连同原始文件与预览图一并删除；不影响 READY/PENDING
-    failed-days: 30
-  # 课件/文档转换线程池已在 Group3AsyncConfig 中固定为 2~4 线程、队列 50。
-  # 对象存储（S3/MinIO）与病毒扫描（ClamAV 等）需由部署环境提供，
-  # 当前存储为本地文件系统，未内置病毒扫描；上传文件仅按扩展名与大小限制。

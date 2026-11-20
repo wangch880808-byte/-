@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api } from '@/api/education/client.js'
 import ImportExportActions from '@/components/education/ImportExportActions.vue'
 import { hasPermission } from '@/education/session.js'
+import { isCollegeDept, studentClassPath } from '@/utils/education/studentClass.js'
 import {useRoute} from 'vue-router'
 const route=useRoute()
 
@@ -17,6 +18,7 @@ const filters = reactive({ userName: typeof route.query.userName==='string'?rout
 
 const roles = ref([])
 const depts = ref([])
+const originalTeacherDept = ref(null)
 let controller = null
 let disposed = false
 
@@ -37,6 +39,27 @@ const canRemove = computed(() => hasPermission('system:user:remove'))
 const canReset = computed(() => hasPermission('system:user:resetPwd'))
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+const hasRole = (key, ids = []) => roles.value.some((role) =>
+  role.roleKey === key && ids.includes(String(role.roleId)))
+const creatingUser = computed(() => form.mode === 'add')
+const roleChoices = computed(() => creatingUser.value
+  ? roles.value.filter((role) => String(role.status) === '0')
+  : roles.value)
+const editingTeacher = computed(() => hasRole('teacher', form.data.roleIds))
+const creatingStudent = computed(() => creatingUser.value && hasRole('student', form.data.roleIds))
+const teacherDepts = computed(() => depts.value.filter((dept) => dept.teacherCollege))
+const studentClasses = computed(() => depts.value
+  .filter((dept) => dept.classPath)
+  .map((dept) => ({ value: dept.value, label: dept.classPath })))
+const deptChoices = computed(() => {
+  if (creatingStudent.value) return studentClasses.value
+  if (!editingTeacher.value) return depts.value
+  const choices = teacherDepts.value
+  const previous = originalTeacherDept.value
+  if (!previous || choices.some((dept) => dept.value === previous)) return choices
+  const oldDept = depts.value.find((dept) => dept.value === previous)
+  return [...choices, { value: previous, label: oldDept ? oldDept.label + '（原部门）' : '保留原部门' }]
+})
 
 function normalizeError(err) {
   if (!err || err.forbidden || err.unauthorized || err.cancelled) return ''
@@ -79,16 +102,28 @@ function resetFilters() {
 }
 
 function flattenDepts(list) {
+  const byId = new Map(list.map((dept) => [String(dept.deptId), dept]))
   const byParent = new Map()
   list.forEach((dept) => {
-    const key = String(dept.parentId || 0)
+    const parentId = String(dept.parentId || 0)
+    const key = byId.has(parentId) ? parentId : '0'
     if (!byParent.has(key)) byParent.set(key, [])
     byParent.get(key).push(dept)
   })
   const result = []
   const visit = (parentId, depth) => {
     ;(byParent.get(String(parentId)) || []).forEach((dept) => {
-      result.push({ value: String(dept.deptId), label: '　'.repeat(depth) + dept.deptName })
+      const school = byId.get(String(dept.parentId))
+      const parentIsSchool = school
+        ? String(school.parentId) === '0' && String(school.status) === '0'
+          && (!school.deptType || school.deptType === 'SCHOOL')
+        : String(dept.ancestors || '') === '0,' + dept.parentId
+      result.push({
+        value: String(dept.deptId),
+        label: '　'.repeat(depth) + dept.deptName,
+        teacherCollege: parentIsSchool && isCollegeDept(dept) && String(dept.status) === '0',
+        classPath: studentClassPath(dept, byId)
+      })
       visit(dept.deptId, depth + 1)
     })
   }
@@ -124,6 +159,7 @@ async function openAdd() {
     await ensureLookups()
     if (disposed) return
     form.mode = 'add'
+    originalTeacherDept.value = null
     form.data = emptyForm()
     form.error = ''
     form.open = true
@@ -153,6 +189,7 @@ async function openEdit(user) {
       roleIds: (detail.roleIds || []).map(String),
       postIds: detail.postIds || []
     }
+    originalTeacherDept.value = hasRole('teacher', form.data.roleIds) ? form.data.deptId : null
     form.error = ''
     form.open = true
   } catch (err) {
@@ -162,9 +199,20 @@ async function openEdit(user) {
 
 function toggleRole(roleId) {
   const value = String(roleId)
-  const index = form.data.roleIds.indexOf(value)
-  if (index >= 0) form.data.roleIds.splice(index, 1)
-  else form.data.roleIds.push(value)
+  if (creatingUser.value) {
+    form.data.roleIds = [value]
+  } else {
+    const index = form.data.roleIds.indexOf(value)
+    if (index >= 0) form.data.roleIds.splice(index, 1)
+    else form.data.roleIds.push(value)
+  }
+  if (!deptChoices.value.some((dept) => dept.value === form.data.deptId)) {
+    if (editingTeacher.value || creatingStudent.value) {
+      form.data.deptId = ''
+    } else if (creatingUser.value) {
+      form.data.deptId = depts.value[0]?.value || ''
+    }
+  }
 }
 
 function validate(data, editing) {
@@ -173,7 +221,12 @@ function validate(data, editing) {
   if (!editing && (!data.password || data.password.length < 5 || data.password.length > 20)) return '密码需为 5-20 个字符'
   if (data.phonenumber && !/^1[3-9]\d{9}$/.test(data.phonenumber)) return '手机号格式不正确'
   if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return '邮箱格式不正确'
-  if (!data.roleIds.length) return '请至少选择一个角色'
+  if (!editing && data.roleIds.length !== 1) return '请选择一个角色'
+  if (editing && !data.roleIds.length) return '请至少选择一个角色'
+  if (hasRole('teacher', data.roleIds) && originalTeacherDept.value !== data.deptId
+    && !teacherDepts.value.some((dept) => dept.value === data.deptId)) return '请选择已开启的所属学院'
+  if (!editing && hasRole('student', data.roleIds)
+    && !studentClasses.value.some((dept) => dept.value === data.deptId)) return '请选择已开启的所属班级'
   return ''
 }
 
@@ -191,13 +244,13 @@ async function save() {
     const payload = {
       userName: form.data.userName.trim(),
       nickName: form.data.nickName.trim(),
-      deptId: form.data.deptId ? Number(form.data.deptId) : null,
+      deptId: form.data.deptId || null,
       phonenumber: form.data.phonenumber.trim(),
       email: form.data.email.trim(),
       sex: form.data.sex,
       status: form.data.status,
       remark: form.data.remark.trim(),
-      roleIds: form.data.roleIds.map(Number),
+      roleIds: form.data.roleIds,
       postIds: form.data.postIds || []
     }
     if (editing) {
@@ -360,10 +413,21 @@ onUnmounted(() => {
               <input id="f-nickName" v-model="form.data.nickName" class="ui-input" maxlength="30" />
             </div>
             <div class="field">
-              <label for="f-dept">部门</label>
-              <select id="f-dept" v-model="form.data.deptId" class="ui-select">
-                <option v-for="dept in depts" :key="dept.value" :value="dept.value">{{ dept.label }}</option>
+              <label for="f-dept" :class="{ req: creatingStudent }">{{ creatingStudent ? '所属班级' : editingTeacher ? '所属学院' : '部门' }}</label>
+              <select
+                id="f-dept"
+                v-model="form.data.deptId"
+                class="ui-select"
+                :required="creatingStudent"
+                :aria-describedby="creatingStudent && !studentClasses.length ? 'f-no-classes' : undefined"
+              >
+                <option v-if="creatingStudent" value="" disabled>请选择班级</option>
+                <option v-else-if="editingTeacher" value="" :disabled="originalTeacherDept !== ''">
+                  {{ originalTeacherDept === '' ? '保留原部门' : '请选择学院' }}
+                </option>
+                <option v-for="dept in deptChoices" :key="dept.value" :value="dept.value">{{ dept.label }}</option>
               </select>
+              <span v-if="creatingStudent && !studentClasses.length" id="f-no-classes" class="hint">请先在组织架构管理新增或导入班级。</span>
             </div>
             <div class="field">
               <label for="f-phone">手机号</label>
@@ -390,10 +454,16 @@ onUnmounted(() => {
               <input id="f-password" v-model="form.data.password" class="ui-input" type="password" maxlength="20" placeholder="5-20 个字符" />
             </div>
             <div class="field full">
-              <label class="req">角色</label>
-              <div class="check-list">
-                <label v-for="role in roles" :key="role.roleId" class="check">
-                  <input type="checkbox" :checked="form.data.roleIds.includes(String(role.roleId))" @change="toggleRole(role.roleId)" />
+              <label id="f-role-label" class="req">角色</label>
+              <div class="check-list" :role="creatingUser ? 'radiogroup' : 'group'" aria-labelledby="f-role-label">
+                <label v-for="role in roleChoices" :key="role.roleId" class="check">
+                  <input
+                    :type="creatingUser ? 'radio' : 'checkbox'"
+                    :name="creatingUser ? 'f-new-role' : undefined"
+                    :value="String(role.roleId)"
+                    :checked="form.data.roleIds.includes(String(role.roleId))"
+                    @change="toggleRole(role.roleId)"
+                  />
                   {{ role.roleName }}（{{ role.roleKey }}）
                 </label>
               </div>

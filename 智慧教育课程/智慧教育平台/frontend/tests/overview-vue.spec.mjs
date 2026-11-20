@@ -182,6 +182,12 @@ async function installFixture(page, options = {}) {
     msg: '操作成功',
     data: { courseSpaceId: '101', classId: '201', termId: '1', bindingId: '9001', memberRole: opts.role, canPublish: false, canGrade: false }
   }))
+  // 新 main 的顶栏 CurrentTerm 会请求当前学期；夹具必须显式接管，避免落到本机真实后端。
+  await page.route('**/education/scope/term/current', route => json(route, {
+    code: 200,
+    msg: '操作成功',
+    data: { termId: '1', name: '2026-2027-1', code: '2026-2027-1' }
+  }))
 
   const register = async (kind, pattern, getResponse, getDelay, abort) => {
     await page.route(pattern, async route => {
@@ -233,6 +239,27 @@ async function openHash(page, hash) {
   await page.goto(`${BASE}/vue/#${hash}`, { waitUntil: 'domcontentloaded' })
 }
 
+/**
+ * 从新 main 的工作台快捷入口点击总览。
+ *
+ * 旧 `?section=overview` 内嵌分区已随主线移除；这里只点击已通过 canOpen
+ * 的快捷入口。调用方可选择是否等待独立路由完成，401 跳转场景不等待。
+ *
+ * @param {import('playwright').Page} page 页面
+ * @param {'teacher'|'student'} role 角色
+ * @param {boolean} waitTarget 是否等待独立总览路由
+ */
+async function openWorkbenchOverview(page, role, waitTarget = true) {
+  const title = role === 'teacher' ? '教学总览' : '学习总览 / 今日待办'
+  const target = role === 'teacher' ? '/teacher/teaching-overview' : '/student/today-todos'
+  await openHash(page, '/' + role)
+  await page.waitForSelector('.workspace-shortcuts', { timeout: 15000 })
+  const entry = page.locator('.workspace-shortcuts a', { hasText: title }).first()
+  await entry.waitFor({ timeout: 10000 })
+  await entry.click()
+  if (waitTarget) await page.waitForFunction(expected => location.hash.includes(expected), target, { timeout: 10000 })
+}
+
 async function takeScreenshot(page, filename) {
   if (!SCREENSHOT_DIR) return
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true })
@@ -274,9 +301,11 @@ await run('教师工作台入口显示 6 个指标且不发送班级或身份参
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   const requests = await installFixture(page)
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
 
+  await page.waitForSelector('.current-term', { timeout: 10000 })
+  assert.equal((await page.locator('.current-term').innerText()).trim(), '2026-2027-1')
   assert.equal(await page.locator('.ov-card').count(), 6)
   assert.equal(await page.locator('.ov-card[data-metric="teacher.class.count"]').count(), 1)
   assert.match(await page.locator('.overview-board').innerText(), /待提交人次/)
@@ -296,7 +325,7 @@ await run('学生工作台入口显示 4 个指标且只发送空查询', async 
   const context = await newContext(browser, 'student')
   const page = await context.newPage()
   const requests = await installFixture(page, { role: 'student' })
-  await openHash(page, '/student?section=overview')
+  await openWorkbenchOverview(page, 'student')
   await board(page)
 
   assert.equal(await page.locator('.ov-card').count(), 4)
@@ -332,10 +361,10 @@ await run('教师和学生独立入口可用', async () => {
 
 await run('缺权限或缺服务端路由时关闭入口且直达零请求', async () => {
   const cases = [
-    { role: 'teacher', permissions: ['education:scope:read'], includeOverviewRoute: true, path: '/teacher?section=overview', direct: '/teacher/teaching-overview' },
-    { role: 'teacher', permissions: TEACHER_PERMISSIONS, includeOverviewRoute: false, path: '/teacher?section=overview', direct: '/teacher/teaching-overview' },
-    { role: 'student', permissions: ['education:scope:read'], includeOverviewRoute: true, path: '/student?section=overview', direct: '/student/today-todos' },
-    { role: 'student', permissions: STUDENT_PERMISSIONS, includeOverviewRoute: false, path: '/student?section=overview', direct: '/student/today-todos' }
+    { role: 'teacher', permissions: ['education:scope:read'], includeOverviewRoute: true, path: '/teacher', entry: '教学总览', direct: '/teacher/teaching-overview' },
+    { role: 'teacher', permissions: TEACHER_PERMISSIONS, includeOverviewRoute: false, path: '/teacher', entry: '教学总览', direct: '/teacher/teaching-overview' },
+    { role: 'student', permissions: ['education:scope:read'], includeOverviewRoute: true, path: '/student', entry: '学习总览 / 今日待办', direct: '/student/today-todos' },
+    { role: 'student', permissions: STUDENT_PERMISSIONS, includeOverviewRoute: false, path: '/student', entry: '学习总览 / 今日待办', direct: '/student/today-todos' }
   ]
   for (const item of cases) {
     const context = await newContext(browser, item.role)
@@ -346,10 +375,12 @@ await run('缺权限或缺服务端路由时关闭入口且直达零请求', asy
       includeOverviewRoute: item.includeOverviewRoute
     })
     await openHash(page, item.path)
+    await page.waitForSelector('.workspace-shortcuts', { timeout: 10000 })
+    assert.equal(await page.locator('.workspace-shortcuts a', { hasText: item.entry }).count(), 0,
+      item.role + ' entry hidden')
     await page.waitForTimeout(250)
     assert.equal(await page.locator('.overview-board').count(), 0, item.role)
     assert.equal(requests.length, 0, item.role)
-    assert.match(await page.locator('body').innerText(), /总览未开放|没有访问权限/)
     await context.close()
 
     const directContext = await newContext(browser, item.role)
@@ -361,6 +392,7 @@ await run('缺权限或缺服务端路由时关闭入口且直达零请求', asy
     })
     await openHash(directPage, item.direct)
     await directPage.waitForFunction(path => !location.hash.includes(path), item.direct, { timeout: 10000 })
+    assert.match(await directPage.locator('body').innerText(), /没有访问权限|未开放/, item.role + ' direct')
     assert.equal(await directPage.locator('.overview-board').count(), 0, item.role + ' direct')
     assert.equal(directRequests.length, 0, item.role + ' direct')
     await directContext.close()
@@ -389,9 +421,12 @@ await run('登录核验完成前零总览请求', async () => {
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   const requests = await installFixture(page, { infoDelay: 350, routersDelay: 300 })
-  await openHash(page, '/teacher?section=overview')
+  await openHash(page, '/teacher')
   await page.waitForTimeout(120)
   assert.equal(requests.length, 0)
+  await page.waitForSelector('.workspace-shortcuts', { timeout: 15000 })
+  await page.locator('.workspace-shortcuts a', { hasText: '教学总览' }).first().click()
+  await page.waitForFunction(() => location.hash.includes('/teacher/teaching-overview'), null, { timeout: 10000 })
   await board(page)
   assert.equal(requests.length, 1)
   await context.close()
@@ -401,7 +436,7 @@ await run('教师 classId 保持字符串和大整数，不发送 bindingId', as
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   const requests = await installFixture(page)
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   const largeId = '820000000000000001'
   await page.locator('#overview-class-id').fill(largeId)
@@ -419,7 +454,7 @@ await run('教师 classId Long 上界、溢出和格式边界按字符串校验'
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   const requests = await installFixture(page)
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   const input = page.locator('#overview-class-id')
   const apply = page.getByRole('button', { name: '应用筛选' })
@@ -455,7 +490,7 @@ await run('学生筛选只发送 from/to，不携带班级或身份参数', asyn
   const context = await newContext(browser, 'student')
   const page = await context.newPage()
   const requests = await installFixture(page, { role: 'student' })
-  await openHash(page, '/student?section=overview')
+  await openWorkbenchOverview(page, 'student')
   await board(page)
   await page.locator('#overview-from').fill('2026-11-19T09:00')
   await page.locator('#overview-to').fill('2026-11-19T11:00')
@@ -472,7 +507,7 @@ await run('时间筛选成对校验、顺序校验和 UTC 转换，非法输入�
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   const requests = await installFixture(page)
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   const baseline = requests.length
   await page.locator('#overview-from').fill('2026-11-19T09:00')
@@ -506,7 +541,7 @@ await run('真实零、NO_DATA、UNAVAILABLE 与混合三态分别展示', async
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   await installFixture(page, { teacherResponse: response(items) })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   assert.equal(await card(page, 'teacher.class.count').locator('.ov-value strong').innerText(), '0')
   assert.match(await card(page, 'teacher.student.count').innerText(), /暂无数据/)
@@ -530,7 +565,7 @@ await run('单卡缺项、重复、非法值、单位或来源违约只降级对
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   await installFixture(page, { teacherResponse: response(items) })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   assert.equal(await page.locator('.ov-card').count(), 6)
   assert.equal(await page.locator('.ov-card .ov-state-text.error').count(), 6)
@@ -545,7 +580,7 @@ await run('混合响应仅一张卡片违约时其余合法卡片保持正常', 
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   await installFixture(page, { teacherResponse: response(items) })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   assert.equal(await page.locator('.ov-card').count(), 6)
   assert.equal(await page.locator('.ov-card .ov-state-text.error').count(), 1)
@@ -567,7 +602,7 @@ await run('顶层响应 data、items、asOf 或 window 异常显示响应异常'
     const context = await newContext(browser, 'teacher')
     const page = await context.newPage()
     await installFixture(page, { teacherResponse: body })
-    await openHash(page, '/teacher?section=overview')
+    await openWorkbenchOverview(page, 'teacher')
     await page.waitForSelector('.ov-state.error', { timeout: 15000 })
     assert.match(await page.locator('.ov-state.error').innerText(), /总览响应异常/)
     assert.equal(await page.locator('.ov-card').count(), 0)
@@ -591,7 +626,7 @@ await run('非法日历 asOf 和窗口字段分别显示响应异常，不自动
         data: { asOf: item.asOf, window: item.window, items: teacherItems() }
       }
     })
-    await openHash(page, '/teacher?section=overview')
+    await openWorkbenchOverview(page, 'teacher')
     await page.waitForSelector('.ov-state.error', { timeout: 2000 })
     assert.match(await page.locator('.ov-state.error').innerText(), /总览响应异常/)
     assert.equal(await page.locator('.ov-card').count(), 0)
@@ -617,7 +652,7 @@ await run('合法闰日、Z/偏移和不同小数秒精度仍可展示', async (
       }
     }
   })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   assert.equal(await page.locator('.ov-card').count(), 6)
   assert.match(await page.locator('.ov-meta').innerText(), /响应时间/)
@@ -630,7 +665,7 @@ await run('403 清除旧数据并展示无权限', async () => {
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   await installFixture(page, { teacherResponse: { code: 403, msg: '没有该总览的访问权限' } })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await page.waitForSelector('.ov-state.error', { timeout: 15000 })
   assert.match(await page.locator('.ov-state.error').innerText(), /无权查看/)
   assert.equal(await page.locator('.ov-card').count(), 0)
@@ -646,7 +681,7 @@ await run('刷新失败不保留旧值和旧 asOf', async () => {
       ? { code: 500, msg: '总览查询失败' }
       : response(teacherItems({ 'teacher.class.count': 7 }))
   })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   assert.equal(await card(page, 'teacher.class.count').locator('.ov-value strong').innerText(), '7')
   failing = true
@@ -661,7 +696,7 @@ await run('网络失败显示可重试错误，401 沿用登录跳转', async ()
   const networkContext = await newContext(browser, 'teacher')
   const networkPage = await networkContext.newPage()
   await installFixture(networkPage, { teacherAbort: 'failed' })
-  await openHash(networkPage, '/teacher?section=overview')
+  await openWorkbenchOverview(networkPage, 'teacher')
   await networkPage.waitForSelector('.ov-state.error', { timeout: 15000 })
   assert.match(await networkPage.locator('.ov-state.error').innerText(), /网络异常/)
   await networkContext.close()
@@ -671,7 +706,7 @@ await run('网络失败显示可重试错误，401 沿用登录跳转', async ()
   await installFixture(authPage, {
     teacherResponse: { code: 401, msg: '登录已过期' }
   })
-  await openHash(authPage, '/teacher?section=overview')
+  await openWorkbenchOverview(authPage, 'teacher', false)
   await authPage.waitForFunction(() => location.hash.includes('/login'), null, { timeout: 15000 })
   assert.equal(await authPage.locator('.overview-board').count(), 0)
   await authContext.close()
@@ -686,7 +721,7 @@ await run('业务 400 与 HTTP 500 分别展示参数错误和服务异常', asy
     const context = await newContext(browser, 'teacher')
     const page = await context.newPage()
     await installFixture(page, { teacherResponse: item.body })
-    await openHash(page, '/teacher?section=overview')
+    await openWorkbenchOverview(page, 'teacher')
     await page.waitForSelector('.ov-state.error', { timeout: 15000 })
     assert.match(await page.locator('.ov-state.error').innerText(), item.expected)
     assert.equal(await page.locator('.ov-card').count(), 0)
@@ -704,7 +739,7 @@ await run('筛选乱序时旧响应不覆盖新筛选', async () => {
       return response(teacherItems({ 'teacher.class.count': classId === '9001' ? 11 : classId === '9002' ? 22 : 0 }))
     }
   })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   await page.locator('#overview-class-id').fill('9001')
   const firstRequest = page.waitForRequest(request => request.url().includes('classId=9001'), { timeout: 10000 })
@@ -725,7 +760,7 @@ await run('已排队请求被后续筛选作废，不产生旧请求', async () 
   const context = await newContext(browser, 'teacher')
   const page = await context.newPage()
   const requests = await installFixture(page)
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   const baseline = requests.length
   const queuedRequest = page.waitForRequest(request => request.url().includes('classId=9002'), { timeout: 10000 })
@@ -755,10 +790,10 @@ await run('卸载后迟到响应不更新页面', async () => {
   const pageErrors = []
   page.on('pageerror', error => pageErrors.push(error))
   await installFixture(page, { teacherDelay: 700 })
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await page.waitForTimeout(100)
   await page.evaluate(() => { location.hash = '#/teacher/profile' })
-  await page.waitForFunction(() => !location.hash.includes('/teacher?section=overview'), null, { timeout: 10000 })
+  await page.waitForFunction(() => !location.hash.includes('/teacher/teaching-overview'), null, { timeout: 10000 })
   await page.waitForTimeout(900)
   assert.equal(await page.locator('.overview-board').count(), 0)
   assert.deepEqual(pageErrors, [])
@@ -770,7 +805,7 @@ await run('390px 总览单列无横向溢出，离开后页面恢复', async () 
   const page = await context.newPage()
   await page.setViewportSize({ width: 390, height: 844 })
   await installFixture(page)
-  await openHash(page, '/teacher?section=overview')
+  await openWorkbenchOverview(page, 'teacher')
   await board(page)
   const overflow = await page.evaluate(() => {
     const board = document.querySelector('.overview-board')

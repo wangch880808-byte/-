@@ -31,7 +31,7 @@ export function createContextController({ state, request, storage, onChange = ()
   function fail(error) {
     if (error.cancelled || error.unauthorized) return
     state.status = error.forbidden ? 'ready' : (error.status === 404 || error.code === 404 || /No static resource|Not Found/i.test(error.message || '')) ? 'unavailable' : 'error'
-    state.message = error.forbidden ? '该课程或教学班已不可用，请重新选择' : state.status === 'unavailable'
+    state.message = error.forbidden ? (identity?.role === 'student' ? '当前课程暂不可用，请刷新课程或选择其他课程' : '该课程或教学班已不可用，请重新选择') : state.status === 'unavailable'
       ? '课程与教学班服务尚未就绪' : '课程与教学班加载失败，请重试'
   }
   function decode(data) {
@@ -53,18 +53,30 @@ export function createContextController({ state, request, storage, onChange = ()
   }
   async function select(courseId, classId, bindingId) {
     if (!identity || !['teacher', 'student'].includes(identity.role)) return null
+    const previous = state.current
     stop()
     const run = version
     controller = new AbortController()
     const signal = controller.signal
     transition(null)
     state.pending = { courseSpaceId: courseId ? String(courseId) : '', classId: classId ? String(classId) : '' }
-    state.status = 'checking'; state.message = '正在核验课程与教学班…'
+    state.status = 'checking'; state.message = identity.role === 'student' ? '正在核验课程…' : '正在核验课程与教学班…'
     try {
       if (!courseId) { clear(); return null }
       const course = state.courses.find(item => item.courseSpaceId === objectId(courseId))
       if (!course) throw Object.assign(new Error('课程不可用'), { forbidden: true })
       const next = { courseSpaceId: course.courseSpaceId, courseTitle: course.title, classId: null }
+      if (identity.role === 'student' || !classId) {
+        const preferredClassId = classId || (previous?.courseSpaceId === course.courseSpaceId ? previous.classId : null)
+        const target = course.classes.find(item => item.classId === String(preferredClassId)) || course.classes[0]
+        if (!target && identity.role === 'student') {
+          throw Object.assign(new Error('当前课程没有有效入班关系'), { forbidden: true })
+        }
+        if (target) {
+          classId = target.classId
+          bindingId = target.bindingId
+        }
+      }
       if (classId) {
         const target = course.classes.find(item => item.classId === objectId(classId))
         if (!target || (bindingId && target.bindingId !== objectId(bindingId))) throw Object.assign(new Error('绑定已变化'), { forbidden: true })
@@ -82,10 +94,7 @@ export function createContextController({ state, request, storage, onChange = ()
       }
       if (signal.aborted || run !== version) return null
       state.pending = null; transition(next)
-      state.status = 'ready'
-      state.message = next.classId
-        ? (identity.role === 'student' ? '已验证当前班级' : '已验证当前教学班')
-        : (identity.role === 'student' ? '请选择班级' : '请选择教学班')
+      state.status = 'ready'; state.message = identity.role === 'student' ? '已验证当前课程' : next.classId ? '已验证当前教学班' : '请选择教学班'
       return state.current
     } catch (error) {
       if (signal.aborted || run !== version) return null
@@ -113,7 +122,7 @@ export function createContextController({ state, request, storage, onChange = ()
       if (signal.aborted || run !== version) return
       state.courses = decode(data); state.term = data.term || null
       state.status = state.courses.length ? 'ready' : 'empty'
-      state.message = state.courses.length ? '请选择课程与教学班' : '暂无可访问的课程'
+      state.message = state.courses.length ? (identity.role === 'student' ? '请选择课程' : '请选择课程与教学班') : '暂无可访问的课程'
       if (restore) {
         let courseId = restore.courseSpaceId
         if (!courseId && restore.classId) {
@@ -128,7 +137,7 @@ export function createContextController({ state, request, storage, onChange = ()
       transition(null); fail(error)
     }
   }
-  function clear(message = '请选择课程与教学班') {
+  function clear(message = identity?.role === 'student' ? '请选择课程' : '请选择课程与教学班') {
     stop(); state.pending = null; transition(null)
     state.status = state.courses.length ? 'ready' : 'empty'; state.message = message
   }

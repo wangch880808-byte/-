@@ -25,63 +25,59 @@
           </div>
           <div class="edu-hero-meta">
             <span>{{ course.teacherName || '教师' }}</span>
-            <span>{{ course.semesterName || '本学期' }}</span>
             <span>{{ course.className || '本班' }}</span>
           </div>
         </div>
       </el-card>
 
-      <section v-if="activeTab === 'outline'" class="edu-section">
+      <el-tabs v-model="activeTab" class="edu-tabs">
+        <el-tab-pane label="目录" name="outline">
           <course-outline :course="course" readonly />
-      </section>
-      <section v-else-if="activeTab === 'material'" class="edu-section">
-          <student-materials v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
-          <el-card v-else shadow="never">
-            <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
-          </el-card>
-      </section>
-      <section v-else-if="activeTab === 'prepare'" class="edu-section">
-          <student-prestudy v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
-          <el-card v-else shadow="never">
-            <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
-          </el-card>
-      </section>
-      <section v-else-if="activeTab === 'classroom'" class="edu-section">
+        </el-tab-pane>
+        <el-tab-pane label="课程资料" name="material" lazy>
+          <group3-course-section v-if="course.id && activeTab === 'material'" :course-id="courseId" v-slot="{ bindingId }">
+            <student-materials :key="bindingId" :context-binding-id="bindingId" />
+          </group3-course-section>
+        </el-tab-pane>
+        <el-tab-pane label="课前学习" name="prepare" lazy>
+          <group3-course-section v-if="course.id && activeTab === 'prepare'" :course-id="courseId" v-slot="{ bindingId }">
+            <student-prestudy :key="bindingId" :context-binding-id="bindingId" />
+          </group3-course-section>
+        </el-tab-pane>
+        <el-tab-pane label="讨论" name="discuss" lazy>
+          <group3-course-section v-if="course.id && activeTab === 'discuss'" :course-id="courseId" v-slot="{ bindingId }">
+            <student-discussion :key="bindingId" :context-binding-id="bindingId" />
+          </group3-course-section>
+        </el-tab-pane>
+        <el-tab-pane label="同步课堂" name="classroom">
           <el-card shadow="never">
             <el-empty :description="placeholder('classroom')" :image-size="80" />
           </el-card>
-      </section>
-      <section v-else-if="activeTab === 'homework'" class="edu-section">
+        </el-tab-pane>
+        <el-tab-pane label="课后学习" name="homework">
           <el-card shadow="never">
             <el-empty :description="placeholder('homework')" :image-size="80" />
           </el-card>
-      </section>
-      <section v-else-if="activeTab === 'stat'" class="edu-section">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('stat')" :image-size="80" />
-          </el-card>
-      </section>
-      <section v-else class="edu-section">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('ai')" :image-size="80" />
-          </el-card>
-      </section>
+        </el-tab-pane>
+      </el-tabs>
     </template>
   </div>
 </template>
 
 <script setup name="EduStudentCourseDetail">
-import { defineAsyncComponent, ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, defineAsyncComponent, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { getCourse } from '@/api/education/course'
 import { eduErrorText } from '@/api/education/http'
 import CourseOutline from '@/components/education/CourseOutline.vue'
-import { context } from '@/education/context'
+import Group3CourseSection from '../group3/Group3CourseSection.vue'
 
-const StudentMaterials = defineAsyncComponent(() => import('@/views/education/group3/StudentMaterials.vue'))
-const StudentPrestudy = defineAsyncComponent(() => import('@/views/education/group3/StudentPrestudy.vue'))
+const StudentMaterials = defineAsyncComponent(() => import('../group3/StudentMaterials.vue'))
+const StudentPrestudy = defineAsyncComponent(() => import('../group3/StudentPrestudy.vue'))
+const StudentDiscussion = defineAsyncComponent(() => import('../group3/StudentDiscussion.vue'))
 
 const route = useRoute()
+const router = useRouter()
 const courseId = computed(() => route.params.courseId)
 
 const loading = ref(false)
@@ -90,28 +86,18 @@ const fatal = ref(false)
 const fatalText = ref('')
 const fatalTitle = ref('无法打开课程')
 const course = ref({})
-const SECTIONS = ['outline', 'material', 'prepare', 'classroom', 'homework', 'stat', 'ai']
-const activeTab = computed(() => {
-  const tab = String(route.query.tab || 'outline')
-  return SECTIONS.includes(tab) ? tab : 'outline'
-})
-
-const bindingId = computed(() => {
-  const selected = context.current
-  const sameCourse = selected?.courseSpaceId && String(selected.courseSpaceId) === String(course.value.id)
-  return String(
-    (sameCourse ? selected.bindingId : '') ||
-    route.query.bindingId ||
-    course.value.bindingId ||
-    ''
-  )
+const tabs = ['outline', 'material', 'prepare', 'discuss', 'classroom', 'homework']
+const activeTab = computed({
+  get() { return tabs.includes(route.query.tab) ? route.query.tab : 'outline' },
+  set(tab) {
+    const { topicId, assignmentId, resourceId, ...query } = route.query
+    router.replace({ query: { ...query, tab } })
+  }
 })
 
 const PLACEHOLDER = {
   classroom: '该功能尚未开放。',
-  homework: '该功能尚未开放。',
-  stat: '该功能尚未开放。',
-  ai: '该功能尚未开放。'
+  homework: '该功能尚未开放。'
 }
 
 function placeholder(tab) {
@@ -142,7 +128,7 @@ async function load() {
   }
 }
 
-onMounted(load)
+watch(courseId, load, { immediate: true })
 </script>
 
 <style scoped>

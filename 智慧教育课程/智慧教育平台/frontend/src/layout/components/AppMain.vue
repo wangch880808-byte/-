@@ -1,6 +1,5 @@
 <template>
   <section class="app-main">
-    <teaching-context />
     <el-alert v-if="contextMissing" title="请先选择并核验课程与教学班" type="info" :closable="false" />
     <router-view v-if="canRender" v-slot="{ Component, route }">
       <transition name="fade-transform" mode="out-in">
@@ -15,7 +14,6 @@
 </template>
 
 <script setup>
-import TeachingContext from '@/components/education/TeachingContext.vue'
 import {context} from '@/education/context'
 import {educationRuntime} from '@/education/runtime'
 import {allowed} from '@/education/routes'

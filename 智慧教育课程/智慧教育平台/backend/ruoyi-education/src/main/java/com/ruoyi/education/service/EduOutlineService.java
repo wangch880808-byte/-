@@ -40,7 +40,7 @@ public class EduOutlineService {
         return row;
     }
     @Transactional
-    public void saveUnit(Long courseId,Long unitId,Map<String,Object> input) {
+    public Long saveUnit(Long courseId,Long unitId,Map<String,Object> input) {
         requireOwner(courseId);
         var existing=unitId==null?null:requireUnit(courseId,unitId);
         String kind=String.valueOf(input.get("unitKind"));
@@ -60,9 +60,10 @@ public class EduOutlineService {
         body.put("courseId",courseId);body.put("id",unitId);body.put("parentUnitId",parent);
         body.put("unitKind",kind);body.put("title",text(input,"title",160));body.put("sortOrder",order);
         if(unitId==null)mapper.insertUnit(body);else mapper.updateUnit(body);
+        return ((Number) body.get("id")).longValue();
     }
     @Transactional
-    public void savePoint(Long courseId,Long pointId,Map<String,Object> input) {
+    public Long savePoint(Long courseId,Long pointId,Map<String,Object> input) {
         requireOwner(courseId);
         if(pointId!=null&&mapper.point(courseId,pointId)==null)throw new ServiceException("知识点不存在或不属于本课程");
         Long unitId=id(input.get("unitId"));
@@ -72,6 +73,7 @@ public class EduOutlineService {
         body.put("code",text(input,"code",60));body.put("name",text(input,"name",160));
         try{if(pointId==null)mapper.insertPoint(body);else mapper.updatePoint(body);}
         catch(DataIntegrityViolationException e){throw new ServiceException("知识点编码重复或关联章节已变化，请刷新后重试");}
+        return ((Number) body.get("id")).longValue();
     }
     @Transactional
     public void delete(Long courseId,Long id,boolean point) {

@@ -19,6 +19,8 @@ public interface SysDeptMapper
      */
     public List<SysDept> selectDeptList(SysDept dept);
 
+    public List<SysDept> selectAdministrativeClasses(SysDept filter);
+
     /**
      * 根据角色ID查询部门树信息
      * 
@@ -36,6 +38,8 @@ public interface SysDeptMapper
      */
     public SysDept selectDeptById(Long deptId);
 
+    public SysDept lockDepartment(Long deptId);
+
     /**
      * 根据ID查询所有子部门
      * 
@@ -52,21 +56,18 @@ public interface SysDeptMapper
      */
     public int selectNormalChildrenDeptById(Long deptId);
 
-    /**
-     * 是否存在子节点
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
-    public int hasChildByDeptId(Long deptId);
+    List<Long> selectBranchIds(@Param("deptId") Long deptId, @Param("lock") boolean lock);
 
-    /**
-     * 查询部门是否存在用户
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
-    public int checkDeptExistUser(Long deptId);
+    List<Long> selectBranchUsers(@Param("ids") List<Long> ids, @Param("lock") boolean lock);
+
+    List<Long> selectBranchRoleScopes(@Param("ids") List<Long> ids, @Param("lock") boolean lock);
+
+    int clearBranchUserDepartments(@Param("ids") List<Long> ids, @Param("operator") String operator);
+
+    int deleteBranchRoleScopes(@Param("ids") List<Long> ids);
+
+    /** 统计该组织中尚未删除的教师账号。 */
+    public int checkDeptExistTeacher(Long deptId);
 
     /**
      * 校验部门名称是否唯一
@@ -115,11 +116,5 @@ public interface SysDeptMapper
      */
     public void updateDeptSort(SysDept dept);
 
-    /**
-     * 删除部门管理信息
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
-    public int deleteDeptById(Long deptId);
+    int deleteDeptBranch(@Param("ids") List<Long> ids);
 }

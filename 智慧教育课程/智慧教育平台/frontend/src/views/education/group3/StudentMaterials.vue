@@ -13,341 +13,286 @@
     <el-empty v-if="!bindingId" description="暂无在修课程，请联系任课教师确认教学班成员关系" />
 
     <template v-else>
-      <div class="g3-page-head">
-        <div class="g3-title-block">
-          <h2>课程资料</h2>
-          <p>{{ current ? `${current.courseTitle} · ${current.className}` : '—' }}</p>
-          <span class="g3-head-note">
-            这里只显示本人教学班、当前已开放的内容；未开放、已撤回或不属于本班的内容不会出现，旧链接也不会继续有效。
-          </span>
+      <div class="g3-file-toolbar">
+        <div class="g3-crumb">
+          <el-icon class="g3-crumb-icon"><Folder /></el-icon>
+          <span class="g3-crumb-current">全部文件</span>
+          <span class="g3-file-count">当前页共 {{ filteredMaterials.length }} 个</span>
         </div>
-        <div class="g3-head-filter">
-          <span>筛选</span>
-          <el-select v-model="stateFilter" style="width: 150px">
-            <el-option v-for="item in STATE_FILTERS" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+        <div class="g3-file-actions">
+          <el-input
+            v-model="keyword"
+            placeholder="搜索文件名"
+            clearable
+            style="width: 220px"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+          <el-button :loading="loadingList" @click="refresh">刷新</el-button>
         </div>
       </div>
 
-      <div class="g3-stats">
-        <div class="g3-stat"><small>资料总数</small><strong>{{ stats.total }}</strong></div>
-        <div class="g3-stat"><small>进行中</small><strong>{{ stats.open }}</strong></div>
-        <div class="g3-stat"><small>未开放</small><strong>{{ stats.upcoming }}</strong></div>
-        <div class="g3-stat"><small>已截止</small><strong>{{ stats.closed }}</strong></div>
-      </div>
+      <p v-if="current" class="g3-file-subtitle">{{ current.courseTitle }} · {{ current.className }}</p>
+
+      <StudentProgressBoard
+        ref="boardRef"
+        :binding-id="bindingId"
+        compact
+      />
 
       <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" class="g3-gap" />
 
-      <div class="g3-layout">
-        <div v-loading="loadingList" class="g3-tl-main">
-          <StudentTimeline
-            :nodes="visibleNodes"
-            :selected-key="selectedKey"
-            :server-now="serverNow"
-            mode="materials"
-            empty-hint="教师发布资料后，资料环节会出现在这条时间轴上"
-            @select="handleNodeSelect"
-          />
-        </div>
-
-        <div class="g3-tl-detail">
-          <el-card v-if="detailNode" shadow="never" class="g3-detail">
-            <template #header>
-              <div class="g3-detail-head">
-                <span class="g3-kind">资料阅读</span>
-                <el-tag size="small" effect="plain">{{ seqText(detailNode) }}</el-tag>
-                <el-tag size="small" :type="stateTagType(detailNode.state)">{{ stateLabel(detailNode.state) }}</el-tag>
-                <el-button
-                  class="g3-download"
-                  size="small"
-                  :loading="downloading"
-                  @click="handleDownload(detailNode)"
-                >
-                  下载
-                </el-button>
-                <el-button
-                  class="g3-enter-reader"
-                  size="small"
-                  type="primary"
-                  plain
-                  @click="showIndependent = true"
-                >
-                  进入阅读
-                </el-button>
-              </div>
-            </template>
-
-            <h3 class="g3-detail-title">{{ detailNode.title }}</h3>
-
-            <el-descriptions :column="2" size="small" border>
-              <el-descriptions-item label="环节序号">{{ seqText(detailNode) }}</el-descriptions-item>
-              <el-descriptions-item label="版本">V{{ detailNode.meta.versionNo || 1 }}</el-descriptions-item>
-              <el-descriptions-item label="开放时间">{{ formatTime(detailNode.opensAt) }}</el-descriptions-item>
-              <el-descriptions-item label="开放至">{{ formatTime(detailNode.closesAt) }}</el-descriptions-item>
-              <el-descriptions-item label="预览页">{{ Number(detailNode.meta.pageCount || 0) }} 页</el-descriptions-item>
-              <el-descriptions-item label="媒体类型">{{ detailNode.meta.mediaKind || '文件' }}</el-descriptions-item>
-            </el-descriptions>
-
-            <el-divider content-position="left">资料预览</el-divider>
-
-            <div v-loading="readerLoading" class="g3-reader">
-              <el-alert v-if="readerError" :title="readerError" type="error" show-icon :closable="false">
-                <el-button size="small" @click="loadReader(detailNode)">重试</el-button>
-              </el-alert>
-
-              <template v-else-if="versionDetail">
-                <div v-if="versionDetail.mediaKind === 'LINK' && versionDetail.externalUri" class="g3-reader-link">
-                  <el-link type="primary" :href="versionDetail.externalUri" target="_blank" rel="noopener noreferrer">
-                    打开外部链接
-                  </el-link>
-                </div>
-
-                <div v-else-if="videoUrl" class="g3-reader-box">
-                  <video :src="videoUrl" controls class="g3-reader-video"></video>
-                </div>
-
-                <template v-else-if="pageUrls.length">
-                  <div class="g3-reader-box">
-                    <el-image
-                      :src="pageUrls[pageIndex]"
-                      fit="contain"
-                      class="g3-reader-image"
-                      :preview-src-list="pageUrls"
-                      :initial-index="pageIndex"
-                      preview-teleported
-                    />
-                  </div>
-                  <div class="g3-page-nav">
-                    <el-button size="small" :disabled="pageIndex === 0" @click="pageIndex -= 1">上一页</el-button>
-                    <span class="g3-hint">{{ pageIndex + 1 }} / {{ pageUrls.length }}</span>
-                    <el-button
-                      size="small"
-                      :disabled="pageIndex === pageUrls.length - 1"
-                      @click="pageIndex += 1"
-                    >
-                      下一页
-                    </el-button>
-                  </div>
-                </template>
-
-                <el-empty v-else description="该资料没有分页预览，可直接下载原文件阅读" :image-size="80">
-                  <el-button size="small" @click="handleDownload(detailNode)">下载原文件</el-button>
-                </el-empty>
-              </template>
-
-              <el-empty v-else description="选择资料后显示预览" :image-size="80" />
+      <el-table
+        v-loading="loadingList"
+        :data="filteredMaterials"
+        class="g3-file-table"
+        empty-text="暂无课程资料，教师发布后会显示在这里"
+      >
+        <el-table-column type="selection" width="46" />
+        <el-table-column label="文件名" min-width="360">
+          <template #default="{ row }">
+            <div class="g3-file-name" @click="openPreview(row)">
+              <el-icon class="g3-file-icon" :class="`is-${fileKind(row)}`">
+                <component :is="fileIcon(row)" />
+              </el-icon>
+              <span class="g3-file-title">{{ row.title || '课程资料' }}</span>
+              <span v-if="fileExtension(row)" class="g3-file-ext">{{ fileExtension(row) }}</span>
+              <el-tag v-if="row.taskEnabled" size="small" type="warning" effect="plain">任务点</el-tag>
             </div>
-
-            <p class="g3-hint g3-reader-note">
-              每次预览与下载都会重新校验身份与发布范围；撤回后旧地址会立即失效。资料阅读不产生服务端已读记录。
-            </p>
-          </el-card>
-
-          <el-card v-else shadow="never" class="g3-detail">
-            <template #header><span>环节详情</span></template>
-            <el-empty description="选择一个环节" :image-size="90">
-              <p class="g3-hint">资料环节可预览或下载；预习环节请在「预习习题」页面作答。</p>
-            </el-empty>
-          </el-card>
-        </div>
-      </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="学习进度" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.taskEnabled && isCompleted(row)" size="small" type="success">已完成</el-tag>
+            <el-tag v-else-if="row.taskEnabled" size="small" type="info">未完成</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="大小" width="110">
+          <template #default="{ row }">{{ formatSize(row.byteSize) }}</template>
+        </el-table-column>
+        <el-table-column label="创建者" width="150">
+          <template #default="{ row }">{{ row.creatorName || '授课教师' }}</template>
+        </el-table-column>
+        <el-table-column label="创建日期" width="160">
+          <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" align="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click.stop="openPreview(row)">预览</el-button>
+            <el-button
+              v-if="row.downloadEnabled !== 0"
+              link
+              type="primary"
+              :loading="downloadingId === row.versionId"
+              @click.stop="handleDownload(row)"
+            >
+              下载
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </template>
 
-    <el-drawer
-      v-model="showIndependent"
-      size="92%"
-      direction="rtl"
-      :with-header="false"
-      :modal="false"
+    <el-dialog
+      v-model="previewVisible"
+      :title="previewRow ? displayName(previewRow) : '资料预览'"
+      width="900px"
       append-to-body
-      class="g3-reader-drawer"
+      class="g3-preview-dialog"
     >
-      <div class="g3-independent-head">
-        <el-button size="small" @click="showIndependent = false">← 返回</el-button>
-        <el-button
-          size="small"
-          :disabled="!prevNode"
-          @click="jumpNode(prevNode)"
-        >上一个环节</el-button>
-        <el-tag size="default" effect="plain">
-          {{ seqText(detailNode || currentIndependentNode) }}
-        </el-tag>
-        <span class="g3-independent-title">
-          {{ (detailNode || currentIndependentNode) ? (detailNode || currentIndependentNode).title : '—' }}
-        </span>
-        <el-button
-          size="small"
-          :disabled="!nextNode"
-          @click="jumpNode(nextNode)"
-        >下一个环节</el-button>
-        <el-button
-          size="small"
-          :loading="downloading"
-          :disabled="!detailNode"
-          @click="handleDownload(detailNode)"
-        >下载</el-button>
-      </div>
+      <div v-loading="readerLoading" class="g3-reader">
+        <el-alert v-if="readerError" :title="readerError" type="error" show-icon :closable="false">
+          <el-button size="small" @click="loadReader(previewRow)">重试</el-button>
+        </el-alert>
 
-      <div v-if="detailNode" class="g3-independent-body">
-        <div v-loading="readerLoading" class="g3-reader">
-          <el-alert v-if="readerError" :title="readerError" type="error" show-icon :closable="false">
-            <el-button size="small" @click="loadReader(detailNode)">重试</el-button>
-          </el-alert>
+        <template v-else-if="versionDetail">
+          <div v-if="versionDetail.mediaKind === 'LINK' && versionDetail.externalUri" class="g3-reader-link">
+            <el-link type="primary" :href="versionDetail.externalUri" target="_blank" rel="noopener noreferrer">
+              打开外部链接
+            </el-link>
+          </div>
 
-          <template v-else-if="versionDetail">
-            <div v-if="versionDetail.mediaKind === 'LINK' && versionDetail.externalUri" class="g3-reader-link">
-              <el-link type="primary" :href="versionDetail.externalUri" target="_blank" rel="noopener noreferrer">
-                打开外部链接
-              </el-link>
+          <div v-else-if="videoUrl" class="g3-reader-box g3-watermark-host">
+            <video
+              ref="videoRef"
+              :src="videoUrl"
+              controls
+              class="g3-reader-video"
+              @timeupdate="onVideoTimeUpdate"
+              @ended="onVideoEnded"
+            ></video>
+            <div v-if="watermarkText" class="g3-watermark">{{ watermarkText }}</div>
+          </div>
+
+          <template v-else-if="pageUrls.length">
+            <div class="g3-reader-box g3-watermark-host">
+              <el-image
+                :src="pageUrls[pageIndex]"
+                fit="contain"
+                class="g3-reader-image"
+                :preview-src-list="pageUrls"
+                :initial-index="pageIndex"
+                preview-teleported
+              />
+              <div v-if="watermarkText" class="g3-watermark">{{ watermarkText }}</div>
             </div>
-
-            <div v-else-if="videoUrl" class="g3-reader-box">
-              <video :src="videoUrl" controls class="g3-reader-video"></video>
+            <div class="g3-page-nav">
+              <el-button size="small" :disabled="pageIndex === 0" @click="pageIndex -= 1">上一页</el-button>
+              <span class="g3-hint">{{ pageIndex + 1 }} / {{ pageUrls.length }}</span>
+              <el-button
+                size="small"
+                :disabled="pageIndex === pageUrls.length - 1"
+                @click="pageIndex += 1"
+              >
+                下一页
+              </el-button>
             </div>
-
-            <template v-else-if="pageUrls.length">
-              <div class="g3-reader-box">
-                <el-image
-                  :src="pageUrls[pageIndex]"
-                  fit="contain"
-                  class="g3-reader-image"
-                  :preview-src-list="pageUrls"
-                  :initial-index="pageIndex"
-                  preview-teleported
-                />
-              </div>
-              <div class="g3-page-nav">
-                <el-button size="small" :disabled="pageIndex === 0" @click="pageIndex -= 1">上一页</el-button>
-                <span class="g3-hint">{{ pageIndex + 1 }} / {{ pageUrls.length }}</span>
-                <el-button
-                  size="small"
-                  :disabled="pageIndex === pageUrls.length - 1"
-                  @click="pageIndex += 1"
-                >
-                  下一页
-                </el-button>
-              </div>
-            </template>
-
-            <el-empty v-else description="该资料没有分页预览，可直接下载原文件阅读" :image-size="80">
-              <el-button size="small" @click="handleDownload(detailNode)">下载原文件</el-button>
-            </el-empty>
           </template>
 
-          <el-empty v-else description="选择资料后显示预览" :image-size="80" />
-        </div>
+          <el-empty v-else :description="downloadAllowed(previewRow) ? '该资料没有分页预览，可直接下载原文件阅读' : '该资料没有分页预览，且教师已关闭下载'" :image-size="80">
+            <el-button v-if="downloadAllowed(previewRow)" size="small" @click="handleDownload(previewRow)">下载原文件</el-button>
+          </el-empty>
+        </template>
 
-        <div class="g3-independent-meta">
-          <el-descriptions :column="4" size="small" border>
-            <el-descriptions-item label="开放时间">{{ formatTime(detailNode.opensAt) }}</el-descriptions-item>
-            <el-descriptions-item label="开放至">{{ formatTime(detailNode.closesAt) }}</el-descriptions-item>
-            <el-descriptions-item label="预览页">{{ Number(detailNode.meta.pageCount || 0) }} 页</el-descriptions-item>
-            <el-descriptions-item label="媒体类型">{{ detailNode.meta.mediaKind || '文件' }}</el-descriptions-item>
-          </el-descriptions>
-          <p class="g3-hint">每次预览与下载都会重新校验身份；撤回后旧地址立即失效。</p>
-        </div>
+        <el-empty v-else description="正在加载资料预览" :image-size="80" />
       </div>
 
-      <el-empty v-else description="选择环节后进入阅读" :image-size="90" />
-    </el-drawer>
+      <template #footer>
+        <span v-if="previewRow" class="g3-hint g3-preview-meta">
+          开放：{{ formatDate(previewRow.opensAt) }} 至 {{ previewRow.closesAt ? formatDate(previewRow.closesAt) : '长期' }}
+        </span>
+        <el-button @click="previewVisible = false">关闭</el-button>
+        <el-button
+          v-if="downloadAllowed(previewRow)"
+          type="primary"
+          :loading="downloadingId === (previewRow && previewRow.versionId)"
+          @click="handleDownload(previewRow)"
+        >
+          下载
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup name="StudentMaterials">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { saveAs } from 'file-saver'
-import { listStudentMaterials, getVersion, getVersionPage, downloadVersion } from '@/api/education/group3'
+import {
+  downloadVersion,
+  getVersion,
+  getVersionMedia,
+  getVersionPage,
+  listStudentMaterials,
+  listWatchProgress,
+  reportWatchProgress
+} from '@/api/education/group3'
 import Group3ContextBar from './Group3ContextBar.vue'
-import StudentTimeline from './StudentTimeline.vue'
+import StudentProgressBoard from './StudentProgressBoard.vue'
 import { useGroup3Binding } from './useGroup3Binding.js'
 
 const props = defineProps({ contextBindingId: { type: String, default: '' } })
 const { list, bindingId, current, loading, error, load, select } = useGroup3Binding(() => props.contextBindingId)
-
-const STATE_FILTERS = [
-  { value: 'all', label: '全部资料' },
-  { value: 'OPEN', label: '进行中' },
-  { value: 'UPCOMING', label: '未开放' },
-  { value: 'CLOSED', label: '已截止' }
-]
-
-const STATE_LABELS = {
-  UPCOMING: '未开放',
-  OPEN: '进行中',
-  CLOSED: '已截止',
-  ARCHIVED: '已归档'
-}
+const route = useRoute()
 
 const materials = ref([])
-const stateFilter = ref('all')
-const selectedKey = ref('')
+const boardRef = ref(null)
+const keyword = ref('')
 const loadingList = ref(false)
 const loadError = ref('')
-const serverNow = ref('')
 
+const previewVisible = ref(false)
+const previewRow = ref(null)
 const versionDetail = ref(null)
 const pageUrls = ref([])
 const pageIndex = ref(0)
 const videoUrl = ref('')
 const readerLoading = ref(false)
 const readerError = ref('')
-const downloading = ref(false)
+const downloadingId = ref(null)
+const videoRef = ref(null)
+const watermarkText = ref('')
+const progressMap = ref({})
+const reportedSeconds = ref({})
 
 let listToken = 0
 let readerToken = 0
 
-// 独立模式
-const showIndependent = ref(false)
-const currentIndependentNode = ref(null)
-
-const currentIndex = computed(() => {
-  if (!selectedKey.value) return -1
-  return visibleNodes.value.findIndex(n => n.key === selectedKey.value)
-})
-const prevNode = computed(() => {
-  const idx = currentIndex.value
-  return idx > 0 ? visibleNodes.value[idx - 1] : null
-})
-const nextNode = computed(() => {
-  const idx = currentIndex.value
-  if (idx < 0) return null
-  return idx < visibleNodes.value.length - 1 ? visibleNodes.value[idx + 1] : null
+const filteredMaterials = computed(() => {
+  const text = keyword.value.trim().toLowerCase()
+  if (!text) return materials.value
+  return materials.value.filter(item => String(item.title || '').toLowerCase().includes(text))
 })
 
-function jumpNode(target) {
-  if (!target) return
-  handleNodeSelect(target)
+function downloadAllowed(row) {
+  return !!row && row.downloadEnabled !== 0
 }
 
-// 独立模式打开时自动聚焦当前环节（若主面板有选中）
-watch(showIndependent, (v) => {
-  if (v && selectedKey.value) {
-    currentIndependentNode.value = detailNode.value
-    // 确保阅读器已加载
-    if (!versionDetail.value) loadReader(detailNode.value)
-  } else if (v) {
-    // 没有选中，默认选第一个可导航环节
-    const firstNavigable = visibleNodes.value.find(n => n.state === 'OPEN' || n.state === 'UPCOMING') || visibleNodes.value[0]
-    if (firstNavigable) handleNodeSelect(firstNavigable)
-  }
-})
+function isCompleted(row) {
+  const progress = progressMap.value[String(row.resourceId)]
+  return !!(progress && progress.completed)
+}
 
 function pad(value) {
   return String(value).padStart(2, '0')
 }
 
-function formatTime(value) {
-  if (!value) return '不限'
+function formatDate(value) {
+  if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-function dayKeyOf(value) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+function formatSize(bytes) {
+  const size = Number(bytes)
+  if (!Number.isFinite(size) || size <= 0) return '—'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+  return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function fileKind(row) {
+  const mime = String((row && row.mimeType) || '')
+  if (row && row.resourceKind === 'LINK') return 'link'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('image/')) return 'image'
+  if (mime.includes('pdf')) return 'pdf'
+  if (mime.includes('word') || mime.includes('document')) return 'word'
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return 'ppt'
+  return 'file'
+}
+
+function fileIcon(row) {
+  const kind = fileKind(row)
+  if (kind === 'link') return 'Link'
+  if (kind === 'video') return 'VideoCamera'
+  if (kind === 'image') return 'Picture'
+  return 'Document'
+}
+
+function fileExtension(row) {
+  const key = String((row && row.storageKey) || '')
+  const matched = key.match(/\.([A-Za-z0-9]{1,8})$/)
+  if (matched) return `.${matched[1].toLowerCase()}`
+  const mime = String((row && row.mimeType) || '')
+  if (mime.includes('pdf')) return '.pdf'
+  if (mime.includes('word')) return '.docx'
+  if (mime.includes('presentation')) return '.pptx'
+  if (mime.includes('video')) return '.mp4'
+  if (mime.startsWith('image/')) return `.${mime.split('/')[1].split('+')[0]}`
+  return ''
+}
+
+function displayName(row) {
+  if (!row) return '课程资料'
+  return `${row.title || '课程资料'}${fileExtension(row)}`
 }
 
 function actionableMessage(err) {
@@ -355,85 +300,10 @@ function actionableMessage(err) {
   const status = err && err.status
   if (status === 401) return '登录已失效，请重新登录后再操作。'
   if (status === 403) return `无权访问该内容（${message}）。请确认页面顶部选中的课程 / 教学班；若已被移出班级，旧链接会立即失效。`
-  if (status === 404) return `内容不存在或已被撤回（${message}）。请刷新时间轴后重试。`
-  if (status === 409) return `状态已变化（${message}）。请刷新时间轴，确认最新状态后再操作。`
+  if (status === 404) return `内容不存在或已被撤回（${message}）。请刷新后重试。`
+  if (status === 409) return `状态已变化（${message}）。请刷新后确认最新状态。`
   if (status >= 500) return `服务暂时不可用（${message}）。请稍后重试；若持续失败，请联系管理员并提供操作时间。`
   return message
-}
-
-function timeState(opensAt, closesAt, now) {
-  const currentTime = now ? new Date(now).getTime() : Date.now()
-  const opens = opensAt ? new Date(opensAt).getTime() : null
-  const closes = closesAt ? new Date(closesAt).getTime() : null
-  if (opens != null && Number.isFinite(opens) && currentTime < opens) return 'UPCOMING'
-  if (closes != null && Number.isFinite(closes) && currentTime >= closes) return 'CLOSED'
-  return 'OPEN'
-}
-
-function toNode(item) {
-  const tags = [`V${item.versionNo || 1}`, `${Number(item.pageCount || 0)} 页`]
-  if (item.mediaKind) tags.push(item.mediaKind)
-  return {
-    key: `material-${item.releaseId || item.versionId}`,
-    kind: 'MATERIAL',
-    id: item.versionId,
-    title: item.title || '课程资料',
-    subtitle: item.closesAt ? `开放至 ${formatTime(item.closesAt)}` : '长期开放',
-    opensAt: item.opensAt || null,
-    closesAt: item.closesAt || null,
-    time: item.opensAt || null,
-    state: timeState(item.opensAt, item.closesAt, item.serverTime),
-    tags,
-    meta: item
-  }
-}
-
-function withSeq(source) {
-  const buckets = new Map()
-  source.forEach(node => {
-    const key = dayKeyOf(node.opensAt || node.time)
-    if (!key) return
-    if (!buckets.has(key)) buckets.set(key, [])
-    buckets.get(key).push(node)
-  })
-  buckets.forEach(items => {
-    items.sort((a, b) => new Date(a.opensAt || a.time).getTime() - new Date(b.opensAt || b.time).getTime())
-    items.forEach((node, index) => {
-      node.seq = index + 1
-      node.total = items.length
-    })
-  })
-  return source
-}
-
-const nodes = computed(() => withSeq(materials.value.map(toNode)))
-
-const visibleNodes = computed(() => {
-  if (stateFilter.value === 'all') return nodes.value
-  return nodes.value.filter(node => node.state === stateFilter.value)
-})
-
-const stats = computed(() => ({
-  total: nodes.value.length,
-  open: nodes.value.filter(node => node.state === 'OPEN').length,
-  upcoming: nodes.value.filter(node => node.state === 'UPCOMING').length,
-  closed: nodes.value.filter(node => node.state === 'CLOSED').length
-}))
-
-const detailNode = computed(() => nodes.value.find(node => node.key === selectedKey.value) || null)
-
-function stateLabel(state) {
-  return STATE_LABELS[state] || state || '未知'
-}
-
-function stateTagType(state) {
-  if (state === 'OPEN') return 'success'
-  if (state === 'UPCOMING') return 'warning'
-  return 'info'
-}
-
-function seqText(node) {
-  return node.seq ? `第 ${node.seq} / ${node.total} 环节` : '不计入序号'
 }
 
 function revokeReaderUrls() {
@@ -443,22 +313,23 @@ function revokeReaderUrls() {
   videoUrl.value = ''
 }
 
-async function loadReader(node) {
+async function loadReader(row) {
   revokeReaderUrls()
   versionDetail.value = null
   readerError.value = ''
   pageIndex.value = 0
-  if (!node || !bindingId.value) return
-  const versionId = node.meta.versionId || node.id
+  watermarkText.value = ''
+  if (!row || !bindingId.value) return
   const token = ++readerToken
   readerLoading.value = true
   try {
-    const res = await getVersion(versionId, bindingId.value)
+    const res = await getVersion(row.versionId, bindingId.value)
     if (token !== readerToken) return
     const detail = res.data || {}
     versionDetail.value = detail
+    watermarkText.value = detail.watermarkText || ''
     if (detail.mediaKind === 'VIDEO') {
-      const blob = await downloadVersion(versionId, bindingId.value)
+      const blob = await getVersionMedia(row.versionId, bindingId.value)
       if (token !== readerToken) return
       if (blob instanceof Blob) videoUrl.value = URL.createObjectURL(blob)
       return
@@ -467,7 +338,7 @@ async function loadReader(node) {
     if (!pages.length) return
     const urls = []
     for (const page of pages) {
-      const blob = await getVersionPage(versionId, page.pageNo, bindingId.value)
+      const blob = await getVersionPage(row.versionId, page.pageNo, bindingId.value)
       if (token !== readerToken) {
         urls.forEach(url => URL.revokeObjectURL(url))
         return
@@ -482,6 +353,73 @@ async function loadReader(node) {
   }
 }
 
+function openPreview(row) {
+  if (!row) return
+  previewRow.value = row
+  reportedSeconds.value = {}
+  previewVisible.value = true
+  loadReader(row)
+}
+
+function onVideoTimeUpdate(event) {
+  const row = previewRow.value
+  if (!row || !row.taskEnabled) return
+  const seconds = Math.floor(Number(event.target.currentTime) || 0)
+  const last = reportedSeconds.value[String(row.resourceId)] || 0
+  // 每满 5 秒上报一次，避免高频请求
+  if (seconds < last + 5) return
+  reportedSeconds.value[String(row.resourceId)] = seconds
+  reportProgress(row, seconds)
+}
+
+function onVideoEnded() {
+  const row = previewRow.value
+  if (!row || !row.taskEnabled) return
+  const video = videoRef.value
+  const seconds = video ? Math.floor(Number(video.duration) || 0) : (reportedSeconds.value[String(row.resourceId)] || 0)
+  reportedSeconds.value[String(row.resourceId)] = seconds
+  reportProgress(row, seconds)
+}
+
+async function reportProgress(row, seconds) {
+  try {
+    const res = await reportWatchProgress(row.resourceId, {
+      bindingId: Number(bindingId.value),
+      watchedSeconds: seconds
+    })
+    const data = res.data || {}
+    if (data.completed) {
+      progressMap.value = {
+        ...progressMap.value,
+        [String(row.resourceId)]: { completed: true, watchedSeconds: data.watchedSeconds }
+      }
+      if (boardRef.value && typeof boardRef.value.refresh === 'function') boardRef.value.refresh()
+    }
+  } catch (err) {
+    // 进度上报失败不打断观看，静默处理
+  }
+}
+
+async function loadProgress() {
+  if (!bindingId.value) return
+  try {
+    const res = await listWatchProgress(bindingId.value)
+    const rows = Array.isArray(res.data?.progress) ? res.data.progress : []
+    const map = {}
+    rows.forEach(item => { map[String(item.resourceId)] = item })
+    progressMap.value = map
+  } catch (err) {
+    progressMap.value = {}
+  }
+}
+
+function openTargetFromQuery() {
+  const resourceId = route.query.resourceId
+  if (!resourceId) return
+  const row = materials.value.find(item => String(item.resourceId) === String(resourceId))
+  if (row) openPreview(row)
+}
+
 function extensionOf(blob) {
   const type = (blob && blob.type) || ''
   if (type.includes('pdf')) return '.pdf'
@@ -492,29 +430,29 @@ function extensionOf(blob) {
   return ''
 }
 
-async function handleDownload(node) {
-  if (!node || !bindingId.value || downloading.value) return
-  const versionId = node.meta.versionId || node.id
-  downloading.value = true
+async function handleDownload(row) {
+  if (!row || !bindingId.value || downloadingId.value) return
+  downloadingId.value = row.versionId
   try {
-    const blob = await downloadVersion(versionId, bindingId.value)
+    const blob = await downloadVersion(row.versionId, bindingId.value)
     if (!(blob instanceof Blob)) throw new Error('接口未返回文件')
-    saveAs(blob, `${node.title || '课程资料'}${extensionOf(blob)}`)
+    saveAs(blob, `${row.title || '课程资料'}${extensionOf(blob)}`)
   } catch (err) {
     ElMessage.error(actionableMessage(err))
   } finally {
-    downloading.value = false
+    downloadingId.value = null
   }
 }
 
 async function loadMaterials() {
   revokeReaderUrls()
   readerToken += 1
+  previewVisible.value = false
+  previewRow.value = null
   versionDetail.value = null
   readerError.value = ''
   readerLoading.value = false
   materials.value = []
-  selectedKey.value = ''
   loadError.value = ''
   if (!bindingId.value) return
   const token = ++listToken
@@ -522,22 +460,15 @@ async function loadMaterials() {
   try {
     const res = await listStudentMaterials(bindingId.value)
     if (token !== listToken) return
-    const rows = Array.isArray(res.data) ? res.data : []
-    serverNow.value = rows.length && rows[0].serverTime ? rows[0].serverTime : ''
-    materials.value = rows
+    materials.value = Array.isArray(res.data) ? res.data : []
+    await loadProgress()
+    openTargetFromQuery()
   } catch (err) {
     if (token !== listToken) return
     loadError.value = actionableMessage(err)
   } finally {
     if (token === listToken) loadingList.value = false
   }
-}
-
-function handleNodeSelect(node) {
-  if (!node || node.key === selectedKey.value) return
-  selectedKey.value = node.key
-  currentIndependentNode.value = node
-  loadReader(node)
 }
 
 async function handleSelect(value) {
@@ -549,6 +480,13 @@ async function refresh() {
   await load()
   await loadMaterials()
 }
+
+watch(previewVisible, visible => {
+  if (!visible) {
+    readerToken += 1
+    revokeReaderUrls()
+  }
+})
 
 onMounted(async () => {
   await load()
@@ -563,47 +501,54 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.g3-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.g3-title-block h2 { margin: 0; font-size: 20px; color: #303133; }
-.g3-title-block p { margin: 4px 0; color: #606266; }
-.g3-head-note { font-size: 12px; color: #909399; }
-.g3-head-filter { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #606266; }
-.g3-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
-.g3-stat { background: #f5f7fa; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
-.g3-stat small { font-size: 12px; color: #909399; }
-.g3-stat strong { font-size: 20px; color: #303133; }
+.g3-student-page { padding: 4px 2px; }
+.g3-file-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.g3-crumb { display: flex; align-items: center; gap: 8px; color: #303133; font-size: 15px; }
+.g3-crumb-icon { color: #67c23a; font-size: 18px; }
+.g3-crumb-current { font-weight: 600; }
+.g3-file-count { font-size: 12px; color: #909399; }
+.g3-file-actions { display: flex; align-items: center; gap: 8px; }
+.g3-file-subtitle { margin: 0 0 12px; font-size: 12px; color: #909399; }
 .g3-gap { margin-bottom: 12px; }
-.g3-layout { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(340px, 7fr); gap: 16px; align-items: start; }
-.g3-tl-main { min-width: 0; }
-.g3-tl-detail { min-width: 0; }
-.g3-detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.g3-kind { font-size: 14px; font-weight: 600; color: #409eff; }
-.g3-download { margin-left: auto; }
-.g3-detail-title { margin: 0 0 12px; font-size: 16px; color: #303133; }
-.g3-reader { min-height: 160px; }
+.g3-file-table {
+  border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden;
+}
+.g3-file-table :deep(th.el-table__cell) { background: #f7f8fa; color: #606266; font-weight: 600; }
+.g3-file-table :deep(td.el-table__cell) { padding: 10px 0; }
+.g3-file-table :deep(.el-table__row:hover > td.el-table__cell) { background: #f5f9ff; }
+.g3-file-name { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 0; }
+.g3-file-icon { font-size: 18px; color: #909399; flex-shrink: 0; }
+.g3-file-icon.is-pdf { color: #f56c6c; }
+.g3-file-icon.is-word { color: #409eff; }
+.g3-file-icon.is-ppt { color: #e6a23c; }
+.g3-file-icon.is-image { color: #67c23a; }
+.g3-file-icon.is-video { color: #8e44ad; }
+.g3-file-icon.is-link { color: #409eff; }
+.g3-file-title {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #303133;
+}
+.g3-file-name:hover .g3-file-title { color: #409eff; }
+.g3-file-ext { font-size: 12px; color: #909399; flex-shrink: 0; }
+.g3-reader { min-height: 200px; }
 .g3-reader-box { background: #f5f7fa; border-radius: 6px; padding: 8px; display: flex; justify-content: center; }
-.g3-reader-image { max-height: 520px; width: 100%; }
-.g3-reader-image :deep(img) { max-height: 520px; }
-.g3-reader-video { width: 100%; max-height: 480px; border-radius: 4px; }
+.g3-reader-image { max-height: 560px; width: 100%; }
+.g3-reader-image :deep(img) { max-height: 560px; }
+.g3-reader-video { width: 100%; max-height: 520px; border-radius: 4px; }
 .g3-reader-link { padding: 16px 0; }
 .g3-page-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; }
-.g3-reader-note { margin-top: 12px; }
 .g3-hint { font-size: 12px; color: #909399; }
-@media (max-width: 1100px) {
-  .g3-layout { grid-template-columns: minmax(0, 1fr); }
-  .g3-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3-preview-meta { margin-right: 12px; }
+.g3-watermark-host { position: relative; overflow: hidden; }
+.g3-watermark {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; user-select: none; z-index: 5;
+  font-size: 42px; font-weight: 600; color: rgba(0, 0, 0, 0.12);
+  white-space: nowrap; transform: rotate(-24deg);
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.4);
+  word-break: break-all; max-width: 100%; overflow: hidden;
 }
-.g3-enter-reader { margin-left: auto; }
-.g3-reader-drawer .el-drawer__body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
-.g3-independent-head {
-  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
-  background: #f5f7fa; border-bottom: 1px solid #ebeef5; flex-shrink: 0;
-}
-.g3-independent-title {
-  flex: 1; font-size: 15px; font-weight: 600; color: #303133;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-}
-.g3-independent-body { flex: 1; overflow-y: auto; padding: 16px 24px 32px; }
-.g3-independent-body .g3-reader { min-height: 240px; margin-bottom: 16px; }
-.g3-independent-meta { margin-top: 16px; }
 </style>

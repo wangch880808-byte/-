@@ -27,6 +27,12 @@ public class EduTermController extends BaseController {
         return getDataTable(portalService.termList(keyword));
     }
 
+    @GetMapping("/schools")
+    @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:term:add')")
+    public AjaxResult schools() {
+        return success(portalService.termSchools());
+    }
+
     @PostMapping
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:term:add')")
     @com.ruoyi.common.annotation.Log(title="教学组织与课程",businessType=com.ruoyi.common.enums.BusinessType.INSERT)

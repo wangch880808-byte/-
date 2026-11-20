@@ -31,12 +31,13 @@
         <div class="prepare-actions">
           <el-button @click="openCreate('plan')">保存备课方案</el-button>
           <el-button @click="openMaterialCreate">发布资料阅读</el-button>
+          <el-button @click="openDiscussionCreate">发布讨论</el-button>
           <el-button type="primary" @click="openCreate('quiz')">发布预习任务</el-button>
         </div>
       </div>
 
       <el-row :gutter="12" class="stat-row">
-        <el-col v-for="item in statCards" :key="item.label" :xs="12" :sm="6">
+        <el-col v-for="item in statCards" :key="item.label" :xs="12" :sm="6" :md="4">
           <el-card shadow="never" class="stat-card" :class="{ warn: item.warn }">
             <div class="stat-label">{{ item.label }}</div>
             <div class="stat-value">{{ item.value }}</div>
@@ -394,12 +395,176 @@
                 </div>
               </div>
 
+              <div v-else-if="selectedNode.kind === 'DISCUSSION'" class="detail-section">
+                <div class="discussion-section-head">
+                  <h4>讨论内容</h4>
+                  <div class="discussion-section-tools">
+                    <el-button link type="primary" @click="openDiscussionEdit(selectedNode)">修改设置</el-button>
+                    <el-button link type="primary" :disabled="discussionActionLoading" @click="toggleDiscussionPin">
+                      {{ discussionPinned ? '取消置顶' : '置顶' }}
+                    </el-button>
+                    <el-button link type="primary" :disabled="discussionActionLoading" @click="toggleDiscussionFeature">
+                      {{ discussionFeatured ? '取消精华' : '设为精华' }}
+                    </el-button>
+                    <el-button
+                      v-if="discussionArchived"
+                      link
+                      type="primary"
+                      :disabled="discussionActionLoading"
+                      @click="setDiscussionArchive('restore')"
+                    >
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-else
+                      link
+                      type="warning"
+                      :disabled="discussionActionLoading"
+                      @click="setDiscussionArchive('archive')"
+                    >
+                      归档
+                    </el-button>
+                  </div>
+                </div>
+                <p class="discussion-body">{{ discussionContent }}</p>
+                <div class="discussion-setting-line">
+                  <el-tag size="small" effect="plain">{{ discussionMeta.category || '未分类' }}</el-tag>
+                  <el-tag v-if="discussionMeta.folderName" size="small" type="info" effect="plain">
+                    {{ discussionMeta.folderName }}
+                  </el-tag>
+                  <span class="edu-hint">
+                    匿名 {{ discussionMeta.allowAnonymous ? '允许' : '不允许' }} ·
+                    回复 {{ discussionMeta.allowReply ? '允许' : '不允许' }} ·
+                    学生发话题 {{ discussionMeta.allowStudentTopic ? '允许' : '不允许' }} ·
+                    评分 {{ discussionMeta.scoreEnabled ? `满分 ${Number(discussionMeta.scoreMax || 0)}` : '未开启' }}
+                  </span>
+                </div>
+
+                <el-divider />
+
+                <div v-loading="discussionLoading" class="discussion-posts">
+                  <el-alert
+                    v-if="discussionError"
+                    :title="discussionError"
+                    type="error"
+                    show-icon
+                    :closable="false"
+                    class="mb8"
+                  >
+                    <el-button size="small" @click="loadDiscussionDetail(selectedNode.id)">重试</el-button>
+                  </el-alert>
+
+                  <div class="discussion-composer">
+                    <el-input
+                      v-model="teacherPostContent"
+                      type="textarea"
+                      :rows="3"
+                      maxlength="2000"
+                      show-word-limit
+                      placeholder="以教师身份参与讨论"
+                    />
+                    <div class="discussion-composer-actions">
+                      <span class="edu-hint">教师回复默认实名发布</span>
+                      <el-button
+                        size="small"
+                        type="primary"
+                        :loading="discussionPostSubmitting"
+                        @click="submitTeacherPost"
+                      >
+                        发布帖子
+                      </el-button>
+                    </div>
+                  </div>
+
+                  <p v-if="!discussionPosts.length && !discussionLoading" class="edu-hint">
+                    还没有学生帖子。学生发帖后会出现在这里。
+                  </p>
+
+                  <div v-for="post in discussionPosts" :key="post.postId" class="discussion-post">
+                    <div class="discussion-post-head">
+                      <strong>{{ postAuthor(post) }}</strong>
+                      <span class="edu-hint">{{ formatTime(post.createdAt) }}</span>
+                      <el-tag v-if="post.myScore !== null && post.myScore !== undefined" size="small" type="success">
+                        得分 {{ post.myScore }}
+                      </el-tag>
+                      <el-tag v-if="post.status && post.status !== 'ACTIVE'" size="small" type="info">
+                        {{ post.status }}
+                      </el-tag>
+                    </div>
+                    <p class="discussion-post-body">{{ post.content }}</p>
+                    <div v-if="post.attachmentUrl" class="discussion-attachment">
+                      <el-link type="primary" :href="post.attachmentUrl" target="_blank" rel="noopener noreferrer">
+                        {{ post.attachmentName || '附件' }}
+                      </el-link>
+                    </div>
+                    <div class="discussion-post-actions">
+                      <span class="edu-hint">{{ Number(post.likeCount || 0) }} 赞</span>
+                      <el-button link type="primary" @click="startDiscussionReply(post)">回复</el-button>
+                      <template v-if="discussionMeta.scoreEnabled && current?.canGrade">
+                        <el-input-number
+                          :model-value="scoreOf(post)"
+                          :min="0"
+                          :max="discussionScoreMax"
+                          size="small"
+                          controls-position="right"
+                          style="width: 96px"
+                          @update:model-value="value => (scoreDrafts[post.postId] = value)"
+                        />
+                        <el-button link type="primary" @click="submitPostScore(post)">确认评分</el-button>
+                      </template>
+                      <span v-else-if="discussionMeta.scoreEnabled && post.myScore != null" class="edu-hint">
+                        评分 {{ post.myScore }}
+                      </span>
+                      <el-button link type="danger" @click="removeDiscussionPost(post)">删除帖子</el-button>
+                    </div>
+
+                    <div v-if="post.replies && post.replies.length" class="discussion-replies">
+                      <div v-for="reply in post.replies" :key="reply.postId" class="discussion-reply">
+                        <div class="discussion-post-head">
+                          <strong>{{ postAuthor(reply) }}</strong>
+                          <span class="edu-hint">{{ formatTime(reply.createdAt) }}</span>
+                          <el-button link type="danger" @click="removeDiscussionPost(reply)">删除</el-button>
+                        </div>
+                        <p class="discussion-post-body">{{ reply.content }}</p>
+                      </div>
+                    </div>
+
+                    <div v-if="replyTargetId === post.postId" class="discussion-reply-box">
+                      <el-input
+                        v-model="teacherReplyContent"
+                        type="textarea"
+                        :rows="2"
+                        maxlength="1000"
+                        show-word-limit
+                        :placeholder="`回复 ${postAuthor(post)}`"
+                      />
+                      <div class="discussion-composer-actions">
+                        <el-button size="small" @click="cancelDiscussionReply">取消</el-button>
+                        <el-button
+                          size="small"
+                          type="primary"
+                          :loading="discussionPostSubmitting"
+                          @click="submitTeacherReply(post)"
+                        >
+                          回复
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="detail-actions">
                 <template v-if="selectedNode.kind === 'QUIZ'">
                   <el-button type="primary" @click="openCreate('quiz')">继续发布预习</el-button>
                 </template>
                 <template v-else-if="selectedNode.kind === 'PLAN'">
                   <el-button type="primary" @click="openCreate('plan')">新建备课包</el-button>
+                </template>
+                <template v-else-if="selectedNode.kind === 'DISCUSSION'">
+                  <el-button type="primary" @click="openDiscussionEdit(selectedNode)">修改设置</el-button>
+                  <el-button @click="loadDiscussionDetail(selectedNode.id)">刷新帖子</el-button>
+                  <el-button type="danger" plain @click="handleRemove(selectedNode)">删除环节</el-button>
                 </template>
                 <template v-else>
                   <el-button
@@ -883,6 +1048,116 @@
       </template>
     </el-dialog>
 
+    <!-- 发布 / 修改讨论环节 -->
+    <el-dialog
+      v-model="discussionVisible"
+      :title="editingDiscussionId ? '修改讨论环节设置' : '发布讨论'"
+      width="720px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="100px">
+        <el-form-item label="话题标题" required>
+          <el-input v-model="discussionForm.title" maxlength="200" show-word-limit placeholder="例如：这节课的结论是否成立？" />
+        </el-form-item>
+        <el-form-item label="正文">
+          <el-input
+            v-model="discussionForm.content"
+            type="textarea"
+            :rows="4"
+            maxlength="2000"
+            show-word-limit
+            placeholder="补充讨论背景、要求与提示"
+          />
+        </el-form-item>
+        <el-row v-if="!editingDiscussionId" :gutter="12">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="分类">
+              <el-input v-model="discussionForm.category" maxlength="40" placeholder="例如：课堂讨论" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="知识点">
+              <el-select
+                v-model="discussionForm.knowledgePoint"
+                filterable
+                allow-create
+                clearable
+                placeholder="不关联知识点"
+                style="width: 100%"
+              >
+                <el-option v-for="item in knowledgePointOptions" :key="item" :label="item" :value="item" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item v-if="!editingDiscussionId" label="文件夹">
+          <div class="discussion-folder-row">
+            <el-select v-model="discussionForm.folderId" clearable placeholder="不放入文件夹" style="flex: 1">
+              <el-option
+                v-for="item in discussionFolders"
+                :key="item.folderId"
+                :label="`${item.name}（${Number(item.topicCount || 0)}）`"
+                :value="item.folderId"
+              />
+            </el-select>
+            <el-input v-model="newFolderName" maxlength="40" placeholder="新文件夹名称" style="width: 160px" />
+            <el-button :loading="folderCreating" @click="submitNewFolder">新建</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="!editingDiscussionId" label="关联课次">
+          <el-select v-model="discussionForm.lessonId" clearable placeholder="不关联课次" style="width: 100%">
+            <el-option v-for="item in lessonOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="开放时间" required>
+              <el-date-picker v-model="discussionForm.opensAt" type="datetime" placeholder="请选择开放时间" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="截止时间">
+              <el-date-picker v-model="discussionForm.closesAt" type="datetime" placeholder="不设置则长期开放" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item v-if="!editingDiscussionId" label="发布范围">
+          <el-select v-model="discussionForm.publishScope" style="width: 100%">
+            <el-option v-for="item in publishScopeOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="!editingDiscussionId" label="互动设置">
+          <div class="discussion-switches">
+            <el-checkbox v-model="discussionForm.allowAnonymous">允许匿名</el-checkbox>
+            <el-checkbox v-model="discussionForm.allowReply">允许回复</el-checkbox>
+            <el-checkbox v-model="discussionForm.allowStudentTopic">允许学生发话题</el-checkbox>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="!editingDiscussionId" label="评分">
+          <el-switch v-model="discussionForm.scoreEnabled" />
+          <template v-if="discussionForm.scoreEnabled">
+            <el-input-number v-model="discussionForm.scoreMax" :min="1" :max="100" size="small" style="margin-left: 8px" />
+            <span class="edu-hint" style="margin-left: 8px">满分</span>
+          </template>
+        </el-form-item>
+        <el-form-item v-if="!editingDiscussionId" label="时间轴标记">
+          <el-checkbox v-model="discussionForm.pinned">置顶</el-checkbox>
+          <el-checkbox v-model="discussionForm.featured">精华</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <p class="edu-hint">
+        讨论环节按开放时间进入当天课堂时间轴并参与环节编号；未开放、已截止或归档后学生端只读。
+        <template v-if="editingDiscussionId">当前接口仅支持修改标题、正文说明与开放/截止时间。</template>
+      </p>
+      <template #footer>
+        <el-button @click="discussionVisible = false">取消</el-button>
+        <el-button type="primary" :loading="discussionFormSubmitting" @click="submitDiscussion">
+          {{ editingDiscussionId ? '保存设置' : '确认发布' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <input
       ref="reuploadInput"
       type="file"
@@ -899,26 +1174,36 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Group3ContextBar from './Group3ContextBar.vue'
 import { useGroup3Binding } from './useGroup3Binding'
+import { PROCESSING_LABELS, PROCESSING_STATUS, RELEASE_SOURCE } from './constants'
 import {
+  createDiscussion,
+  createDiscussionFolder,
+  createDiscussionPost,
   createPlan,
   createPreviewTask,
   createRelease,
   createResource,
   createResourceVersion,
+  discussionAction,
   downloadVersion,
+  getDiscussion,
   getOverview,
   getVersion,
   getVersionPage,
+  listDiscussionFolders,
+  listDiscussions,
   listPlans,
   listPreviewTasks,
   listResourceVersions,
   removeStage,
-  revokeRelease
+  revokeRelease,
+  updateStage
 } from '@/api/education/group3'
 
 const KINDS = {
   MATERIAL: { label: '资料阅读', tone: 'blue', icon: '▤' },
   QUIZ: { label: '预习习题', tone: 'teal', icon: '✎' },
+  DISCUSSION: { label: '讨论环节', tone: 'purple', icon: '◍' },
   PLAN: { label: '备课包', tone: 'amber', icon: '◈' },
   DRAFT: { label: '待编排资料', tone: 'slate', icon: '◌' }
 }
@@ -932,8 +1217,6 @@ const STATE_LABELS = {
   ARCHIVED: '已归档',
   PRIVATE: '仅教师可见'
 }
-
-const PROCESS_LABELS = { READY: '可用', PENDING: '处理中', FAILED: '处理失败' }
 
 const QUESTION_KIND_LABELS = {
   SINGLE: '单选题',
@@ -960,6 +1243,8 @@ const { list, bindingId, current, loading, error, load, select } = useGroup3Bind
 const overview = ref({})
 const taskRows = ref([])
 const planRows = ref([])
+const discussionRows = ref([])
+const discussionFolders = ref([])
 const nodes = ref([])
 const serverNow = ref('')
 const selectedKey = ref('')
@@ -999,6 +1284,8 @@ async function loadData() {
     overview.value = {}
     taskRows.value = []
     planRows.value = []
+    discussionRows.value = []
+    discussionFolders.value = []
     nodes.value = []
     return
   }
@@ -1006,18 +1293,22 @@ async function loadData() {
   errorText.value = ''
   const requested = String(bindingId.value)
   try {
-    const [overviewRes, taskRes, planRes] = await Promise.all([
+    const [overviewRes, taskRes, planRes, discussionRes, folderRes] = await Promise.all([
       getOverview(bindingId.value),
       listPreviewTasks(bindingId.value),
-      listPlans(bindingId.value)
+      listPlans(bindingId.value),
+      listDiscussions(bindingId.value).catch(() => ({ data: [] })),
+      listDiscussionFolders(bindingId.value).catch(() => ({ data: [] }))
     ])
     if (String(bindingId.value) !== requested) return
     overview.value = overviewRes.data || {}
     taskRows.value = Array.isArray(taskRes.data) ? taskRes.data : []
     planRows.value = Array.isArray(planRes.data) ? planRes.data : []
+    discussionRows.value = listRows(discussionRes.data)
+    discussionFolders.value = listRows(folderRes.data)
     serverNow.value = overview.value.serverTime || ''
     nodes.value = numberStages(
-      collectTeacherNodes(overview.value, taskRows.value, planRows.value),
+      collectTeacherNodes(overview.value, taskRows.value, planRows.value, discussionRows.value),
       current.value
     )
   } catch (e) {
@@ -1026,11 +1317,18 @@ async function loadData() {
       overview.value = {}
       taskRows.value = []
       planRows.value = []
+      discussionRows.value = []
+      discussionFolders.value = []
       nodes.value = []
     }
   } finally {
     pageLoading.value = false
   }
+}
+
+function listRows(data) {
+  if (Array.isArray(data)) return data
+  return data && Array.isArray(data.rows) ? data.rows : []
 }
 
 /* ---------- 时间与文案 ---------- */
@@ -1092,13 +1390,13 @@ function stateTagType(state) {
 
 function processLabel(status) {
   const value = String(status || '').toUpperCase()
-  return PROCESS_LABELS[value] || status || '未知'
+  return PROCESSING_LABELS[value] || status || '未知'
 }
 
 function processTagType(status) {
   const value = String(status || '').toUpperCase()
-  if (value === 'READY') return 'success'
-  if (value === 'FAILED') return 'danger'
+  if (value === PROCESSING_STATUS.READY) return 'success'
+  if (value === PROCESSING_STATUS.FAILED) return 'danger'
   return 'warning'
 }
 
@@ -1137,7 +1435,7 @@ function makeNode(fields) {
   )
 }
 
-function collectTeacherNodes(ov, taskList, planList) {
+function collectTeacherNodes(ov, taskList, planList, discussionList) {
   const now = ov.serverTime
   const lessons = ov.lessons || []
   const lessonTime = new Map(lessons.map(lesson => [String(lesson.lessonId), lesson.scheduledAt]))
@@ -1146,6 +1444,9 @@ function collectTeacherNodes(ov, taskList, planList) {
   ;(ov.resources || []).forEach(item => {
     const status = String(item.processingStatus || 'PENDING').toUpperCase()
     const released = Boolean(item.releaseId)
+    // 课前准备只管理自己上传的草稿；课程建设资料仅在已发布到课前时作为阅读环节出现。
+    const ownDraft = String(item.origin || 'STUDIO').toUpperCase() === 'PREPARE'
+    if (!ownDraft && !released) return
     const tags = [`V${item.versionNo || 1}`, `${Number(item.pageCount || 0)} 页`]
     if (item.mediaKind) tags.push(item.mediaKind)
     const base = {
@@ -1243,6 +1544,31 @@ function collectTeacherNodes(ov, taskList, planList) {
     }))
   })
 
+  ;(discussionList || []).forEach(row => {
+    const status = String(row.status || '').toUpperCase()
+    const state = status === 'ARCHIVED' || status === 'DRAFT'
+      ? status
+      : (String(row.state || '').toUpperCase() || timeState(row.opensAt, row.closesAt, now))
+    const tags = []
+    if (row.category) tags.push(row.category)
+    if (row.knowledgePoint) tags.push(row.knowledgePoint)
+    if (row.folderName) tags.push(row.folderName)
+    tags.push(`${Number(row.replyCount || 0)} 回复`, `${Number(row.likeCount || 0)} 赞`)
+    result.push(makeNode({
+      key: `discussion-${row.topicId}`,
+      kind: 'DISCUSSION',
+      id: row.topicId,
+      title: row.title || '讨论话题',
+      subtitle: row.content || '',
+      opensAt: row.opensAt || null,
+      closesAt: row.closesAt || null,
+      time: row.opensAt || row.createdAt || null,
+      state,
+      tags,
+      meta: row
+    }))
+  })
+
   return result
 }
 
@@ -1250,7 +1576,7 @@ function collectTeacherNodes(ov, taskList, planList) {
 
 function isNumberedStage(node) {
   return !node.private
-    && (node.kind === 'MATERIAL' || node.kind === 'QUIZ')
+    && (node.kind === 'MATERIAL' || node.kind === 'QUIZ' || node.kind === 'DISCUSSION')
     && node.state !== 'ARCHIVED'
 }
 
@@ -1269,7 +1595,7 @@ function stageGroupLabel(node, context) {
 }
 
 function numberStages(nodeList, context) {
-  const rank = { MATERIAL: 0, QUIZ: 1 }
+  const rank = { MATERIAL: 0, QUIZ: 1, DISCUSSION: 2 }
   const stamp = node => {
     const value = new Date(node.opensAt || node.time || 0).getTime()
     return Number.isFinite(value) ? value : 0
@@ -1383,6 +1709,7 @@ const statCards = computed(() => [
   { label: '本堂课环节（已编号）', value: nodes.value.filter(node => node.seq).length, warn: false },
   { label: '资料阅读', value: nodes.value.filter(node => node.kind === 'MATERIAL').length, warn: false },
   { label: '预习习题', value: nodes.value.filter(node => node.kind === 'QUIZ').length, warn: false },
+  { label: '讨论环节', value: nodes.value.filter(node => node.kind === 'DISCUSSION').length, warn: false },
   { label: '待编排 / 失败', value: nodes.value.filter(node => node.kind === 'DRAFT').length, warn: nodes.value.some(node => node.kind === 'DRAFT') }
 ])
 
@@ -1409,6 +1736,16 @@ const detailRows = computed(() => {
     rows.push(['关联课次', meta.lessonTitle || '未关联'])
     rows.push(['备课材料', `${(meta.materials || []).length} 份`])
     rows.push(['活动预设', `${(meta.templates || []).length} 项`])
+  }
+  if (node.kind === 'DISCUSSION') {
+    rows.push(['分类', meta.category || '未分类'])
+    rows.push(['知识点', meta.knowledgePoint || '未关联'])
+    rows.push(['所属文件夹', meta.folderName || '未归档'])
+    rows.push(['发布范围', meta.publishScope || '本教学班'])
+    rows.push(['回复 / 点赞', `${Number(meta.replyCount || 0)} / ${Number(meta.likeCount || 0)}`])
+    rows.push(['浏览人数', `${Number(meta.viewCount || 0)} 人`])
+    rows.push(['互动设置', `匿名 ${meta.allowAnonymous ? '允许' : '不允许'} · 回复 ${meta.allowReply ? '允许' : '不允许'} · 学生发话题 ${meta.allowStudentTopic ? '允许' : '不允许'}`])
+    rows.push(['评分', meta.scoreEnabled ? `开启 · 满分 ${Number(meta.scoreMax || 0)}` : '未开启'])
   }
   return rows
 })
@@ -1479,9 +1816,10 @@ function canRevoke(node) {
 }
 
 function canPublishDraft(node) {
+  const status = String(node.meta && node.meta.processingStatus || '').toUpperCase()
   return node.kind === 'DRAFT'
     && node.state === 'DRAFT'
-    && String(node.meta && node.meta.processingStatus || '').toUpperCase() === 'READY'
+    && (status === PROCESSING_STATUS.READY || status === PROCESSING_STATUS.PENDING)
     && Boolean(node.meta && node.meta.versionId)
 }
 
@@ -1497,6 +1835,7 @@ function stageRemoveTarget(node) {
   if (kind === 'PLAN') return { kind: 'PLAN', id: node.id || node.planId }
   if (kind === 'MATERIAL') return { kind: 'MATERIAL', id: meta.resourceId || node.id }
   if (kind === 'DRAFT') return { kind: 'DRAFT', id: meta.resourceId || node.id }
+  if (kind === 'DISCUSSION') return { kind: 'DISCUSSION', id: meta.topicId || node.id }
   return null
 }
 
@@ -1510,8 +1849,9 @@ async function handleRemove(node) {
   try {
     await ElMessageBox.confirm(
       `确认删除“${node.title || '环节'}”？\n\n`
-      + `· 删除为软删除，学生端立即不可见\n`
-      + `· 已提交的预习答案、成绩等历史数据完整保留，不会被一并删除\n`
+      + `· 仅删除当前课前准备环节，不影响课程建设中的同名资料\n`
+      + `· 学生端课前学习立即不可见，课程资料保持不变\n`
+      + `· 已提交的预习答案、成绩等历史数据完整保留\n`
       + `· 本堂课其他环节的序号会重新编排`,
       '删除环节',
       {
@@ -1528,8 +1868,7 @@ async function handleRemove(node) {
   try {
     await removeStage({ bindingId: bindingId.value, kind: target.kind, id: target.id })
     ElMessage.success('环节已删除')
-    selectedKey.value = null
-    nodeDetail.value = null
+    selectedKey.value = ''
     await loadData()
   } catch (e) {
     ElMessage.error(e?.message || '删除失败，请稍后重试')
@@ -1722,7 +2061,8 @@ async function submitPublish() {
       bindingId: Number(bindingId.value),
       resourceVersionId: Number(node.meta.versionId),
       opensAt: publishForm.opensAt.toISOString(),
-      closesAt: publishForm.closesAt.toISOString()
+      closesAt: publishForm.closesAt.toISOString(),
+      source: RELEASE_SOURCE.PREPARE
     })
     ElMessage.success('环节已发布到时间轴')
     publishVisible.value = false
@@ -1776,15 +2116,17 @@ async function onReuploadFile(event) {
   if (!file || !node) return
   const data = new FormData()
   data.append('bindingId', String(bindingId.value))
+  data.append('releaseSource', RELEASE_SOURCE.NONE)
+  data.append('origin', RELEASE_SOURCE.PREPARE)
   data.append('file', file)
   try {
     const res = await createResourceVersion(node.meta.resourceId, data)
     const result = res.data || {}
-    const ready = String(result.processingStatus || '').toUpperCase() === 'READY'
+    const ready = String(result.processingStatus || '').toUpperCase() === PROCESSING_STATUS.READY
     if (ready) {
-      ElMessage.success('新版本已保存，处理完成后再设置开放时间发布')
+      ElMessage.success('新版本已保存，可设置开放时间发布')
     } else {
-      ElMessage.warning(result.processingMessage || '新版本已提交，仍在处理中')
+      ElMessage.success('新版本已保存，可立即发布，转换完成后学生可见')
     }
     await loadData()
   } catch (e) {
@@ -2127,28 +2469,32 @@ async function submitMaterialCreate() {
   materialSubmitting.value = true
   try {
     let versionId = materialForm.versionId ? Number(materialForm.versionId) : null
+    let converting = false
     if (materialForm.source === 'upload') {
       const data = new FormData()
       data.append('bindingId', String(bindingId.value))
+      data.append('releaseSource', RELEASE_SOURCE.NONE)
+      data.append('origin', RELEASE_SOURCE.PREPARE)
       data.append('title', materialForm.title.trim())
       data.append('file', materialFile.value)
       const res = await createResource(data)
       const uploaded = res.data || {}
-      if (String(uploaded.processingStatus || '').toUpperCase() !== 'READY' || !uploaded.versionId) {
-        ElMessage.warning(uploaded.processingMessage || '资料已上传但处理失败，已放入「待编排」，请重新上传新版本')
-        materialVisible.value = false
-        await loadData()
+      // 上传后版本为 PENDING 也允许发布：学生端只读取 READY 版本，转换完成后自然可见。
+      if (!uploaded.versionId) {
+        ElMessage.warning(uploaded.processingMessage || '资料上传失败，请重试')
         return
       }
+      converting = String(uploaded.processingStatus || '').toUpperCase() !== PROCESSING_STATUS.READY
       versionId = Number(uploaded.versionId)
     }
     await createRelease({
       bindingId: Number(bindingId.value),
       resourceVersionId: versionId,
       opensAt,
-      closesAt
+      closesAt,
+      source: RELEASE_SOURCE.PREPARE
     })
-    ElMessage.success('资料阅读环节已加入时间轴')
+    ElMessage.success(converting ? '资料阅读已发布，转换完成后学生可见' : '资料阅读环节已加入时间轴')
     materialVisible.value = false
     await loadData()
     selectNodeByVersionId(versionId)
@@ -2157,6 +2503,432 @@ async function submitMaterialCreate() {
   } finally {
     materialSubmitting.value = false
   }
+}
+
+/* ---------- 讨论环节 ---------- */
+
+const knowledgePointOptions = computed(() => {
+  const seen = new Set()
+  ;(overview.value.knowledgePoints || []).forEach(item => {
+    const name = typeof item === 'string' ? item : (item && item.name)
+    if (name && !seen.has(name)) seen.add(name)
+  })
+  return Array.from(seen)
+})
+
+const publishScopeOptions = [
+  { value: 'CLASS', label: '本教学班' },
+  { value: 'COURSE', label: '本课程全部教学班' }
+]
+
+const discussionVisible = ref(false)
+const discussionFormSubmitting = ref(false)
+const editingDiscussionId = ref(null)
+const newFolderName = ref('')
+const folderCreating = ref(false)
+const discussionDetail = ref(null)
+const discussionLoading = ref(false)
+const discussionError = ref('')
+const discussionActionLoading = ref(false)
+const teacherPostContent = ref('')
+const teacherReplyContent = ref('')
+const replyTargetId = ref(null)
+const discussionPostSubmitting = ref(false)
+const scoreDrafts = reactive({})
+
+const discussionForm = reactive({
+  title: '',
+  content: '',
+  category: '',
+  knowledgePoint: '',
+  folderId: '',
+  lessonId: null,
+  publishScope: 'CLASS',
+  opensAt: new Date(),
+  closesAt: new Date(Date.now() + 7 * 86400000),
+  allowAnonymous: true,
+  allowReply: true,
+  allowStudentTopic: true,
+  scoreEnabled: false,
+  scoreMax: 10,
+  pinned: false,
+  featured: false
+})
+
+const discussionMeta = computed(() => {
+  if (discussionDetail.value) return discussionDetail.value
+  return (selectedNode.value && selectedNode.value.meta) || {}
+})
+
+const discussionContent = computed(() => {
+  const content = discussionMeta.value.content
+  return content || '未填写讨论正文'
+})
+
+const discussionPinned = computed(() => Boolean(discussionMeta.value.pinned))
+const discussionFeatured = computed(() => Boolean(discussionMeta.value.featured))
+const discussionArchived = computed(() => {
+  const state = String(discussionMeta.value.state || (selectedNode.value && selectedNode.value.state) || '').toUpperCase()
+  const status = String(discussionMeta.value.status || '').toUpperCase()
+  return state === 'ARCHIVED' || status === 'ARCHIVED'
+})
+const discussionScoreMax = computed(() => Number(discussionMeta.value.scoreMax || 100))
+
+function postStamp(post) {
+  const value = new Date((post && post.createdAt) || 0).getTime()
+  return Number.isFinite(value) ? value : 0
+}
+
+const discussionPosts = computed(() => {
+  const rows = (discussionDetail.value && discussionDetail.value.posts) || []
+  return rows.slice()
+    .sort((a, b) => postStamp(a) - postStamp(b))
+    .map(post => Object.assign({}, post, {
+      replies: (post.replies || []).slice().sort((a, b) => postStamp(a) - postStamp(b))
+    }))
+})
+
+function postAuthor(post) {
+  return post && post.anonymous ? '匿名同学' : ((post && post.authorName) || '学生')
+}
+
+function scoreOf(post) {
+  const draft = scoreDrafts[post.postId]
+  if (draft !== undefined && draft !== null) return draft
+  return Number(post.myScore || 0)
+}
+
+async function loadDiscussionDetail(topicId) {
+  discussionDetail.value = null
+  discussionError.value = ''
+  replyTargetId.value = null
+  teacherReplyContent.value = ''
+  Object.keys(scoreDrafts).forEach(key => delete scoreDrafts[key])
+  if (!topicId || !bindingId.value) return
+  discussionLoading.value = true
+  try {
+    const res = await getDiscussion(topicId, bindingId.value)
+    if (String(selectedNode.value && selectedNode.value.id) !== String(topicId)) return
+    discussionDetail.value = res.data || null
+  } catch (e) {
+    if (!e || !e.cancelled) discussionError.value = e && e.message ? e.message : '讨论内容加载失败'
+  } finally {
+    discussionLoading.value = false
+  }
+}
+
+watch(selectedKey, key => {
+  const node = nodeIndex.value[key]
+  if (node && node.kind === 'DISCUSSION') {
+    loadDiscussionDetail(node.id)
+  } else {
+    discussionDetail.value = null
+    discussionError.value = ''
+    replyTargetId.value = null
+    teacherReplyContent.value = ''
+  }
+})
+
+function openDiscussionCreate() {
+  if (!bindingId.value) {
+    ElMessage.warning('请先选择课程与教学班')
+    return
+  }
+  const now = Date.now()
+  editingDiscussionId.value = null
+  Object.assign(discussionForm, {
+    title: '',
+    content: '',
+    category: '',
+    knowledgePoint: '',
+    folderId: '',
+    lessonId: null,
+    publishScope: 'CLASS',
+    opensAt: new Date(now),
+    closesAt: new Date(now + 7 * 86400000),
+    allowAnonymous: true,
+    allowReply: true,
+    allowStudentTopic: true,
+    scoreEnabled: false,
+    scoreMax: 10,
+    pinned: false,
+    featured: false
+  })
+  newFolderName.value = ''
+  discussionVisible.value = true
+}
+
+function openDiscussionEdit(node) {
+  if (!node) return
+  const meta = node.meta || {}
+  editingDiscussionId.value = meta.topicId || node.id
+  Object.assign(discussionForm, {
+    title: meta.title || '',
+    content: meta.content || '',
+    category: meta.category || '',
+    knowledgePoint: meta.knowledgePoint || '',
+    folderId: meta.folderId || '',
+    lessonId: meta.lessonId || null,
+    publishScope: meta.publishScope || 'CLASS',
+    opensAt: meta.opensAt ? new Date(meta.opensAt) : new Date(),
+    closesAt: meta.closesAt ? new Date(meta.closesAt) : null,
+    allowAnonymous: Boolean(meta.allowAnonymous),
+    allowReply: Boolean(meta.allowReply),
+    allowStudentTopic: Boolean(meta.allowStudentTopic),
+    scoreEnabled: Boolean(meta.scoreEnabled),
+    scoreMax: Number(meta.scoreMax || 10),
+    pinned: Boolean(meta.pinned),
+    featured: Boolean(meta.featured)
+  })
+  discussionVisible.value = true
+}
+
+async function submitNewFolder() {
+  const name = newFolderName.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入文件夹名称')
+    return
+  }
+  folderCreating.value = true
+  try {
+    await createDiscussionFolder({ bindingId: Number(bindingId.value), name })
+    const res = await listDiscussionFolders(bindingId.value)
+    discussionFolders.value = listRows(res.data)
+    const created = discussionFolders.value.find(item => item.name === name)
+    if (created) discussionForm.folderId = created.folderId
+    newFolderName.value = ''
+    ElMessage.success('文件夹已创建')
+  } catch (e) {
+    if (!e || !e.cancelled) ElMessage.error(e && e.message ? e.message : '新建文件夹失败')
+  } finally {
+    folderCreating.value = false
+  }
+}
+
+async function submitDiscussion() {
+  if (!bindingId.value) {
+    ElMessage.warning('请先选择课程与教学班')
+    return
+  }
+  const title = discussionForm.title.trim()
+  if (!title) {
+    ElMessage.warning('请填写话题标题')
+    return
+  }
+  const content = discussionForm.content.trim()
+  if (!content) {
+    ElMessage.warning('请填写讨论正文')
+    return
+  }
+  if (!discussionForm.opensAt) {
+    ElMessage.warning('请选择开放时间')
+    return
+  }
+  const opensAt = new Date(discussionForm.opensAt)
+  const closesAt = discussionForm.closesAt ? new Date(discussionForm.closesAt) : null
+  if (closesAt && closesAt <= opensAt) {
+    ElMessage.warning('截止时间必须晚于开放时间')
+    return
+  }
+  discussionFormSubmitting.value = true
+  try {
+    if (editingDiscussionId.value) {
+      await updateStage({
+        bindingId: Number(bindingId.value),
+        kind: 'DISCUSSION',
+        id: Number(editingDiscussionId.value),
+        title,
+        instructions: content,
+        privateNotes: '',
+        opensAt: opensAt.toISOString(),
+        closesAt: closesAt ? closesAt.toISOString() : null,
+        answerOpensAt: null
+      })
+      ElMessage.success('讨论环节设置已更新')
+      discussionVisible.value = false
+      await refreshDiscussionTopic()
+      return
+    }
+    const res = await createDiscussion({
+      bindingId: Number(bindingId.value),
+      lessonId: discussionForm.lessonId ? Number(discussionForm.lessonId) : null,
+      folderId: discussionForm.folderId ? Number(discussionForm.folderId) : null,
+      title,
+      content,
+      category: discussionForm.category.trim(),
+      knowledgePoint: discussionForm.knowledgePoint || '',
+      publishScope: discussionForm.publishScope,
+      opensAt: opensAt.toISOString(),
+      closesAt: closesAt ? closesAt.toISOString() : null,
+      allowAnonymous: discussionForm.allowAnonymous,
+      allowAttachment: false,
+      allowReply: discussionForm.allowReply,
+      allowStudentTopic: discussionForm.allowStudentTopic,
+      scoreEnabled: discussionForm.scoreEnabled,
+      scoreMax: discussionForm.scoreEnabled ? Number(discussionForm.scoreMax) : null,
+      pinned: discussionForm.pinned,
+      featured: discussionForm.featured
+    })
+    const created = (res && res.data) || {}
+    const topicId = created.topicId || created.id || null
+    if (topicId) {
+      try {
+        await discussionAction({
+          bindingId: Number(bindingId.value),
+          topicId: Number(topicId),
+          postId: null,
+          action: 'publish',
+          value: null
+        })
+      } catch (err) {
+        if (!err || !err.cancelled) {
+          ElMessage.warning('话题已保存为草稿，发布未成功：' + (err && err.message ? err.message : '请稍后重试'))
+        }
+      }
+    }
+    ElMessage.success('讨论环节已加入时间轴')
+    discussionVisible.value = false
+    await loadData()
+    if (topicId && nodes.value.some(item => item.kind === 'DISCUSSION' && String(item.id) === String(topicId))) {
+      selectedKey.value = `discussion-${topicId}`
+    }
+  } catch (e) {
+    if (!e || !e.cancelled) ElMessage.error(e && e.message ? e.message : '保存讨论环节失败')
+  } finally {
+    discussionFormSubmitting.value = false
+  }
+}
+
+async function refreshDiscussionTopic() {
+  const node = selectedNode.value
+  const topicId = node && node.kind === 'DISCUSSION' ? node.id : null
+  await loadData()
+  if (topicId && nodes.value.some(item => item.kind === 'DISCUSSION' && String(item.id) === String(topicId))) {
+    selectedKey.value = `discussion-${topicId}`
+  }
+}
+
+async function runDiscussionAction(action, { postId = null, value = null, success = '操作成功', confirm = '' } = {}) {
+  const node = selectedNode.value
+  if (!node || node.kind !== 'DISCUSSION') return
+  if (confirm) {
+    try {
+      await ElMessageBox.confirm(confirm, '确认操作', {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+    } catch (_) {
+      return
+    }
+  }
+  discussionActionLoading.value = true
+  try {
+    await discussionAction({
+      bindingId: Number(bindingId.value),
+      topicId: Number(node.id),
+      postId: postId ? Number(postId) : null,
+      action,
+      value
+    })
+    ElMessage.success(success)
+    await refreshDiscussionTopic()
+  } catch (e) {
+    if (!e || !e.cancelled) ElMessage.error(e && e.message ? e.message : '操作失败')
+  } finally {
+    discussionActionLoading.value = false
+  }
+}
+
+function toggleDiscussionPin() {
+  runDiscussionAction(discussionPinned.value ? 'unpin' : 'pin', {
+    success: discussionPinned.value ? '已取消置顶' : '已置顶'
+  })
+}
+
+function toggleDiscussionFeature() {
+  runDiscussionAction(discussionFeatured.value ? 'unfeature' : 'feature', {
+    success: discussionFeatured.value ? '已取消精华' : '已设为精华'
+  })
+}
+
+function setDiscussionArchive(action) {
+  runDiscussionAction(action, {
+    success: action === 'archive' ? '讨论已归档' : '讨论已恢复',
+    confirm: action === 'archive' ? '归档后学生端不再显示该讨论，确认归档？' : ''
+  })
+}
+
+async function submitDiscussionPost(parentPostId, content) {
+  const node = selectedNode.value
+  const text = String(content || '').trim()
+  if (!node || node.kind !== 'DISCUSSION') return
+  if (!text) {
+    ElMessage.warning('请输入内容')
+    return
+  }
+  discussionPostSubmitting.value = true
+  try {
+    await createDiscussionPost(node.id, {
+      bindingId: Number(bindingId.value),
+      topicId: Number(node.id),
+      parentPostId: parentPostId ? Number(parentPostId) : null,
+      content: text,
+      anonymous: false,
+      attachmentName: null,
+      attachmentUrl: null
+    })
+    ElMessage.success(parentPostId ? '回复已发布' : '帖子已发布')
+    await refreshDiscussionTopic()
+    return true
+  } catch (e) {
+    if (!e || !e.cancelled) ElMessage.error(e && e.message ? e.message : '发布失败')
+    return false
+  } finally {
+    discussionPostSubmitting.value = false
+  }
+}
+
+async function submitTeacherPost() {
+  const ok = await submitDiscussionPost(null, teacherPostContent.value)
+  if (ok) teacherPostContent.value = ''
+}
+
+async function submitTeacherReply(post) {
+  const ok = await submitDiscussionPost(post.postId, teacherReplyContent.value)
+  if (ok) {
+    teacherReplyContent.value = ''
+    replyTargetId.value = null
+  }
+}
+
+function startDiscussionReply(post) {
+  replyTargetId.value = post.postId
+  teacherReplyContent.value = ''
+}
+
+function cancelDiscussionReply() {
+  replyTargetId.value = null
+  teacherReplyContent.value = ''
+}
+
+function removeDiscussionPost(post) {
+  runDiscussionAction('remove-post', {
+    postId: post.postId,
+    success: '帖子已删除',
+    confirm: '确认删除该帖子？删除后学生端不再显示。'
+  })
+}
+
+function submitPostScore(post) {
+  const value = Number(scoreDrafts[post.postId] !== undefined
+    ? scoreDrafts[post.postId]
+    : (post.myScore || 0))
+  if (!Number.isFinite(value) || value < 0) {
+    ElMessage.warning('请输入有效分数')
+    return
+  }
+  runDiscussionAction('score', { postId: post.postId, value, success: '评分已保存' })
 }
 </script>
 
@@ -2300,6 +3072,9 @@ async function submitMaterialCreate() {
 .tl-dot.tone-teal {
   background: #13c2c2;
 }
+.tl-dot.tone-purple {
+  background: #8b5cf6;
+}
 .tl-dot.tone-amber {
   background: #e6a23c;
 }
@@ -2327,6 +3102,9 @@ async function submitMaterialCreate() {
 }
 .tl-card.tone-teal {
   border-left-color: #13c2c2;
+}
+.tl-card.tone-purple {
+  border-left-color: #8b5cf6;
 }
 .tl-card.tone-amber {
   border-left-color: #e6a23c;
@@ -2449,6 +3227,9 @@ async function submitMaterialCreate() {
 }
 .stage-step.tone-blue .stage-step-no {
   background: #409eff;
+}
+.stage-step.tone-purple .stage-step-no {
+  background: #8b5cf6;
 }
 .stage-step.tone-teal .stage-step-no {
   background: #13c2c2;
@@ -2719,5 +3500,125 @@ async function submitMaterialCreate() {
 }
 .node-list :deep(.el-table__row) {
   cursor: pointer;
+}
+.discussion-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.discussion-section-head h4 {
+  margin: 0;
+}
+.discussion-section-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.discussion-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #606266;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.discussion-setting-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.discussion-composer {
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 10px;
+  background: #fafafa;
+  margin-bottom: 12px;
+}
+.discussion-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.discussion-posts {
+  min-height: 60px;
+}
+.discussion-post {
+  border-bottom: 1px dashed #ebeef5;
+  padding: 10px 0;
+}
+.discussion-post:last-child {
+  border-bottom: none;
+}
+.discussion-post-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.discussion-post-head strong {
+  font-size: 13px;
+  color: #303133;
+}
+.discussion-post-body {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #606266;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.discussion-post-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.discussion-attachment {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.discussion-replies {
+  margin: 8px 0 0 14px;
+  padding-left: 10px;
+  border-left: 2px solid #ebeef5;
+}
+.discussion-reply {
+  padding: 4px 0;
+}
+.discussion-reply-box {
+  margin-top: 8px;
+  padding: 8px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+.discussion-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.discussion-switches {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+@media (max-width: 768px) {
+  .discussion-section-tools {
+    width: 100%;
+  }
+  .discussion-post-actions {
+    gap: 8px;
+  }
 }
 </style>

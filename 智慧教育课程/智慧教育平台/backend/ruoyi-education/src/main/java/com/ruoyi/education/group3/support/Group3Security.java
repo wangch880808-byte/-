@@ -1,10 +1,8 @@
 package com.ruoyi.education.group3.support;
 
-import java.util.Objects;
-import com.ruoyi.common.constant.HttpStatus;
-import com.ruoyi.common.core.domain.entity.SysRole;
-import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.education.exception.EduForbiddenException;
+import com.ruoyi.education.security.EduActor;
 
 /**
  * Keeps role checks explicit for the group 3 teacher and student surfaces.
@@ -32,27 +30,19 @@ public final class Group3Security
 
     public static boolean isTeacher()
     {
-        return hasExactRole("teacher");
+        return "teacher".equals(EduActor.role());
     }
 
     public static boolean isStudent()
     {
-        return hasExactRole("student");
-    }
-
-    private static boolean hasExactRole(String roleKey)
-    {
-        return SecurityUtils.getLoginUser().getUser().getRoles().stream()
-                .map(SysRole::getRoleKey)
-                .filter(Objects::nonNull)
-                .anyMatch(roleKey::equals);
+        return "student".equals(EduActor.role());
     }
 
     private static void requireExactRole(String roleKey)
     {
-        if (!hasExactRole(roleKey))
+        if (!roleKey.equals(EduActor.role()))
         {
-            throw new ServiceException("当前账号无权访问该教学业务", HttpStatus.FORBIDDEN);
+            throw new EduForbiddenException("当前账号无权访问该教学业务");
         }
     }
 }

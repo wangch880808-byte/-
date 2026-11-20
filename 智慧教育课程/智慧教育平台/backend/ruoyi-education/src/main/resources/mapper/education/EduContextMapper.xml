@@ -6,7 +6,11 @@
  <select id="courses" resultType="java.util.Map">
   SELECT c.id AS courseSpaceId,c.title,c.status FROM edu_course_space c WHERE c.deleted_at IS NULL AND c.status!='ARCHIVED'
   <choose>
-   <when test="role=='teacher'">AND c.owner_user_id=#{userId}</when>
+   <when test="role=='teacher'">
+    AND (c.owner_user_id=#{userId} OR EXISTS(SELECT 1 FROM edu_course_teacher team
+     WHERE team.course_space_id=c.id AND team.user_id=#{userId} AND team.ended_at IS NULL
+     AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>))
+   </when>
    <otherwise>
     AND c.status='ACTIVE' AND EXISTS(SELECT 1 FROM edu_course_class_binding b JOIN edu_teaching_class tc ON tc.id=b.teaching_class_id
      JOIN edu_class_student st ON st.teaching_class_id=tc.id WHERE b.course_space_id=c.id AND b.ended_at IS NULL AND b.published_at&lt;=NOW(3)
@@ -17,11 +21,18 @@
  </select>
  <select id="classes" resultType="java.util.Map">
   SELECT tc.id AS classId,tc.name AS className,tc.term_id AS termId,b.id AS bindingId,b.course_space_id AS courseSpaceId
-  <choose><when test="role=='teacher'">,ct.can_publish AS canPublish,ct.can_grade AS canGrade,ct.can_export AS canExport</when><otherwise>,0 AS canPublish,0 AS canGrade,0 AS canExport</otherwise></choose>
+  <choose><when test="role=='teacher'">,COALESCE(ct.can_publish,0) AS canPublish,COALESCE(ct.can_grade,0) AS canGrade,GREATEST(COALESCE(ct.can_export,0),COALESCE((SELECT MAX(team.can_export) FROM edu_course_teacher team
+    WHERE team.course_space_id=c.id AND team.user_id=#{userId} AND team.ended_at IS NULL
+      AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>),0)) AS canExport</when><otherwise>,0 AS canPublish,0 AS canGrade,0 AS canExport</otherwise></choose>
   FROM edu_course_class_binding b JOIN edu_teaching_class tc ON tc.id=b.teaching_class_id JOIN edu_course_space c ON c.id=b.course_space_id
-  <choose><when test="role=='teacher'">JOIN edu_class_teacher ct ON ct.teaching_class_id=tc.id</when><otherwise>JOIN edu_class_student st ON st.teaching_class_id=tc.id</otherwise></choose>
+  <choose><when test="role=='teacher'">LEFT JOIN edu_class_teacher ct ON ct.teaching_class_id=tc.id AND ct.user_id=#{userId}
+   AND ct.valid_from&lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to&gt;NOW(3))</when><otherwise>JOIN edu_class_student st ON st.teaching_class_id=tc.id</otherwise></choose>
   WHERE b.course_space_id=#{courseId} AND b.ended_at IS NULL AND b.published_at&lt;=NOW(3) AND tc.status='ACTIVE' AND c.deleted_at IS NULL AND c.status!='ARCHIVED'
-  <choose><when test="role=='teacher'">AND c.owner_user_id=#{userId} AND <include refid="validTeacher"/></when><otherwise>AND c.status='ACTIVE' AND <include refid="validStudent"/></otherwise></choose>
+  <choose><when test="role=='teacher'">AND ((c.owner_user_id=#{userId} AND ct.id IS NOT NULL) OR EXISTS (
+    SELECT 1 FROM edu_course_teacher team WHERE team.course_space_id=c.id
+     AND team.user_id=#{userId} AND team.ended_at IS NULL
+     AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>
+   ))</when><otherwise>AND c.status='ACTIVE' AND <include refid="validStudent"/></otherwise></choose>
   ORDER BY tc.id,b.id
  </select>
 </mapper>

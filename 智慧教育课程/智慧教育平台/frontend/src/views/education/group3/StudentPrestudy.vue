@@ -18,7 +18,7 @@
           <h2>课前学习</h2>
           <p>{{ current ? `${current.courseTitle} · ${current.className}` : '—' }}</p>
           <span class="g3-head-note">
-            每个环节独立作答与提交；未开放、已撤回或不属于本班的任务不会出现，只有点「提交预习」才写入服务端。
+            这里汇总教师在「课前准备」发布的资料阅读、预习任务与讨论环节；未开放、已撤回或不属于本班的内容不会出现，只有点「提交预习」才写入服务端。
           </span>
         </div>
         <div class="g3-head-filter">
@@ -29,19 +29,7 @@
         </div>
       </div>
 
-      <div class="g3-stats">
-        <div class="g3-stat"><small>预习任务</small><strong>{{ stats.total }}</strong></div>
-        <div class="g3-stat"><small>待完成</small><strong>{{ stats.todo }}</strong></div>
-        <div class="g3-stat"><small>已提交</small><strong>{{ stats.submitted }}</strong></div>
-        <div class="g3-stat"><small>已截止</small><strong>{{ stats.closed }}</strong></div>
-      </div>
-
-      <div class="g3-progress">
-        <el-progress :percentage="stats.percent" :stroke-width="10" class="g3-progress-bar" />
-        <span class="g3-hint">
-          {{ stats.total ? `本人完成度 ${stats.percent}%，以服务端提交记录为准` : '暂无预习任务，不显示推测的掌握度' }}
-        </span>
-      </div>
+      <StudentProgressBoard :binding-id="bindingId" />
 
       <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" class="g3-gap" />
 
@@ -57,7 +45,7 @@
         </div>
 
         <div class="g3-tl-detail">
-          <el-card v-if="selectedNode" shadow="never" class="g3-detail">
+          <el-card v-if="selectedNode && selectedNode.kind === 'QUIZ'" shadow="never" class="g3-detail">
             <template #header>
               <div class="g3-detail-head">
                 <span class="g3-kind">预习习题</span>
@@ -220,15 +208,104 @@
             </div>
           </el-card>
 
+          <el-card v-else-if="selectedNode" shadow="never" class="g3-detail">
+            <template #header>
+              <div class="g3-detail-head">
+                <span class="g3-kind">{{ selectedNode.kind === 'DISCUSSION' ? '讨论环节' : '资料阅读' }}</span>
+                <el-tag size="small" effect="plain">{{ seqText(selectedNode) }}</el-tag>
+                <el-tag size="small" :type="stateTagType(selectedNode.state)">{{ stateLabel(selectedNode.state) }}</el-tag>
+                <el-button
+                  v-if="selectedNode.kind === 'MATERIAL'"
+                  size="small"
+                  type="primary"
+                  plain
+                  @click="openMaterial(selectedNode)"
+                >
+                  打开资料
+                </el-button>
+                <el-button
+                  v-else
+                  size="small"
+                  type="primary"
+                  plain
+                  @click="openDiscussion(selectedNode)"
+                >
+                  进入讨论
+                </el-button>
+              </div>
+            </template>
+            <h3 class="g3-detail-title">{{ selectedNode.title }}</h3>
+            <p class="g3-hint">
+              开放：{{ formatTime(selectedNode.opensAt) }} 至 {{ formatTime(selectedNode.closesAt) }}
+            </p>
+            <p v-if="selectedNode.subtitle" class="g3-hint">{{ selectedNode.subtitle }}</p>
+            <div v-if="selectedNode.tags && selectedNode.tags.length" class="g3-material-tags">
+              <el-tag v-for="(tag, index) in selectedNode.tags" :key="index" size="small" effect="plain">{{ tag }}</el-tag>
+            </div>
+          </el-card>
+
           <el-card v-else shadow="never" class="g3-detail">
             <template #header><span>环节详情</span></template>
             <el-empty description="选择一个环节" :image-size="90">
-              <p class="g3-hint">预习环节可逐题作答、提交并查看允许公开的反馈。</p>
+              <p class="g3-hint">预习任务可逐题作答、提交并查看允许公开的反馈；资料与讨论可直接查看。</p>
             </el-empty>
           </el-card>
         </div>
       </div>
     </template>
+
+    <el-dialog
+      v-model="materialVisible"
+      :title="materialNode ? materialNode.title : '资料阅读'"
+      width="860px"
+      append-to-body
+      class="g3-material-dialog"
+    >
+      <div v-loading="materialLoading" class="g3-material-body">
+        <el-alert
+          v-if="materialError"
+          :title="materialError"
+          type="error"
+          show-icon
+          :closable="false"
+          class="g3-gap"
+        >
+          <el-button size="small" @click="materialNode && openMaterial(materialNode)">重试</el-button>
+        </el-alert>
+        <template v-else>
+          <p v-if="materialNode" class="g3-hint g3-material-meta">
+            开放：{{ formatTime(materialNode.opensAt) }} 至 {{ formatTime(materialNode.closesAt) }}
+            <span v-if="materialNode.meta">· V{{ materialNode.meta.versionNo || 1 }} · {{ Number(materialNode.meta.pageCount || 0) }} 页</span>
+          </p>
+          <div v-if="materialVideoUrl" class="g3-material-video">
+            <video :src="materialVideoUrl" controls />
+          </div>
+          <div v-else-if="materialPages.length" class="g3-material-pages">
+            <img
+              v-for="(url, index) in materialPages"
+              :key="index"
+              :src="url"
+              :alt="`第 ${index + 1} 页`"
+            />
+          </div>
+          <el-empty
+            v-else-if="!materialLoading"
+            description="该资料暂无可预览页面，可下载查看"
+            :image-size="80"
+          />
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="materialVisible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          :loading="downloadingId === (materialNode && materialNode.meta && materialNode.meta.versionId)"
+          @click="downloadMaterial"
+        >
+          下载资料
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer
       v-model="showIndependent"
@@ -410,15 +487,28 @@
 
 <script setup name="StudentPrestudy">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { saveAs } from 'file-saver'
-import { listStudentPreviews, getStudentPreview, submitStudentPreview, downloadVersion } from '@/api/education/group3'
+import {
+  downloadVersion,
+  getStudentPreview,
+  getVersion,
+  getVersionPage,
+  listDiscussions,
+  listStudentPrepMaterials,
+  listStudentPreviews,
+  submitStudentPreview
+} from '@/api/education/group3'
 import Group3ContextBar from './Group3ContextBar.vue'
+import StudentProgressBoard from './StudentProgressBoard.vue'
 import StudentTimeline from './StudentTimeline.vue'
 import { useGroup3Binding } from './useGroup3Binding.js'
 
 const props = defineProps({ contextBindingId: { type: String, default: '' } })
 const { list, bindingId, current, loading, error, load, select } = useGroup3Binding(() => props.contextBindingId)
+const router = useRouter()
+const route = useRoute()
 
 const STATE_FILTERS = [
   { value: 'all', label: '全部任务' },
@@ -442,6 +532,8 @@ const QUESTION_KIND_LABELS = {
 }
 
 const tasks = ref([])
+const materials = ref([])
+const discussions = ref([])
 const stateFilter = ref('all')
 const selectedKey = ref('')
 const loadingList = ref(false)
@@ -455,25 +547,36 @@ const answerDrafts = new Map()
 const submitting = ref(false)
 const downloadingId = ref(null)
 
+// 课前准备资料阅读
+const materialVisible = ref(false)
+const materialNode = ref(null)
+const materialLoading = ref(false)
+const materialError = ref('')
+const materialDetail = ref(null)
+const materialPages = ref([])
+const materialVideoUrl = ref('')
+
 let listToken = 0
 let detailToken = 0
+let materialToken = 0
 
 // 独立模式
 const showIndependent = ref(false)
 const indepCurrentNode = ref(null)
 
+const indepNodes = computed(() => visibleNodes.value.filter(node => node.kind === 'QUIZ'))
 const indepIndex = computed(() => {
   if (!selectedKey.value) return -1
-  return visibleNodes.value.findIndex(n => n.key === selectedKey.value)
+  return indepNodes.value.findIndex(n => n.key === selectedKey.value)
 })
 const indepPrevNode = computed(() => {
   const idx = indepIndex.value
-  return idx > 0 ? visibleNodes.value[idx - 1] : null
+  return idx > 0 ? indepNodes.value[idx - 1] : null
 })
 const indepNextNode = computed(() => {
   const idx = indepIndex.value
   if (idx < 0) return null
-  return idx < visibleNodes.value.length - 1 ? visibleNodes.value[idx + 1] : null
+  return idx < indepNodes.value.length - 1 ? indepNodes.value[idx + 1] : null
 })
 
 function jumpIndep(target) {
@@ -485,7 +588,7 @@ watch(showIndependent, (v) => {
   if (v && selectedKey.value) {
     indepCurrentNode.value = selectedNode.value
   } else if (v) {
-    const firstNavigable = visibleNodes.value.find(n => n.state !== 'CLOSED') || visibleNodes.value[0]
+    const firstNavigable = indepNodes.value.find(n => n.state !== 'CLOSED') || indepNodes.value[0]
     if (firstNavigable) handleNodeSelect(firstNavigable)
   }
 })
@@ -563,25 +666,82 @@ function withSeq(source) {
   return source
 }
 
-const nodes = computed(() => withSeq(toNodes(tasks.value)))
+function stateOf(opensAt, closesAt, now) {
+  const currentTime = now ? new Date(now).getTime() : Date.now()
+  const opens = opensAt ? new Date(opensAt).getTime() : null
+  const closes = closesAt ? new Date(closesAt).getTime() : null
+  if (opens != null && Number.isFinite(opens) && currentTime < opens) return 'UPCOMING'
+  if (closes != null && Number.isFinite(closes) && currentTime >= closes) return 'CLOSED'
+  return 'OPEN'
+}
+
+/** 课前准备发布的资料阅读环节。 */
+function toMaterialNode(item) {
+  const tags = [`V${item.versionNo || 1}`, `${Number(item.pageCount || 0)} 页`]
+  if (item.mediaKind) tags.push(item.mediaKind)
+  return {
+    key: `prep-material-${item.releaseId || item.versionId}`,
+    kind: 'MATERIAL',
+    id: item.versionId,
+    title: item.title || '资料阅读',
+    subtitle: item.closesAt ? `开放至 ${formatTime(item.closesAt)}` : '长期开放',
+    opensAt: item.opensAt || null,
+    closesAt: item.closesAt || null,
+    time: item.opensAt || null,
+    state: stateOf(item.opensAt, item.closesAt, item.serverTime),
+    tags,
+    meta: item
+  }
+}
+
+/** 课前准备发布的讨论环节。 */
+function toDiscussionNode(row) {
+  const tags = []
+  if (row.category) tags.push(row.category)
+  if (row.knowledgePoint) tags.push(row.knowledgePoint)
+  tags.push(`${Number(row.replyCount || 0)} 回复`)
+  const status = String(row.status || '').toUpperCase()
+  return {
+    key: `discussion-${row.topicId}`,
+    kind: 'DISCUSSION',
+    id: row.topicId,
+    title: row.title || '讨论话题',
+    subtitle: row.content || '',
+    opensAt: row.opensAt || null,
+    closesAt: row.closesAt || null,
+    time: row.opensAt || row.createdAt || null,
+    state: status === 'ARCHIVED' ? 'ARCHIVED' : stateOf(row.opensAt, row.closesAt, row.serverTime),
+    tags,
+    meta: row
+  }
+}
+
+const nodes = computed(() => withSeq([
+  ...toNodes(tasks.value),
+  ...materials.value.map(toMaterialNode),
+  ...discussions.value.map(toDiscussionNode)
+]))
 
 const visibleNodes = computed(() => {
   if (stateFilter.value === 'all') return nodes.value
   if (stateFilter.value === 'todo') {
-    return nodes.value.filter(node => !node.meta.submitted && node.state !== 'CLOSED')
+    return nodes.value.filter(node => node.kind === 'QUIZ' && !node.meta.submitted && node.state !== 'CLOSED')
   }
-  if (stateFilter.value === 'submitted') return nodes.value.filter(node => node.meta.submitted)
+  if (stateFilter.value === 'submitted') {
+    return nodes.value.filter(node => node.kind === 'QUIZ' && node.meta.submitted)
+  }
   return nodes.value.filter(node => node.state === 'CLOSED')
 })
 
 const stats = computed(() => {
-  const total = nodes.value.length
-  const submitted = nodes.value.filter(node => node.meta.submitted).length
+  const quizNodes = nodes.value.filter(node => node.kind === 'QUIZ')
+  const total = quizNodes.length
+  const submitted = quizNodes.filter(node => node.meta.submitted).length
   return {
     total,
     submitted,
-    todo: nodes.value.filter(node => !node.meta.submitted && node.state !== 'CLOSED').length,
-    closed: nodes.value.filter(node => node.state === 'CLOSED').length,
+    todo: quizNodes.filter(node => !node.meta.submitted && node.state !== 'CLOSED').length,
+    closed: quizNodes.filter(node => node.state === 'CLOSED').length,
     percent: total ? Math.round(submitted / total * 100) : 0
   }
 })
@@ -780,15 +940,89 @@ async function downloadResource(resource) {
   }
 }
 
+function revokeMaterialUrls() {
+  materialPages.value.forEach(url => URL.revokeObjectURL(url))
+  materialPages.value = []
+  if (materialVideoUrl.value) URL.revokeObjectURL(materialVideoUrl.value)
+  materialVideoUrl.value = ''
+}
+
+/** 打开课前准备发布的资料阅读环节。 */
+async function openMaterial(node) {
+  if (!node || !bindingId.value) return
+  const versionId = node.meta.versionId || node.id
+  materialNode.value = node
+  materialVisible.value = true
+  materialDetail.value = null
+  materialError.value = ''
+  revokeMaterialUrls()
+  const token = ++materialToken
+  materialLoading.value = true
+  try {
+    const res = await getVersion(versionId, bindingId.value)
+    if (token !== materialToken) return
+    const data = res.data || {}
+    materialDetail.value = data
+    if (data.mediaKind === 'VIDEO') {
+      const blob = await downloadVersion(versionId, bindingId.value)
+      if (token !== materialToken) return
+      if (blob instanceof Blob) materialVideoUrl.value = URL.createObjectURL(blob)
+      return
+    }
+    const pages = Array.isArray(data.pages) ? data.pages : []
+    for (const page of pages) {
+      const blob = await getVersionPage(versionId, page.pageNo, bindingId.value)
+      if (token !== materialToken) {
+        return
+      }
+      materialPages.value.push(URL.createObjectURL(blob))
+    }
+  } catch (err) {
+    if (token === materialToken) materialError.value = actionableMessage(err)
+  } finally {
+    if (token === materialToken) materialLoading.value = false
+  }
+}
+
+function downloadMaterial() {
+  const meta = materialNode.value && materialNode.value.meta
+  if (meta) downloadResource(meta)
+}
+
+/** 课前准备发布的讨论环节，跳转到学生讨论页。 */
+function openDiscussion(node) {
+  if (!node || !bindingId.value) return
+  const { assignmentId, resourceId, ...query } = route.query
+  router.push({
+    name: 'course-detail',
+    params: route.params,
+    query: { ...query, courseSpaceId: route.params.courseId, tab: 'discuss', bindingId: bindingId.value, topicId: node.id }
+  })
+}
+
+watch(materialVisible, visible => {
+  if (!visible) {
+    materialToken += 1
+    revokeMaterialUrls()
+  }
+})
+
 async function loadTasks() {
   loadError.value = ''
   if (!bindingId.value) return
   const token = ++listToken
   loadingList.value = true
   try {
-    const res = await listStudentPreviews(bindingId.value)
+    const [previewRes, materialRes, discussionRes] = await Promise.all([
+      listStudentPreviews(bindingId.value),
+      listStudentPrepMaterials(bindingId.value).catch(() => null),
+      listDiscussions(bindingId.value).catch(() => null)
+    ])
     if (token !== listToken) return
-    tasks.value = Array.isArray(res.data) ? res.data : []
+    tasks.value = Array.isArray(previewRes.data) ? previewRes.data : []
+    materials.value = materialRes && Array.isArray(materialRes.data) ? materialRes.data : []
+    discussions.value = discussionRes && Array.isArray(discussionRes.data) ? discussionRes.data : []
+    openTargetFromQuery()
   } catch (err) {
     if (token !== listToken) return
     loadError.value = actionableMessage(err)
@@ -798,11 +1032,30 @@ async function loadTasks() {
 }
 
 function handleNodeSelect(node) {
-  if (!node || node.key === selectedKey.value) return
+  if (!node) return
+  if (node.kind === 'DISCUSSION') {
+    openDiscussion(node)
+    return
+  }
+  if (node.kind === 'MATERIAL') {
+    if (selectedKey.value !== node.key) {
+      selectedKey.value = node.key
+    }
+    openMaterial(node)
+    return
+  }
+  if (node.key === selectedKey.value) return
   captureDraft()
   selectedKey.value = node.key
   indepCurrentNode.value = node
   loadDetail(node)
+}
+
+function openTargetFromQuery() {
+  const assignmentId = route.query.assignmentId
+  if (!assignmentId) return
+  const node = nodes.value.find(item => item.kind === 'QUIZ' && String(item.id) === String(assignmentId))
+  if (node && node.key !== selectedKey.value) handleNodeSelect(node)
 }
 
 async function handleSelect(value) {
@@ -827,6 +1080,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   listToken += 1
   detailToken += 1
+  materialToken += 1
+  revokeMaterialUrls()
 })
 </script>
 
@@ -876,4 +1131,10 @@ onBeforeUnmount(() => {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .g3-independent-body { flex: 1; overflow-y: auto; padding: 16px 24px 32px; }
+.g3-material-body { min-height: 120px; }
+.g3-material-meta { margin: 0 0 10px; }
+.g3-material-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.g3-material-video video { width: 100%; max-height: 60vh; background: #000; border-radius: 6px; }
+.g3-material-pages { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.g3-material-pages img { width: 100%; border: 1px solid #ebeef5; border-radius: 4px; }
 </style>

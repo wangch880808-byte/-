@@ -103,8 +103,8 @@ npm install --no-save --no-package-lock playwright@1.65.1
 ## 说明
 
 夹具通过 Playwright 路由提供 `/getInfo`、`/getRouters`、`/education/context/*`、
-`/education/student/notices*`、`/education/student/announcements*` 与
-`/education/teacher/announcements*` 响应。教师写请求由夹具分别记录 GET 列表、
+`/education/scope/term/current`、`/education/student/notices*`、
+`/education/student/announcements*` 与 `/education/teacher/announcements*` 响应。教师写请求由夹具分别记录 GET 列表、
 GET 详情、POST 创建、PUT 编辑、POST 发布和 POST 归档。`overview-vue.spec.mjs`
 另行提供 `/education/teacher/overview`、`/education/student/today-todos` 的夹具。
 生产环境仍需 `education:notice:list`、`education:announcement:list/add/edit/publish/archive`

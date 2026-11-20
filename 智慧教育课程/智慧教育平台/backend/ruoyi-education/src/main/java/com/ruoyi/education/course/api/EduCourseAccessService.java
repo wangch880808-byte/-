@@ -71,31 +71,14 @@ public interface EduCourseAccessService {
      */
     List<EduMemberRef> activeMembers(Long classId);
 
+    /** 当前教学班成员可读取本班有效任课教师的公开教学信息。 */
+    List<EduTeacherRef> activeTeachers(Long classId);
+
     /** 某教师当前被授权的全部班级（valid_to IS NULL）。 */
     List<EduClassRef> classesOfTeacher(Long userId);
 
     /** 某学生当前在班的全部班级（left_at IS NULL）。 */
     List<EduClassRef> classesOfStudent(Long userId);
-
-    /**
-     * 该班当前有效的任课教师名单（valid_to IS NULL），按教师角色与记录 ID 排序。
-     * 调用方需自行确认是否有权查看教师团队（管理员或本班教师）。
-     */
-    List<EduTeacherRef> activeTeachers(Long classId);
-
-    /**
-     * 按绑定 ID 取当前有效的课程—教学班绑定；不存在或已结束时返回 {@code null}。
-     * 跨领域需要从 bindingId 反查教学班时使用本方法，不直接读
-     * {@code edu_course_class_binding}。
-     */
-    EduClassBindingRef binding(Long bindingId);
-
-    /**
-     * 取课程空间快照，不做访问权限校验。
-     * 调用方必须已通过教学班成员关系等其他校验确认访问权；不得仅凭前端传入的
-     * courseSpaceId 调用本方法后直接返回课程内容。
-     */
-    EduCourseRef courseRef(Long courseSpaceId);
 
     /**
      * 该班当前有效的课程空间绑定；没有绑定时返回 {@code null}。

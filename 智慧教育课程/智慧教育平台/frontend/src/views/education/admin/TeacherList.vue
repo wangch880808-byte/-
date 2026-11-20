@@ -2,24 +2,7 @@
   <div class="app-container group2-page">
     <el-row :gutter="16">
       <el-col :span="5">
-        <el-card shadow="never" class="edu-tree-card">
-          <template #header>
-            <div class="edu-card-title">
-              <span>组织架构</span>
-              <el-button link type="primary" @click="clearDept">全部</el-button>
-            </div>
-          </template>
-          <el-tree
-            ref="deptTreeRef"
-            :data="deptTree"
-            :props="{ label: 'name', children: 'children' }"
-            node-key="id"
-            default-expand-all
-            highlight-current
-            :expand-on-click-node="false"
-            @node-click="handleNodeClick"
-          />
-        </el-card>
+        <DirectoryOrgTree teacher-only @select="selectDept" />
       </el-col>
 
       <el-col :span="19">
@@ -112,8 +95,9 @@
 <script setup name="EduTeacherList">
 import { ref, reactive, getCurrentInstance, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { listTeacher, listTeacherClasses, getOrgTree } from '@/api/education/directory'
+import { listTeacher, listTeacherClasses } from '@/api/education/directory'
 import { eduErrorText } from '@/api/education/http'
+import DirectoryOrgTree from '@/components/education/DirectoryOrgTree.vue'
 
 const { proxy } = getCurrentInstance()
 const router = useRouter()
@@ -122,8 +106,6 @@ const loading = ref(false)
 const errorText = ref('')
 const list = ref([])
 const total = ref(0)
-const deptTree = ref([])
-const deptTreeRef = ref()
 
 const queryParams = reactive({ pageNum: 1, pageSize: 10, keyword: '', deptId: null })
 
@@ -137,31 +119,6 @@ function roleLabel(role) {
   if (role === 'ASSIST') return '助教'
   if (role === 'GUEST') return '旁听'
   return role || '—'
-}
-
-function buildTree(rows) {
-  const map = new Map()
-  rows.forEach((row) => map.set(row.id, { ...row, children: [] }))
-  const roots = []
-  map.forEach((node) => {
-    const parent = map.get(node.parentId)
-    if (parent && parent.id !== node.id) {
-      parent.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-  return roots
-}
-
-async function loadDeptTree() {
-  try {
-    const res = await getOrgTree()
-    const rows = Array.isArray(res) ? res : res.data || []
-    deptTree.value = buildTree(rows)
-  } catch (e) {
-    deptTree.value = []
-  }
 }
 
 async function getList() {
@@ -180,15 +137,8 @@ async function getList() {
   }
 }
 
-function handleNodeClick(node) {
-  queryParams.deptId = node.id
-  queryParams.pageNum = 1
-  getList()
-}
-
-function clearDept() {
-  queryParams.deptId = null
-  deptTreeRef.value && deptTreeRef.value.setCurrentKey(null)
+function selectDept(deptId) {
+  queryParams.deptId = deptId
   handleQuery()
 }
 
@@ -221,21 +171,10 @@ function gotoAccount(row) {
   router.push({ path: '/admin/users', query: { userName: row.userName } })
 }
 
-onMounted(() => {
-  loadDeptTree()
-  getList()
-})
+onMounted(getList)
 </script>
 
 <style scoped>
-.edu-card-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.edu-tree-card {
-  min-height: 420px;
-}
 .edu-empty {
   padding: 16px 0;
   color: #606266;

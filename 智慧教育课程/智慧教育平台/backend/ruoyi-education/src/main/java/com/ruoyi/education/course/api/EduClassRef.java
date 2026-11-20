@@ -11,8 +11,6 @@ package com.ruoyi.education.course.api;
  * @param code           教学班编码（同一学期内唯一）
  * @param termId         所属学期 ID
  * @param termName       学期名称（展示用，可为空）
- * @param termStartsOn   学期开始日期 yyyy-MM-dd，可为空
- * @param termEndsOn     学期结束日期 yyyy-MM-dd，可为空
  * @param organizationId 所属组织 ID
  * @param status         DRAFT / ACTIVE / ARCHIVED
  * @param classKind      FORMAL / TRIAL
@@ -23,8 +21,6 @@ public record EduClassRef(
         String code,
         Long termId,
         String termName,
-        String termStartsOn,
-        String termEndsOn,
         Long organizationId,
         String status,
         String classKind) {
