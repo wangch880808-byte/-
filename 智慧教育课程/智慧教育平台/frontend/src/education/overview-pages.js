@@ -3,7 +3,7 @@ import { registerBusinessPage } from './ui-pages'
 /**
  * 6-03 教师/学生总览业务页注册。
  *
- * 工作台 overview 分区和独立路径使用同一组件。角色、权限和服务端路由三项
+ * 工作台快捷入口和独立路径使用同一组件。角色、权限和服务端路由三项
  * 同时满足才显示/可直达；服务端 @PreAuthorize 仍会逐请求复核。
  *
  * TODO(6-03-overview-menu)：权限编码已由 #24 的 @PreAuthorize 使用，但
