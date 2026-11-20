@@ -3,6 +3,7 @@ package com.ruoyi.framework.web.service;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -285,6 +286,21 @@ public class TokenService
         {
             LoginUser user = redisCache.getCacheObject(key);
             if (user != null && user.getUser() != null && !user.getUser().isAdmin())
+            {
+                redisCache.deleteObject(key);
+            }
+        }
+    }
+
+    /** 组织删除后让受影响账号重新读取所属组织。 */
+    public void invalidateOrganizationSessions(Set<Long> deptIds)
+    {
+        Collection<String> keys = redisCache.keys(CacheConstants.LOGIN_TOKEN_KEY + "*");
+        if (keys == null) return;
+        for (String key : keys)
+        {
+            LoginUser login = redisCache.getCacheObject(key);
+            if (login != null && login.getDeptId() != null && deptIds.contains(login.getDeptId()))
             {
                 redisCache.deleteObject(key);
             }

@@ -1102,25 +1102,9 @@ CREATE TABLE edu_course_class_binding (
     CONSTRAINT chk_edu_binding_dates CHECK (ended_at IS NULL OR ended_at > published_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE edu_resource_folder (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    course_space_id BIGINT NOT NULL,
-    name VARCHAR(60) NOT NULL,
-    visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
-    created_by_user_id BIGINT NOT NULL,
-    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (id),
-    KEY idx_edu_resource_folder_space (course_space_id, id),
-    CONSTRAINT fk_edu_resource_folder_space FOREIGN KEY (course_space_id)
-        REFERENCES edu_course_space (id),
-    CONSTRAINT chk_edu_resource_folder_visibility
-        CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'PARTIAL'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 CREATE TABLE edu_resource (
     id BIGINT NOT NULL AUTO_INCREMENT,
     course_space_id BIGINT NOT NULL,
-    folder_id BIGINT NULL,
     title VARCHAR(200) NOT NULL,
     resource_kind VARCHAR(16) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
@@ -1131,11 +1115,8 @@ CREATE TABLE edu_resource (
     UNIQUE KEY uq_edu_resource_id_space (id, course_space_id),
     UNIQUE KEY uq_edu_resource_id_kind (id, resource_kind),
     KEY idx_edu_resource_space_status (course_space_id, status, id),
-    KEY idx_edu_resource_folder (course_space_id, folder_id),
     CONSTRAINT fk_edu_resource_space FOREIGN KEY (course_space_id)
         REFERENCES edu_course_space (id),
-    CONSTRAINT fk_edu_resource_folder FOREIGN KEY (folder_id)
-        REFERENCES edu_resource_folder (id) ON DELETE SET NULL,
     CONSTRAINT chk_edu_resource_kind CHECK (resource_kind IN ('FILE', 'LINK')),
     CONSTRAINT chk_edu_resource_status CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -1260,25 +1241,9 @@ CREATE TABLE edu_resource_page (
     CONSTRAINT chk_edu_resource_page_key CHECK (CHAR_LENGTH(TRIM(preview_storage_key)) > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE edu_question_folder (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    course_space_id BIGINT NOT NULL,
-    name VARCHAR(60) NOT NULL,
-    visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
-    created_by_user_id BIGINT NOT NULL,
-    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (id),
-    KEY idx_edu_question_folder_space (course_space_id, id),
-    CONSTRAINT fk_edu_question_folder_space FOREIGN KEY (course_space_id)
-        REFERENCES edu_course_space (id),
-    CONSTRAINT chk_edu_question_folder_visibility
-        CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'PARTIAL'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 CREATE TABLE edu_question (
     id BIGINT NOT NULL AUTO_INCREMENT,
     course_space_id BIGINT NOT NULL,
-    folder_id BIGINT NULL,
     title VARCHAR(200) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
     created_by_user_id BIGINT NOT NULL,
@@ -1286,11 +1251,8 @@ CREATE TABLE edu_question (
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_question_id_space (id, course_space_id),
     KEY idx_edu_question_space_status (course_space_id, status),
-    KEY idx_edu_question_folder (course_space_id, folder_id),
     CONSTRAINT fk_edu_question_space FOREIGN KEY (course_space_id)
         REFERENCES edu_course_space (id),
-    CONSTRAINT fk_edu_question_folder FOREIGN KEY (folder_id)
-        REFERENCES edu_question_folder (id) ON DELETE SET NULL,
     CONSTRAINT chk_edu_question_status CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -2541,7 +2503,14 @@ CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_user AS
  SELECT user_id,user_name,nick_name,dept_id,phonenumber,status,del_flag FROM sys_user;
 CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_user_role AS SELECT user_id,role_id FROM sys_user_role;
 CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_role AS SELECT role_id,role_key,status,del_flag FROM sys_role;
-CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_dept AS SELECT dept_id,parent_id,ancestors,dept_name,order_num,status,del_flag FROM sys_dept;
+ALTER TABLE sys_dept ADD COLUMN dept_type VARCHAR(16) NULL COMMENT '组织类型：SCHOOL/COLLEGE/MAJOR/CLASS/OTHER';
+ALTER TABLE sys_dept
+    ADD COLUMN grade_year SMALLINT UNSIGNED NULL COMMENT '行政班入学年份',
+    ADD COLUMN education_level VARCHAR(20) NULL COMMENT '行政班教育层次',
+    ADD COLUMN study_years TINYINT UNSIGNED NULL COMMENT '行政班学制年数',
+    ADD COLUMN class_remark VARCHAR(500) NULL COMMENT '行政班备注';
+UPDATE sys_dept SET dept_type = 'SCHOOL' WHERE dept_id = 920000000001 AND dept_name = '演示学校' AND parent_id = 0;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_dept AS SELECT dept_id,parent_id,ancestors,dept_name,order_num,status,del_flag,dept_type FROM sys_dept;
 
 
 -- SOURCE group12-menu-permissions.sql
@@ -2667,4 +2636,538 @@ CREATE TABLE IF NOT EXISTS edu_outline_attachment (
     CONSTRAINT fk_outline_attachment_point FOREIGN KEY (point_id, course_space_id)
         REFERENCES edu_knowledge_point(id, course_space_id) ON DELETE CASCADE,
     CONSTRAINT chk_outline_attachment_target CHECK ((unit_id IS NULL) <> (point_id IS NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- Run in the existing project database. Safe to run again.
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS edu_course_teacher (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    can_manage_students TINYINT(1) NOT NULL DEFAULT 0,
+    can_export TINYINT(1) NOT NULL DEFAULT 0,
+    joined_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    ended_at DATETIME(3) NULL,
+    active_user_id BIGINT GENERATED ALWAYS AS (IF(ended_at IS NULL, user_id, NULL)) STORED,
+    added_by_user_id BIGINT NOT NULL,
+    ended_by_user_id BIGINT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_course_teacher_active (course_space_id, active_user_id),
+    KEY idx_course_teacher_user (user_id, ended_at, course_space_id),
+    CONSTRAINT fk_course_teacher_course FOREIGN KEY (course_space_id) REFERENCES edu_course_space(id),
+    CONSTRAINT chk_course_teacher_flags CHECK (can_manage_students IN (0, 1) AND can_export IN (0, 1)),
+    CONSTRAINT chk_course_teacher_dates CHECK (ended_at IS NULL OR ended_at > joined_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- SOURCE upgrade-group3-course-enhance.sql
+-- 第三组：课程建设增强（已有业务库执行一次；可重复执行）
+-- 1) 题库版本增加难度 difficulty 与标签 tags，支持筛选与组卷；
+-- 2) 资料增加下载开关、预览水印、视频任务点配置；
+-- 3) 新增 edu_resource_progress 学生观看进度表。
+-- 全新环境请直接使用 install-fresh.sql，其中已包含本脚本的全部结构。
+
+DROP PROCEDURE IF EXISTS upgrade_group3_course_enhance;
+
+DELIMITER $$
+CREATE PROCEDURE upgrade_group3_course_enhance()
+BEGIN
+    -- 题库难度
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question_version' AND column_name = 'difficulty'
+    ) THEN
+        ALTER TABLE edu_question_version
+            ADD COLUMN difficulty VARCHAR(16) NOT NULL DEFAULT 'MEDIUM'
+                COMMENT '难度：EASY / MEDIUM / HARD' AFTER rubric_json;
+    END IF;
+
+    -- 题库标签
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question_version' AND column_name = 'tags'
+    ) THEN
+        ALTER TABLE edu_question_version
+            ADD COLUMN tags VARCHAR(500) NULL COMMENT '标签，逗号分隔' AFTER difficulty;
+    END IF;
+
+    -- 题库筛选索引
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.statistics
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question_version'
+          AND index_name = 'idx_edu_question_version_filter'
+    ) THEN
+        ALTER TABLE edu_question_version ADD KEY idx_edu_question_version_filter (question_id, difficulty);
+    END IF;
+
+    -- 题库难度 CHECK
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question_version'
+          AND constraint_name = 'chk_edu_question_difficulty' AND constraint_type = 'CHECK'
+    ) THEN
+        ALTER TABLE edu_question_version ADD CONSTRAINT chk_edu_question_difficulty
+            CHECK (difficulty IN ('EASY', 'MEDIUM', 'HARD'));
+    END IF;
+
+    -- 资料下载开关
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'download_enabled'
+    ) THEN
+        ALTER TABLE edu_resource
+            ADD COLUMN download_enabled TINYINT(1) NOT NULL DEFAULT 1
+                COMMENT '是否允许学生下载原文件：1 允许 / 0 禁止' AFTER status;
+    END IF;
+
+    -- 资料预览水印
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'watermark_text'
+    ) THEN
+        ALTER TABLE edu_resource
+            ADD COLUMN watermark_text VARCHAR(200) NULL
+                COMMENT '预览水印文字，为空表示不叠加水印' AFTER download_enabled;
+    END IF;
+
+    -- 视频任务点开关
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'task_enabled'
+    ) THEN
+        ALTER TABLE edu_resource
+            ADD COLUMN task_enabled TINYINT(1) NOT NULL DEFAULT 0
+                COMMENT '是否为视频任务点：1 是 / 0 否' AFTER watermark_text;
+    END IF;
+
+    -- 视频任务点要求观看秒数
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'task_required_seconds'
+    ) THEN
+        ALTER TABLE edu_resource
+            ADD COLUMN task_required_seconds INT UNSIGNED NOT NULL DEFAULT 0
+                COMMENT '任务点要求观看秒数，0 表示按视频总时长比例' AFTER task_enabled;
+    END IF;
+
+    -- 资料下载开关 CHECK
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource'
+          AND constraint_name = 'chk_edu_resource_download' AND constraint_type = 'CHECK'
+    ) THEN
+        ALTER TABLE edu_resource ADD CONSTRAINT chk_edu_resource_download CHECK (download_enabled IN (0, 1));
+    END IF;
+
+    -- 任务点开关 CHECK
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource'
+          AND constraint_name = 'chk_edu_resource_task_enabled' AND constraint_type = 'CHECK'
+    ) THEN
+        ALTER TABLE edu_resource ADD CONSTRAINT chk_edu_resource_task_enabled CHECK (task_enabled IN (0, 1));
+    END IF;
+
+    -- 学生观看进度表
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource_progress'
+    ) THEN
+        CREATE TABLE edu_resource_progress (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            resource_id BIGINT NOT NULL,
+            course_space_id BIGINT NOT NULL,
+            binding_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            watched_seconds INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '累计观看秒数（服务端取较大值，防回退）',
+            completed TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否达到任务点要求',
+            completed_at DATETIME(3) NULL,
+            created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+            updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_edu_resource_progress (resource_id, binding_id, user_id),
+            KEY idx_edu_resource_progress_space (course_space_id, user_id),
+            CONSTRAINT fk_edu_resource_progress_resource FOREIGN KEY (resource_id)
+                REFERENCES edu_resource (id),
+            CONSTRAINT chk_edu_resource_progress_watched CHECK (watched_seconds >= 0),
+            CONSTRAINT chk_edu_resource_progress_completed CHECK (completed IN (0, 1))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    END IF;
+END$$
+DELIMITER ;
+
+CALL upgrade_group3_course_enhance();
+DROP PROCEDURE IF EXISTS upgrade_group3_course_enhance;
+
+-- SOURCE upgrade-group3-library-import-folders.sql
+-- 课程资料库 / 题库：文件夹持久化（已有数据库执行，可重复执行）
+-- 全新环境请直接使用 install-fresh.sql，无需执行本文件。
+
+DROP PROCEDURE IF EXISTS upgrade_group3_library_folders;
+
+DELIMITER $$
+CREATE PROCEDURE upgrade_group3_library_folders()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource_folder'
+    ) THEN
+        CREATE TABLE edu_resource_folder (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            course_space_id BIGINT NOT NULL,
+            name VARCHAR(60) NOT NULL,
+            visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
+            created_by_user_id BIGINT NOT NULL,
+            created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+            PRIMARY KEY (id),
+            KEY idx_edu_resource_folder_space (course_space_id, id),
+            CONSTRAINT fk_edu_resource_folder_space FOREIGN KEY (course_space_id)
+                REFERENCES edu_course_space (id),
+            CONSTRAINT chk_edu_resource_folder_visibility
+                CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'PARTIAL'))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question_folder'
+    ) THEN
+        CREATE TABLE edu_question_folder (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            course_space_id BIGINT NOT NULL,
+            name VARCHAR(60) NOT NULL,
+            visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
+            created_by_user_id BIGINT NOT NULL,
+            created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+            PRIMARY KEY (id),
+            KEY idx_edu_question_folder_space (course_space_id, id),
+            CONSTRAINT fk_edu_question_folder_space FOREIGN KEY (course_space_id)
+                REFERENCES edu_course_space (id),
+            CONSTRAINT chk_edu_question_folder_visibility
+                CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'PARTIAL'))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'folder_id'
+    ) THEN
+        ALTER TABLE edu_resource ADD COLUMN folder_id BIGINT NULL AFTER course_space_id;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.statistics
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND index_name = 'idx_edu_resource_folder'
+    ) THEN
+        ALTER TABLE edu_resource ADD KEY idx_edu_resource_folder (course_space_id, folder_id);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource'
+          AND constraint_name = 'fk_edu_resource_folder' AND constraint_type = 'FOREIGN KEY'
+    ) THEN
+        ALTER TABLE edu_resource ADD CONSTRAINT fk_edu_resource_folder FOREIGN KEY (folder_id)
+            REFERENCES edu_resource_folder (id) ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question' AND column_name = 'folder_id'
+    ) THEN
+        ALTER TABLE edu_question ADD COLUMN folder_id BIGINT NULL AFTER course_space_id;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.statistics
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question' AND index_name = 'idx_edu_question_folder'
+    ) THEN
+        ALTER TABLE edu_question ADD KEY idx_edu_question_folder (course_space_id, folder_id);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = DATABASE() AND table_name = 'edu_question'
+          AND constraint_name = 'fk_edu_question_folder' AND constraint_type = 'FOREIGN KEY'
+    ) THEN
+        ALTER TABLE edu_question ADD CONSTRAINT fk_edu_question_folder FOREIGN KEY (folder_id)
+            REFERENCES edu_question_folder (id) ON DELETE SET NULL;
+    END IF;
+END$$
+DELIMITER ;
+
+CALL upgrade_group3_library_folders();
+DROP PROCEDURE IF EXISTS upgrade_group3_library_folders;
+
+-- SOURCE upgrade-group3-release-source.sql
+-- 第三组：发布来源区分（课程建设 / 课前准备）
+-- 适用：已有业务库执行一次；可重复执行。
+-- 全新环境请直接使用 install-fresh.sql（已包含本字段）。
+
+-- 执行前请先选中目标数据库；本脚本不绑定具体库名。
+
+-- 1. 增加 release_source 字段：STUDIO=课程建设，PREPARE=课前准备，BOTH=两处均已发布
+SET @has_release_source := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'edu_resource_class_release'
+       AND COLUMN_NAME = 'release_source'
+);
+SET @ddl := IF(@has_release_source = 0,
+    'ALTER TABLE edu_resource_class_release ADD COLUMN release_source VARCHAR(16) NOT NULL DEFAULT ''STUDIO'' AFTER released_by_user_id',
+    'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 2. 历史数据统一按课程建设处理
+UPDATE edu_resource_class_release
+   SET release_source = 'STUDIO'
+ WHERE release_source IS NULL OR release_source = '';
+
+-- 3. 来源过滤索引
+SET @has_source_index := (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'edu_resource_class_release'
+       AND INDEX_NAME = 'idx_edu_release_binding_source'
+);
+SET @ddl := IF(@has_source_index = 0,
+    'ALTER TABLE edu_resource_class_release ADD KEY idx_edu_release_binding_source (binding_id, release_source, opens_at)',
+    'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- SOURCE upgrade-group3-decouple-prepare.sql
+-- 第三组：课程建设与课前准备资料解耦
+-- 1) edu_resource 增加 origin，标记资料归属（课程建设 STUDIO / 课前准备 PREPARE）。
+-- 2) 发布记录按「教学班 + 资源 + 发布来源」唯一，替代原来「教学班 + 资源」唯一，
+--    使同一资料在两个入口的发布、撤回、删除互不影响。
+-- 3) 历史上合并为 BOTH 的有效发布拆分为 STUDIO 与 PREPARE 两条独立记录。
+
+SET @group3_ddl = IF(EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'origin'
+), 'SELECT 1',
+    'ALTER TABLE edu_resource ADD COLUMN origin VARCHAR(16) NOT NULL DEFAULT ''STUDIO'' COMMENT ''STUDIO 课程建设 / PREPARE 课前准备'' AFTER resource_kind');
+PREPARE group3_stmt FROM @group3_ddl;
+EXECUTE group3_stmt;
+DEALLOCATE PREPARE group3_stmt;
+
+SET @group3_ddl = IF(EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'edu_resource_class_release' AND column_name = 'active_resource_id'
+), 'ALTER TABLE edu_resource_class_release
+    DROP INDEX uq_edu_release_active_resource, DROP COLUMN active_resource_id,
+    ADD COLUMN active_release_key VARCHAR(80) GENERATED ALWAYS AS
+        (CASE WHEN ended_at IS NULL THEN CONCAT(resource_id, '':'', release_source) ELSE NULL END) STORED,
+    ADD UNIQUE KEY uq_edu_release_active_source (binding_id, active_release_key)',
+    'SELECT 1');
+PREPARE group3_stmt FROM @group3_ddl;
+EXECUTE group3_stmt;
+DEALLOCATE PREPARE group3_stmt;
+
+START TRANSACTION;
+INSERT INTO edu_resource_class_release
+    (binding_id, course_space_id, resource_id, resource_version_id, released_by_user_id,
+     release_source, released_at, opens_at, closes_at, created_at)
+SELECT legacy.binding_id, legacy.course_space_id, legacy.resource_id, legacy.resource_version_id,
+       legacy.released_by_user_id, 'PREPARE', legacy.released_at, legacy.opens_at, legacy.closes_at, legacy.created_at
+FROM edu_resource_class_release legacy
+LEFT JOIN edu_resource_class_release existing
+  ON existing.binding_id = legacy.binding_id AND existing.resource_id = legacy.resource_id
+ AND existing.release_source = 'PREPARE' AND existing.ended_at IS NULL
+WHERE legacy.release_source = 'BOTH' AND legacy.ended_at IS NULL AND existing.id IS NULL;
+
+UPDATE edu_resource_class_release legacy
+LEFT JOIN edu_resource_class_release existing
+  ON existing.binding_id = legacy.binding_id AND existing.resource_id = legacy.resource_id
+ AND existing.release_source = 'STUDIO' AND existing.ended_at IS NULL
+SET legacy.release_source = 'STUDIO',
+    legacy.ended_at = IF(existing.id IS NULL, NULL, GREATEST(UTC_TIMESTAMP(3), legacy.released_at)),
+    legacy.end_kind = IF(existing.id IS NULL, NULL, 'REPLACED')
+WHERE legacy.release_source = 'BOTH' AND legacy.ended_at IS NULL;
+COMMIT;
+
+-- SOURCE upgrade-group3-resource-unit.sql
+-- 第三组：资料章节归属落库（已有业务库执行一次；可重复执行）
+-- 为 edu_resource 增加 unit_id，使上传时选择的课程章节能够持久化；
+-- 全新环境请直接使用 install-fresh.sql，其中已包含本字段与外键。
+
+DROP PROCEDURE IF EXISTS upgrade_group3_resource_unit;
+
+DELIMITER $$
+CREATE PROCEDURE upgrade_group3_resource_unit()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource' AND column_name = 'unit_id'
+    ) THEN
+        ALTER TABLE edu_resource
+            ADD COLUMN unit_id BIGINT NULL COMMENT '所属课程章节（edu_course_unit.id）' AFTER folder_id;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.statistics
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource'
+          AND index_name = 'idx_edu_resource_unit'
+    ) THEN
+        ALTER TABLE edu_resource ADD KEY idx_edu_resource_unit (unit_id, course_space_id);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = DATABASE() AND table_name = 'edu_resource'
+          AND constraint_name = 'fk_edu_resource_unit' AND constraint_type = 'FOREIGN KEY'
+    ) THEN
+        ALTER TABLE edu_resource ADD CONSTRAINT fk_edu_resource_unit
+            FOREIGN KEY (unit_id) REFERENCES edu_course_unit (id) ON DELETE SET NULL;
+    END IF;
+END$$
+DELIMITER ;
+
+CALL upgrade_group3_resource_unit();
+DROP PROCEDURE IF EXISTS upgrade_group3_resource_unit;
+
+-- SOURCE upgrade-group3-discussion.sql
+-- 第三组讨论区：话题、楼中楼回复、讨论文件夹、点赞与讨论评分（已有数据库执行，可重复执行）
+-- 全新环境请直接使用 install-fresh.sql，无需执行本文件。
+-- 说明：讨论话题即课堂时间轴上的 DISCUSSION 环节；附件仅保存名称与地址，不提供上传接口。
+
+CREATE TABLE IF NOT EXISTS edu_discussion_folder (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    binding_id BIGINT NOT NULL,
+    course_space_id BIGINT NOT NULL,
+    name VARCHAR(60) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_by_user_id BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    deleted_at DATETIME(3) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_edu_discussion_folder_id_binding (id, binding_id),
+    KEY idx_edu_discussion_folder_binding_sort (binding_id, sort_order, id),
+    CONSTRAINT fk_edu_discussion_folder_binding FOREIGN KEY (binding_id, course_space_id)
+        REFERENCES edu_course_class_binding (id, course_space_id),
+    CONSTRAINT chk_edu_discussion_folder_name CHECK (CHAR_LENGTH(TRIM(name)) > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS edu_discussion_topic (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    binding_id BIGINT NOT NULL,
+    teaching_class_id BIGINT NOT NULL,
+    course_space_id BIGINT NOT NULL,
+    lesson_id BIGINT NULL,
+    folder_id BIGINT NULL,
+    title VARCHAR(200) NOT NULL,
+    content MEDIUMTEXT NOT NULL,
+    category VARCHAR(40) NULL,
+    knowledge_point VARCHAR(200) NULL,
+    publish_scope VARCHAR(16) NOT NULL DEFAULT 'CLASS',
+    allow_anonymous TINYINT(1) NOT NULL DEFAULT 0,
+    allow_attachment TINYINT(1) NOT NULL DEFAULT 0,
+    allow_reply TINYINT(1) NOT NULL DEFAULT 1,
+    allow_student_topic TINYINT(1) NOT NULL DEFAULT 0,
+    score_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    score_max DECIMAL(10,2) NOT NULL DEFAULT 100.00,
+    pinned TINYINT(1) NOT NULL DEFAULT 0,
+    featured TINYINT(1) NOT NULL DEFAULT 0,
+    status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
+    opens_at DATETIME(3) NULL,
+    closes_at DATETIME(3) NULL,
+    created_by_user_id BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    reply_count INT NOT NULL DEFAULT 0,
+    like_count INT NOT NULL DEFAULT 0,
+    view_count INT NOT NULL DEFAULT 0,
+    deleted_at DATETIME(3) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_edu_discussion_topic_id_binding (id, binding_id),
+    KEY idx_edu_discussion_topic_binding_status (binding_id, status, pinned, updated_at),
+    KEY idx_edu_discussion_topic_binding_folder (binding_id, folder_id),
+    KEY idx_edu_discussion_topic_binding_lesson (binding_id, lesson_id),
+    CONSTRAINT fk_edu_discussion_topic_binding FOREIGN KEY (binding_id, course_space_id)
+        REFERENCES edu_course_class_binding (id, course_space_id),
+    CONSTRAINT fk_edu_discussion_topic_binding_class FOREIGN KEY (binding_id, teaching_class_id)
+        REFERENCES edu_course_class_binding (id, teaching_class_id),
+    CONSTRAINT fk_edu_discussion_topic_lesson FOREIGN KEY (lesson_id, binding_id)
+        REFERENCES edu_lesson (id, binding_id),
+    CONSTRAINT fk_edu_discussion_topic_folder FOREIGN KEY (folder_id, binding_id)
+        REFERENCES edu_discussion_folder (id, binding_id),
+    CONSTRAINT chk_edu_discussion_topic_status
+        CHECK (status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
+    CONSTRAINT chk_edu_discussion_topic_times
+        CHECK (closes_at IS NULL OR opens_at IS NULL OR closes_at > opens_at),
+    CONSTRAINT chk_edu_discussion_topic_counts
+        CHECK (pinned IN (0, 1) AND featured IN (0, 1)
+               AND allow_anonymous IN (0, 1) AND allow_attachment IN (0, 1)
+               AND allow_reply IN (0, 1) AND allow_student_topic IN (0, 1)
+               AND score_enabled IN (0, 1)),
+    CONSTRAINT chk_edu_discussion_topic_score CHECK (score_max >= 0),
+    CONSTRAINT chk_edu_discussion_topic_counter_values
+        CHECK (reply_count >= 0 AND like_count >= 0 AND view_count >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS edu_discussion_post (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    topic_id BIGINT NOT NULL,
+    binding_id BIGINT NOT NULL,
+    parent_post_id BIGINT NULL,
+    user_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    anonymous TINYINT(1) NOT NULL DEFAULT 0,
+    attachment_name VARCHAR(255) NULL,
+    attachment_url VARCHAR(1024) NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'NORMAL',
+    like_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_edu_discussion_post_id_topic (id, topic_id),
+    KEY idx_edu_discussion_post_topic_time (topic_id, created_at, id),
+    KEY idx_edu_discussion_post_binding_user (binding_id, user_id),
+    KEY idx_edu_discussion_post_parent (parent_post_id, topic_id),
+    CONSTRAINT fk_edu_discussion_post_topic FOREIGN KEY (topic_id, binding_id)
+        REFERENCES edu_discussion_topic (id, binding_id),
+    CONSTRAINT fk_edu_discussion_post_parent FOREIGN KEY (parent_post_id, topic_id)
+        REFERENCES edu_discussion_post (id, topic_id),
+    CONSTRAINT chk_edu_discussion_post_status
+        CHECK (status IN ('NORMAL', 'REMOVED')),
+    CONSTRAINT chk_edu_discussion_post_flags CHECK (anonymous IN (0, 1)),
+    CONSTRAINT chk_edu_discussion_post_like CHECK (like_count >= 0),
+    CONSTRAINT chk_edu_discussion_post_attachment
+        CHECK ((attachment_name IS NULL AND attachment_url IS NULL)
+               OR (attachment_name IS NOT NULL AND attachment_url IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS edu_discussion_like (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    topic_id BIGINT NOT NULL,
+    post_id BIGINT NOT NULL DEFAULT 0,
+    user_id BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_edu_discussion_like_target (topic_id, post_id, user_id),
+    KEY idx_edu_discussion_like_user (user_id, topic_id),
+    CONSTRAINT fk_edu_discussion_like_topic FOREIGN KEY (topic_id)
+        REFERENCES edu_discussion_topic (id) ON DELETE CASCADE,
+    CONSTRAINT chk_edu_discussion_like_post CHECK (post_id >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS edu_discussion_score (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    topic_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    score DECIMAL(10,2) NOT NULL,
+    comment VARCHAR(500) NULL,
+    graded_by_user_id BIGINT NOT NULL,
+    graded_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_edu_discussion_score_topic_user (topic_id, user_id),
+    KEY idx_edu_discussion_score_user (user_id, topic_id),
+    CONSTRAINT fk_edu_discussion_score_topic FOREIGN KEY (topic_id)
+        REFERENCES edu_discussion_topic (id) ON DELETE CASCADE,
+    CONSTRAINT chk_edu_discussion_score_value CHECK (score >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -1,8 +1,8 @@
 # 教育业务模块
 
-本模块已接入父工程构建，当前包含 6-02 教师公告的 Entity、状态规则、Mapper 读写和业务 Service；不包含 Controller、前端 DTO、学生通知或公告通知 fan-out。
+本模块已接入父工程构建。当前除下文所述历史公告模块外，还承载第二组课程访问契约（`com.ruoyi.education.course.api`）和第三组业务包（`com.ruoyi.education.group3`：资料、题库、备课、预习、讨论）。历史公告部分不包含 Controller、前端 DTO、学生通知或公告通知 fan-out。
 
-模块职责、跨域调用方向与对象约束见 [后端架构规划](../README.md) 与 [架构文档](../../docs/architecture.md)。
+模块职责、跨域调用方向与对象约束见 [后端架构规划](../README.md) 与 [架构文档](../../docs/architecture.md)；第三组对接范围见 [对接说明](../../docs/group123-integration.md)。
 
 ## 当前内容
 
@@ -82,7 +82,7 @@ mvn -B -pl ruoyi-education -am test
 - 6-01 总览、6-05 校园资讯/留言/系统通知、AI 功能。
 - 教学班授权端口的生产实现；当前没有真实任课/绑定联调。
 - 异常到 HTTP 响应码的 Controller/Advice 映射。
-- 数据库变更；当前没有新增表、字段或迁移脚本。
+- 历史公告模块自身的数据库变更；第三组的表、字段与迁移脚本见根目录 `sql/`。
 
 ## 扫描方式
 

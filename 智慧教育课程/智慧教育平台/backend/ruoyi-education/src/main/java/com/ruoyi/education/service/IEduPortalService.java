@@ -17,6 +17,8 @@ public interface IEduPortalService {
 
     List<Map<String, Object>> termList(String keyword);
 
+    List<Map<String, Object>> termSchools();
+
     Long createTerm(Map<String, Object> body);
 
     void updateTerm(Long id, Map<String, Object> body);
@@ -25,7 +27,11 @@ public interface IEduPortalService {
 
     /* ---------------- 教学班 ---------------- */
 
-    List<Map<String, Object>> teachingClassList(String keyword, Long termId, String status);
+    List<Map<String, Object>> teachingClassList(String keyword, Long termId, String status, Long deptId);
+
+    List<Map<String, Object>> majorClasses(Long majorId, String keyword);
+
+    boolean hasOrganizationReferences(List<Long> organizationIds);
 
     Map<String, Object> teachingClassDetail(Long id);
 
@@ -56,11 +62,11 @@ public interface IEduPortalService {
 
     List<Map<String, Object>> teacherClasses(Long userId);
 
-    List<Map<String, Object>> studentList(String keyword);
+    List<Map<String, Object>> studentList(String keyword, Long deptId);
 
     List<Map<String, Object>> studentClasses(Long userId);
 
-    List<Map<String, Object>> deptTree();
+    List<Map<String, Object>> deptTree(boolean teacherOnly);
 
     List<Map<String, Object>> officialCourses(String keyword);
 
@@ -77,6 +83,19 @@ public interface IEduPortalService {
     void updateCourseStatus(Long id, String status);
 
     void deleteCourse(Long id);
+
+    Long createCourseClass(Long courseId, String name, Long termId);
+
+    List<Map<String, Object>> courseRosterSources(Long courseId, Long classId);
+
+    List<Map<String, Object>> courseRosterOrganizations(Long courseId, Long classId);
+
+    List<Map<String, Object>> courseRosterCandidates(Long courseId, Long classId, String keyword,
+            Long sourceCourseId, Long sourceClassId, Long sourceDeptId, boolean includeDescendants,
+            int pageNum, int pageSize);
+
+    String addCourseRosterStudents(Long courseId, Long classId, List<Long> studentIds,
+            Long sourceCourseId, Long sourceClassId, Long sourceDeptId, boolean includeDescendants, boolean wholeClass);
 
     void bindClass(Long courseId, Long classId, String publishedAt);
 

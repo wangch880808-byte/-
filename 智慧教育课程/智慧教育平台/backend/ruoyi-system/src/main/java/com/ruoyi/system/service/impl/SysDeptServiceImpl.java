@@ -1,25 +1,31 @@
 package com.ruoyi.system.service.impl;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.annotation.DataScope;
 import com.ruoyi.common.constant.UserConstants;
+import com.ruoyi.common.constant.SysDeptType;
 import com.ruoyi.common.core.domain.TreeSelect;
 import com.ruoyi.common.core.domain.entity.SysDept;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.exception.ForbiddenException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.system.mapper.SysDeptMapper;
 import com.ruoyi.system.mapper.SysRoleMapper;
 import com.ruoyi.system.service.ISysDeptService;
+import com.ruoyi.system.service.SysDeptHierarchy;
 
 /**
  * 部门管理 服务实现
@@ -34,6 +40,9 @@ public class SysDeptServiceImpl implements ISysDeptService
 
     @Autowired
     private SysRoleMapper roleMapper;
+
+    @Autowired
+    private SysDeptHierarchy hierarchy;
 
     /**
      * 查询部门管理数据
@@ -139,32 +148,6 @@ public class SysDeptServiceImpl implements ISysDeptService
     }
 
     /**
-     * 是否存在子节点
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
-    @Override
-    public boolean hasChildByDeptId(Long deptId)
-    {
-        int result = deptMapper.hasChildByDeptId(deptId);
-        return result > 0;
-    }
-
-    /**
-     * 查询部门是否存在用户
-     * 
-     * @param deptId 部门ID
-     * @return 结果 true 存在 false 不存在
-     */
-    @Override
-    public boolean checkDeptExistUser(Long deptId)
-    {
-        int result = deptMapper.checkDeptExistUser(deptId);
-        return result > 0;
-    }
-
-    /**
      * 校验部门名称是否唯一
      * 
      * @param dept 部门信息
@@ -211,13 +194,17 @@ public class SysDeptServiceImpl implements ISysDeptService
     @Override
     public int insertDept(SysDept dept)
     {
-        SysDept info = deptMapper.selectDeptById(dept.getParentId());
+        SysDept parent = resolveWritableParent(dept.getParentId(), true);
         // 如果父节点不为正常状态,则不允许新增子节点
-        if (!UserConstants.DEPT_NORMAL.equals(info.getStatus()))
+        if (parent != null && !UserConstants.DEPT_NORMAL.equals(parent.getStatus()))
         {
             throw new ServiceException("部门停用，不允许新增");
         }
-        dept.setAncestors(info.getAncestors() + "," + dept.getParentId());
+        normalizeType(dept);
+        hierarchy.validatePlacement(dept, parent != null, effectiveType(parent));
+        dept.setAncestors(ancestorsOf(parent));
+        // 创建时由数据库分配编号。
+        dept.setDeptId(null);
         return deptMapper.insertDept(dept);
     }
 
@@ -228,16 +215,27 @@ public class SysDeptServiceImpl implements ISysDeptService
      * @return 结果
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int updateDept(SysDept dept)
     {
-        SysDept newParentDept = deptMapper.selectDeptById(dept.getParentId());
-        SysDept oldDept = deptMapper.selectDeptById(dept.getDeptId());
-        if (StringUtils.isNotNull(newParentDept) && StringUtils.isNotNull(oldDept))
+        SysDept oldDept = findActiveDept(dept.getDeptId());
+        if (oldDept == null) throw new ServiceException("组织不存在");
+        Long parentId = dept.getParentId() == null ? oldDept.getParentId() : dept.getParentId();
+        boolean moved = !Objects.equals(parentId, oldDept.getParentId());
+        SysDept parent = resolveWritableParent(parentId, moved);
+        if (parent != null && (Objects.equals(parentId, dept.getDeptId())
+                || Arrays.asList(parent.getAncestors().split(",")).contains(dept.getDeptId().toString())))
+            throw new ServiceException("不能将组织移到自身或其下级");
+        dept.setParentId(parentId);
+        normalizeType(dept);
+        if (dept.getDeptType() == null) dept.setDeptType(oldDept.getDeptType());
+        hierarchy.validatePlacement(dept, parent != null, effectiveType(parent));
+        hierarchy.validateTypeChange(oldDept, effectiveType(oldDept), dept, SysDeptType.effectiveType(dept, parent), child -> child);
+        String newAncestors = ancestorsOf(parent);
+        dept.setAncestors(newAncestors);
+        if (!Objects.equals(newAncestors, oldDept.getAncestors()))
         {
-            String newAncestors = newParentDept.getAncestors() + "," + newParentDept.getDeptId();
-            String oldAncestors = oldDept.getAncestors();
-            dept.setAncestors(newAncestors);
-            updateDeptChildren(dept.getDeptId(), newAncestors, oldAncestors);
+            updateDeptChildren(dept.getDeptId(), newAncestors, oldDept.getAncestors());
         }
         int result = deptMapper.updateDept(dept);
         if (UserConstants.DEPT_NORMAL.equals(dept.getStatus()) && StringUtils.isNotEmpty(dept.getAncestors())
@@ -247,6 +245,45 @@ public class SysDeptServiceImpl implements ISysDeptService
             updateParentDeptStatusNormal(dept);
         }
         return result;
+    }
+
+    private SysDept resolveWritableParent(Long id, boolean changing)
+    {
+        if (id == null) throw new ServiceException("请选择上级组织");
+        if (id == 0L)
+        {
+            if (changing && !SecurityUtils.isAdmin()) throw new ForbiddenException("没有创建顶级组织的权限");
+            return null;
+        }
+        if (changing) checkDeptDataScope(id);
+        SysDept parent = findActiveDept(id);
+        if (parent == null) throw new ServiceException("上级组织不存在");
+        return parent;
+    }
+
+    private SysDept findActiveDept(Long id)
+    {
+        if (id == null || id == 0L) return null;
+        SysDept dept = deptMapper.selectDeptById(id);
+        return dept == null || "2".equals(dept.getDelFlag()) ? null : dept;
+    }
+
+    private SysDeptType effectiveType(SysDept dept)
+    {
+        return dept == null ? null : SysDeptType.effectiveType(dept, findActiveDept(dept.getParentId()));
+    }
+
+    private void normalizeType(SysDept dept)
+    {
+        SysDeptType type = SysDeptType.parse(dept.getDeptType());
+        dept.setDeptType(type == null ? null : type.name());
+    }
+
+    private String ancestorsOf(SysDept parent)
+    {
+        String ancestors = parent == null ? "0" : parent.getAncestors() + "," + parent.getDeptId();
+        if (ancestors.length() > 50) throw new ServiceException("组织层级超出数据库支持长度");
+        return ancestors;
     }
 
     /**
@@ -273,7 +310,9 @@ public class SysDeptServiceImpl implements ISysDeptService
         List<SysDept> children = deptMapper.selectChildrenDeptById(deptId);
         for (SysDept child : children)
         {
-            child.setAncestors(child.getAncestors().replaceFirst(oldAncestors, newAncestors));
+            String ancestors = newAncestors + child.getAncestors().substring(oldAncestors.length());
+            if (ancestors.length() > 50) throw new ServiceException("下级组织层级超出数据库支持长度");
+            child.setAncestors(ancestors);
         }
         if (children.size() > 0)
         {
@@ -307,16 +346,45 @@ public class SysDeptServiceImpl implements ISysDeptService
         }
     }
 
-    /**
-     * 删除部门管理信息
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
     @Override
-    public int deleteDeptById(Long deptId)
+    public List<Long> getDeptBranchForRemoval(Long deptId, boolean lock)
     {
-        return deptMapper.deleteDeptById(deptId);
+        if (deptId == null || deptId <= 0) throw new ServiceException("组织编号无效", 400);
+        checkDeptDataScope(deptId);
+        List<Long> ids = deptMapper.selectBranchIds(deptId, lock);
+        if (!ids.contains(deptId)) throw new ServiceException("该组织已删除或不存在", 400);
+        if (!SecurityUtils.isAdmin())
+        {
+            Set<Long> scopedIds = SpringUtils.getAopProxy(this).selectDeptList(new SysDept()).stream()
+                    .map(SysDept::getDeptId).collect(Collectors.toSet());
+            if (!scopedIds.containsAll(ids))
+            {
+                throw new ServiceException("该分支包含超出可删除范围的组织", 400);
+            }
+        }
+        return ids;
+    }
+
+    @Override
+    public BranchReferences getBranchReferences(List<Long> ids, boolean lock)
+    {
+        return new BranchReferences(deptMapper.selectBranchUsers(ids, lock),
+                deptMapper.selectBranchRoleScopes(ids, lock).stream().distinct().toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int deleteDeptBranch(List<Long> ids, boolean force, String operator)
+    {
+        if (ids.isEmpty()) throw new ServiceException("没有可删除的组织", 400);
+        if (force)
+        {
+            deptMapper.clearBranchUserDepartments(ids, operator);
+            deptMapper.deleteBranchRoleScopes(ids);
+        }
+        int rows = deptMapper.deleteDeptBranch(ids);
+        if (rows != ids.size()) throw new ServiceException("组织分支已发生变化，请重新确认删除范围", 409);
+        return rows;
     }
 
     /**

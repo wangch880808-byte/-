@@ -1,4 +1,4 @@
--- Existing databases: adds the current-term columns only if absent. Does not insert accounts.
+-- Existing databases: adds missing current-term and organization columns. Does not insert accounts.
 DROP PROCEDURE IF EXISTS group12_term_columns;
 DELIMITER //
 CREATE PROCEDURE group12_term_columns()
@@ -12,6 +12,21 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='edu_term' AND index_name='uq_edu_term_single_current') THEN
   ALTER TABLE edu_term ADD UNIQUE KEY uq_edu_term_single_current(current_flag);
  END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='dept_type') THEN
+  ALTER TABLE sys_dept ADD COLUMN dept_type VARCHAR(16) NULL COMMENT '组织类型：SCHOOL/COLLEGE/MAJOR/CLASS/OTHER';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='grade_year') THEN
+  ALTER TABLE sys_dept ADD COLUMN grade_year SMALLINT UNSIGNED NULL COMMENT '行政班入学年份';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='education_level') THEN
+  ALTER TABLE sys_dept ADD COLUMN education_level VARCHAR(20) NULL COMMENT '行政班教育层次';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='study_years') THEN
+  ALTER TABLE sys_dept ADD COLUMN study_years TINYINT UNSIGNED NULL COMMENT '行政班学制年数';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='class_remark') THEN
+  ALTER TABLE sys_dept ADD COLUMN class_remark VARCHAR(500) NULL COMMENT '行政班备注';
+ END IF;
 END//
 CALL group12_term_columns()//
 DROP PROCEDURE group12_term_columns//
@@ -22,7 +37,7 @@ CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_user AS
  SELECT user_id,user_name,nick_name,dept_id,phonenumber,status,del_flag FROM sys_user;
 CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_user_role AS SELECT user_id,role_id FROM sys_user_role;
 CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_role AS SELECT role_id,role_key,status,del_flag FROM sys_role;
-CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_dept AS SELECT dept_id,parent_id,ancestors,dept_name,order_num,status,del_flag FROM sys_dept;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_dept AS SELECT dept_id,parent_id,ancestors,dept_name,order_num,status,del_flag,dept_type FROM sys_dept;
 
 -- Repeatable group 1/group 2 route and operation permissions.
 SET @edu_parent=(SELECT menu_id FROM sys_menu WHERE menu_type='M' AND path='education' LIMIT 1);
@@ -109,3 +124,26 @@ INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_t
 INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:scope:read' WHERE FIND_IN_SET(r.role_key,'teacher,student') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
 
 INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_parent FROM sys_role r WHERE r.role_key IN ('admin','teacher','student') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_parent);
+
+
+-- Run in the existing project database. Safe to run again.
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS edu_course_teacher (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    can_manage_students TINYINT(1) NOT NULL DEFAULT 0,
+    can_export TINYINT(1) NOT NULL DEFAULT 0,
+    joined_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    ended_at DATETIME(3) NULL,
+    active_user_id BIGINT GENERATED ALWAYS AS (IF(ended_at IS NULL, user_id, NULL)) STORED,
+    added_by_user_id BIGINT NOT NULL,
+    ended_by_user_id BIGINT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_course_teacher_active (course_space_id, active_user_id),
+    KEY idx_course_teacher_user (user_id, ended_at, course_space_id),
+    CONSTRAINT fk_course_teacher_course FOREIGN KEY (course_space_id) REFERENCES edu_course_space(id),
+    CONSTRAINT chk_course_teacher_flags CHECK (can_manage_students IN (0, 1) AND can_export IN (0, 1)),
+    CONSTRAINT chk_course_teacher_dates CHECK (ended_at IS NULL OR ended_at > joined_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -37,3 +37,42 @@ export function bindCourseClass(courseId, classId) {
 export function unbindCourseClass(courseId, bindingId) {
   return edu({ url: '/education/course/' + courseId + '/classes/' + bindingId, method: 'delete' })
 }
+
+const courseManagementRequest = (courseId, suffix, method = 'get', data, params) =>
+  edu({ url: '/education/course/' + courseId + suffix, method, data, params, headers: { silent403: true } })
+
+export const renameCourseTeachingClass = (courseId, classId, name) =>
+  courseManagementRequest(courseId, '/teaching-classes/' + classId, 'put', { name })
+export const deleteCourseTeachingClass = (courseId, classId) =>
+  courseManagementRequest(courseId, '/teaching-classes/' + classId, 'delete')
+export const changeCourseClassStudents = (courseId, classId, data) =>
+  courseManagementRequest(courseId, '/teaching-classes/' + classId + '/students/change', 'post', data)
+export const getCourseTeam = courseId => courseManagementRequest(courseId, '/team')
+export const listCourseTeamCandidates = (courseId, params) =>
+  courseManagementRequest(courseId, '/team/candidates', 'get', undefined, params)
+export const saveCourseTeacher = (courseId, data) => courseManagementRequest(courseId, '/team', 'post', data)
+export const removeCourseTeacher = (courseId, userId) => courseManagementRequest(courseId, '/team/' + userId, 'delete')
+
+export function createCourseTeachingClass(courseId, data) {
+  return edu({ url: '/education/course/' + courseId + '/teaching-classes', method: 'post', data, headers: { silent403: true } })
+}
+
+function courseClassStudentsUrl(courseId, classId) {
+  return '/education/course/' + courseId + '/teaching-classes/' + classId + '/students'
+}
+
+export function listCourseClassStudentSources(courseId, classId) {
+  return edu({ url: courseClassStudentsUrl(courseId, classId) + '/sources', method: 'get', headers: { silent403: true } })
+}
+
+export function listCourseClassStudentOrganizations(courseId, classId) {
+  return edu({ url: courseClassStudentsUrl(courseId, classId) + '/organizations', method: 'get', headers: { silent403: true } })
+}
+
+export function listCourseClassStudentCandidates(courseId, classId, params) {
+  return edu({ url: courseClassStudentsUrl(courseId, classId) + '/candidates', method: 'get', params, headers: { silent403: true } })
+}
+
+export function addCourseClassStudents(courseId, classId, data) {
+  return edu({ url: courseClassStudentsUrl(courseId, classId), method: 'post', data, headers: { silent403: true } })
+}

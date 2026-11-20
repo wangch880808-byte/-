@@ -13,6 +13,7 @@ const emit = defineEmits(['select'])
 const KIND_META = {
   MATERIAL: { label: '资料阅读', tone: 'blue', icon: '▤' },
   QUIZ: { label: '预习习题', tone: 'teal', icon: '✎' },
+  DISCUSSION: { label: '讨论环节', tone: 'purple', icon: '◍' },
   PLAN: { label: '备课包', tone: 'amber', icon: '◈' },
   DRAFT: { label: '待编排资料', tone: 'slate', icon: '◌' }
 }
@@ -127,6 +128,7 @@ function seqText(node) {
 
 function enterLabel(node) {
   if (node.kind === 'QUIZ') return node.meta && node.meta.submitted ? '查看作答' : '进入作答'
+  if (node.kind === 'DISCUSSION') return '进入讨论'
   return props.mode === 'prestudy' ? '查看环节' : '进入阅读'
 }
 </script>
@@ -195,6 +197,7 @@ function enterLabel(node) {
 .g3-tl-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 8px; flex: none; background: #c0c4cc; }
 .g3-tl-dot.blue { background: #409eff; }
 .g3-tl-dot.teal { background: #14b8a6; }
+.g3-tl-dot.purple { background: #8b5cf6; }
 .g3-tl-card {
   flex: 1;
   min-width: 0;
@@ -209,6 +212,7 @@ function enterLabel(node) {
 .g3-tl-card:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); }
 .g3-tl-card.blue { border-left-color: #409eff; }
 .g3-tl-card.teal { border-left-color: #14b8a6; }
+.g3-tl-card.purple { border-left-color: #8b5cf6; }
 .g3-tl-card.amber { border-left-color: #e6a23c; }
 .g3-tl-card.slate { border-left-color: #909399; }
 .g3-tl-card.active { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.12); }
@@ -216,6 +220,7 @@ function enterLabel(node) {
 .g3-tl-kind { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
 .g3-tl-kind.blue { color: #409eff; }
 .g3-tl-kind.teal { color: #14b8a6; }
+.g3-tl-kind.purple { color: #7c3aed; }
 .g3-tl-kind.amber { color: #e6a23c; }
 .g3-tl-kind.slate { color: #909399; }
 .g3-tl-seq { font-size: 12px; color: #606266; }

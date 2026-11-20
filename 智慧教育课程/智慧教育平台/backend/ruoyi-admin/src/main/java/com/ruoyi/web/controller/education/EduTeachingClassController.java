@@ -21,9 +21,17 @@ public class EduTeachingClassController extends BaseController {
 
     @GetMapping("/list")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:class:list')")
-    public TableDataInfo list(String keyword, Long termId, String status) {
+    public TableDataInfo list(String keyword, Long termId, String status,
+                              @RequestParam(required = false) Long deptId) {
         startPage();
-        return getDataTable(portalService.teachingClassList(keyword, termId, status));
+        return getDataTable(portalService.teachingClassList(keyword, termId, status, deptId));
+    }
+
+    @GetMapping("/major/{majorId}/classes")
+    @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:class:list')")
+    public TableDataInfo majorClasses(@PathVariable Long majorId, String keyword) {
+        startPage();
+        return getDataTable(portalService.majorClasses(majorId, keyword));
     }
 
     /** 当前教师被授权的教学班（教师端绑定课程时的下拉） */

@@ -25,7 +25,6 @@
           </div>
           <div class="edu-hero-meta">
             <span>{{ course.teacherName || '未指定教师' }}</span>
-            <span>{{ course.semesterName || '未指定学期' }}</span>
             <span>{{ course.classCount || 0 }} 个教学班</span>
             <span>{{ course.studentCount || 0 }} 名学生</span>
           </div>
@@ -35,206 +34,102 @@
           <el-button :type="isActive ? 'danger' : 'success'" plain @click="toggleStatus">
             {{ isActive ? '撤回发布' : '发布课程' }}
           </el-button>
-          <el-button type="primary" @click="openBind">绑定教学班</el-button>
         </div>
       </el-card>
 
-      <section v-if="activeTab === 'outline'" class="edu-section">
-          <course-outline :course="course" :readonly="!canManage" @saved="load">
-            <el-card shadow="never">
-              <template #header>
-                <div class="edu-head">
-                  <span>已绑定教学班</span>
-                  <span class="edu-tip">没绑定班级时，学生端看不到这门课</span>
-                </div>
-              </template>
-              <el-table v-if="classes.length" :data="classes" border size="small">
-                <el-table-column label="教学班" prop="name" min-width="180" />
-                <el-table-column label="学期" min-width="150">
-                  <template #default="{ row }">{{ row.termName || '—' }}</template>
-                </el-table-column>
-                <el-table-column label="学生数" width="120" align="center">
-                  <template #default="{ row }">
-                    <el-button link type="primary" @click="openMembers(row)">
-                      {{ row.studentCount || 0 }} 人
-                    </el-button>
-                  </template>
-                </el-table-column>
-                <el-table-column label="绑定时间" prop="publishedAt" width="130" />
-                <el-table-column label="操作" width="160">
-                  <template #default="{ row }">
-                    <el-button link type="primary" @click="openMembers(row)">学生名单</el-button>
-                    <el-button v-if="canManage" link type="danger" @click="handleUnbind(row)">解绑</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <el-empty v-else description="还没有绑定教学班" :image-size="60" />
-            </el-card>
-          </course-outline>
-      </section>
+      <el-tabs v-model="activeTab" class="edu-tabs">
+        <el-tab-pane label="目录" name="outline">
+          <course-outline :course="course" :readonly="!canManage" @saved="load" />
+        </el-tab-pane>
 
-      <section v-else-if="activeTab === 'studio'" class="edu-section">
-          <teacher-studio v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
-          <el-card v-else shadow="never">
-            <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
-          </el-card>
-      </section>
-      <section v-else-if="activeTab === 'prepare'" class="edu-section">
-          <teacher-prepare v-if="bindingId" :key="bindingId" :context-binding-id="bindingId" />
-          <el-card v-else shadow="never">
-            <el-empty description="请先在顶部选择课程与教学班" :image-size="80" />
-          </el-card>
-      </section>
-      <section v-else-if="activeTab === 'classroom'" class="edu-section">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('classroom')" :image-size="80" />
-          </el-card>
-      </section>
-      <section v-else-if="activeTab === 'homework'" class="edu-section">
+        <el-tab-pane label="班级管理" name="classes" lazy>
+          <course-classes
+            v-if="course.id"
+            :course-id="courseId"
+            :classes="classes"
+            :can-manage="canManage"
+            :can-manage-students="course.canManageRoster === true && course.status !== 'ARCHIVED'"
+            @changed="load"
+          />
+        </el-tab-pane>
+
+        <el-tab-pane label="教师团队" name="team" lazy>
+          <course-team v-if="course.id" :course-id="courseId" :can-manage="canManage" />
+        </el-tab-pane>
+
+        <el-tab-pane label="课程建设" name="material" lazy>
+          <group3-course-section v-if="course.id && activeTab === 'material'" :course-id="courseId" :empty-message="group3Empty" v-slot="{ bindingId }">
+            <teacher-studio :key="bindingId" :context-binding-id="bindingId" :can-manage-outline="canManage" />
+          </group3-course-section>
+        </el-tab-pane>
+        <el-tab-pane label="课前准备" name="prepare" lazy>
+          <group3-course-section v-if="course.id && activeTab === 'prepare'" :course-id="courseId" :empty-message="group3Empty" v-slot="{ bindingId }">
+            <teacher-prepare :key="bindingId" :context-binding-id="bindingId" />
+          </group3-course-section>
+        </el-tab-pane>
+        <el-tab-pane label="作业" name="homework">
           <el-card shadow="never">
             <el-empty :description="placeholder('homework')" :image-size="80" />
           </el-card>
-      </section>
-      <section v-else-if="activeTab === 'stat'" class="edu-section">
+        </el-tab-pane>
+        <el-tab-pane label="统计" name="stat">
           <el-card shadow="never">
             <el-empty :description="placeholder('stat')" :image-size="80" />
           </el-card>
-      </section>
-      <section v-else class="edu-section">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('ai')" :image-size="80" />
-          </el-card>
-      </section>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
-    <el-drawer v-model="memberOpen" :title="memberClass.name + ' · 学生名单'" size="620px" destroy-on-close>
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        title="只显示当前在班学生"
-        description="可在本班名单中查看学生的学号、姓名与入班时间。"
-      />
-      <roster-transfer v-if="memberOpen && rosterPermissions" :key="memberClass.id"
-        :class-id="memberClass.id" :class-name="memberClass.name"
-        :can-import="rosterPermissions.canImport" :can-export="rosterPermissions.canExport" @imported="reloadRoster" />
-      <el-table v-loading="memberLoading" :data="members" border size="small">
-        <el-table-column label="学号" width="150">
-          <template #default="{ row }">{{ row.studentNo || row.userName || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="姓名" min-width="120">
-          <template #default="{ row }">{{ row.studentName || row.nickName || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="入班时间" width="130">
-          <template #default="{ row }">{{ row.joinedAt || '—' }}</template>
-        </el-table-column>
-        <template #empty>
-          <div class="edu-hint">本班暂无在班学生。</div>
-        </template>
-      </el-table>
-      <div class="edu-hint">共 {{ members.length }} 名在班学生</div>
-    </el-drawer>
-
     <course-form-dialog v-model="editOpen" :course="course" @saved="load" />
-
-    <el-dialog v-model="bindOpen" title="绑定教学班" width="520px" append-to-body>
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        title="只能绑定你被授权的教学班"
-        description="绑定后该班学生即可看到这门已发布的课程。解绑不会删除历史作业与成绩。"
-      />
-      <el-select v-model="bindClassId" placeholder="选择教学班" filterable style="width: 100%">
-        <el-option
-          v-for="item in bindableClasses"
-          :key="item.id || item.classId"
-          :label="item.name + '（' + (item.termName || item.semesterName || '未指定学期') + '）'"
-          :value="item.id || item.classId"
-        />
-      </el-select>
-      <div v-if="!bindableClasses.length" class="edu-hint">
-        没有可绑定的教学班：确认管理员已把你设为任课教师，且该班处于开放状态并尚未绑定本课程。
-      </div>
-      <template #footer>
-        <el-button @click="bindOpen = false">取 消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitBind">确 定</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup name="EduTeacherCourseDetail">
-import { defineAsyncComponent, ref, computed, getCurrentInstance, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { getCourse, changeCourseStatus, bindCourseClass, unbindCourseClass } from '@/api/education/course'
-import { listMyTeachingClass, listClassMembers } from '@/api/education/teachingClass'
-import { api } from '@/api/education/client'
-import RosterTransfer from '@/components/education/RosterTransfer.vue'
+import { ref, computed, defineAsyncComponent, getCurrentInstance, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getCourse, changeCourseStatus } from '@/api/education/course'
 import { eduErrorText } from '@/api/education/http'
 import CourseOutline from '@/components/education/CourseOutline.vue'
 import CourseFormDialog from '@/components/education/CourseFormDialog.vue'
-import { context } from '@/education/context'
+import CourseClasses from './CourseClasses.vue'
+import CourseTeam from './CourseTeam.vue'
+import Group3CourseSection from '../group3/Group3CourseSection.vue'
 
-const TeacherStudio = defineAsyncComponent(() => import('@/views/education/group3/TeacherStudio.vue'))
-const TeacherPrepare = defineAsyncComponent(() => import('@/views/education/group3/TeacherPrepare.vue'))
+const TeacherStudio = defineAsyncComponent(() => import('../group3/TeacherStudio.vue'))
+const TeacherPrepare = defineAsyncComponent(() => import('../group3/TeacherPrepare.vue'))
 
 const { proxy } = getCurrentInstance()
 const route = useRoute()
+const router = useRouter()
 
 const courseId = computed(() => route.params.courseId)
 
 const loading = ref(false)
-const submitting = ref(false)
 const errorText = ref('')
 const fatal = ref(false)
 const fatalText = ref('')
 const course = ref({})
-const SECTIONS = ['outline', 'studio', 'prepare', 'classroom', 'homework', 'stat', 'ai']
-const activeTab = computed(() => {
-  const tab = String(route.query.tab || 'outline')
-  return SECTIONS.includes(tab) ? tab : 'outline'
+const tabs = ['outline', 'classes', 'team', 'material', 'prepare', 'homework', 'stat']
+const activeTab = computed({
+  get() {
+    const tab = { studio: 'material', discuss: 'prepare' }[route.query.tab] || route.query.tab
+    return tabs.includes(tab) ? tab : 'outline'
+  },
+  set(tab) { router.replace({ query: { ...route.query, tab } }) }
 })
-
-const bindingId = computed(() => {
-  const selected = context.current
-  const sameCourse = selected?.courseSpaceId && String(selected.courseSpaceId) === String(course.value.id)
-  return String(
-    (sameCourse ? selected.bindingId : '') ||
-    route.query.bindingId ||
-    course.value.classes?.[0]?.id ||
-    ''
-  )
-})
+const group3Empty = '请先添加有效教学班，并确认你拥有该班的发布权限。'
 
 const editOpen = ref(false)
-const bindOpen = ref(false)
-const bindClassId = ref(null)
-const myClasses = ref([])
-
-const memberOpen = ref(false)
-const memberLoading = ref(false)
-const members = ref([])
-const memberClass = ref({ id: null, name: '' })
-const rosterPermissions = ref(null)
 
 const STATUS = { DRAFT: '草稿', ACTIVE: '已发布', ARCHIVED: '已归档' }
 const PLACEHOLDER = {
-  classroom: '该功能尚未开放。',
   homework: '该功能尚未开放。',
-  stat: '该功能尚未开放。',
-  ai: '该功能尚未开放。'
+  stat: '该功能尚未开放。'
 }
 
 const canManage = computed(() => course.value.canManage === true && course.value.status !== 'ARCHIVED')
 const isActive = computed(() => course.value.status === 'ACTIVE')
 const classes = computed(() => course.value.classes || [])
-const bindableClasses = computed(() => {
-  const bound = new Set(classes.value.map((item) => item.classId))
-  return myClasses.value.filter((item) => !bound.has(item.id || item.classId))
-})
 
 function statusLabel(value) {
   return STATUS[value] || value || '未知'
@@ -261,7 +156,7 @@ async function load() {
     course.value = {}
     if (e.kind === 'forbidden') {
       fatal.value = true
-      fatalText.value = '你不是这门课的负责人，或课程已被撤回。'
+      fatalText.value = '你没有这门课的访问权限，或教师团队关系已失效。'
     } else if (e.kind === 'business' && /不存在/.test(e.message)) {
       fatal.value = true
       fatalText.value = '课程不存在，可能已被删除或链接里的编号不对。'
@@ -284,7 +179,7 @@ async function toggleStatus() {
   try {
     await proxy.$modal.confirm(
       publish
-        ? '发布后，绑定教学班的学生就能看到这门课。'
+        ? '发布后，本课程教学班的学生就能看到这门课。'
         : '撤回后学生端立刻看不到这门课，已提交的作业与成绩不受影响。'
     )
   } catch (e) {
@@ -299,87 +194,7 @@ async function toggleStatus() {
   }
 }
 
-async function openBind() {
-  bindClassId.value = null
-  bindOpen.value = true
-  if (myClasses.value.length) return
-  try {
-    const res = await listMyTeachingClass()
-    myClasses.value = res.rows || []
-  } catch (e) {
-    proxy.$modal.msgError(eduErrorText(e))
-  }
-}
-
-async function submitBind() {
-  if (!bindClassId.value) {
-    proxy.$modal.msgWarning('请选择教学班')
-    return
-  }
-  submitting.value = true
-  try {
-    await bindCourseClass(courseId.value, bindClassId.value)
-    proxy.$modal.msgSuccess('已绑定')
-    bindOpen.value = false
-    load()
-  } catch (e) {
-    proxy.$modal.msgError(eduErrorText(e))
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function openMembers(row) {
-  memberClass.value = { id: row.classId, name: row.name || row.className || '教学班' }
-  rosterPermissions.value = null
-  members.value = []
-  memberOpen.value = true
-  const classId = row.classId
-  await Promise.all([loadMembers(classId), loadRosterPermissions(classId)])
-}
-
-async function loadRosterPermissions(classId) {
-  try {
-    const result = await api.get(`/education/teaching-class/${classId}/members/transfer-permissions`, { silent403: true })
-    if (memberClass.value.id === classId) rosterPermissions.value = result.data
-  } catch (error) {
-    if (!error.cancelled && !error.unauthorized && !error.forbidden) proxy.$modal.msgError(error.message)
-  }
-}
-
-async function loadMembers(classId) {
-  memberLoading.value = true
-  try {
-    const result = await listClassMembers(classId)
-    if (memberClass.value.id !== classId) return
-    members.value = (result.rows || []).filter(member => member.status === 'ACTIVE')
-  } catch (error) {
-    if (memberClass.value.id === classId && !error.cancelled) proxy.$modal.msgError(eduErrorText(error))
-  } finally {
-    if (memberClass.value.id === classId) memberLoading.value = false
-  }
-}
-
-async function reloadRoster() {
-  await Promise.all([loadMembers(memberClass.value.id), load()])
-}
-
-async function handleUnbind(row) {
-  try {
-    await proxy.$modal.confirm('解绑后该班学生看不到这门课，历史作业与成绩仍保留。')
-  } catch (e) {
-    return
-  }
-  try {
-    await unbindCourseClass(courseId.value, row.id)
-    proxy.$modal.msgSuccess('已解绑')
-    load()
-  } catch (e) {
-    proxy.$modal.msgError(eduErrorText(e))
-  }
-}
-
-onMounted(load)
+watch(courseId, load, { immediate: true })
 </script>
 
 <style scoped>
@@ -415,20 +230,5 @@ onMounted(load)
   align-items: flex-start;
   gap: 8px;
   flex-wrap: wrap;
-}
-.edu-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.edu-tip {
-  font-size: 12px;
-  color: #909399;
-  font-weight: 400;
-}
-.edu-hint {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #909399;
 }
 </style>

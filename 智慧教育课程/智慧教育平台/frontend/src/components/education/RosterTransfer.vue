@@ -1,18 +1,23 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { ArrowDown, Download } from '@element-plus/icons-vue'
 import { api } from '@/api/education/client'
 import { saveExcel, validateExcel } from '@/utils/education/excel'
+import CourseStudentPicker from './CourseStudentPicker.vue'
 
 const props = defineProps({
   classId: { type: [String, Number], required: true },
   className: { type: String, required: true },
+  courseId: { type: [String, Number], required: true },
   canImport: Boolean,
   canExport: Boolean
 })
 const emit = defineEmits(['imported'])
 const open = ref(false)
 const addOpen = ref(false)
+const pickerOpen = ref(false)
+const fromClass = ref(false)
 const studentAccount = ref('')
 const addError = ref('')
 const file = ref(null)
@@ -28,6 +33,17 @@ function openAdd() {
   studentAccount.value = ''
   addError.value = ''
   addOpen.value = true
+}
+
+function selectAction(action) {
+  if (action === 'manual') {
+    openAdd()
+  } else if (action === 'excel') {
+    openImport()
+  } else {
+    fromClass.value = action === 'course'
+    pickerOpen.value = true
+  }
 }
 
 async function addStudent() {
@@ -99,11 +115,24 @@ async function importRoster() {
 
 <template>
   <div v-if="canImport || canExport" class="roster-actions">
-    <el-button v-if="canImport" type="primary" :disabled="!!busy" @click="openAdd">添加学生</el-button>
-    <el-button v-if="canImport" :disabled="!!busy" @click="openImport">批量导入学生</el-button>
-    <el-button v-if="canExport" :loading="busy === 'export'" :disabled="!!busy" @click="download('export')">导出学生名单</el-button>
+    <el-dropdown v-if="canImport" trigger="click" :disabled="!!busy" @command="selectAction">
+      <el-button type="primary" :disabled="!!busy">
+        添加学生<el-icon class="el-icon--right"><arrow-down /></el-icon>
+      </el-button>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item command="manual">手动添加</el-dropdown-item>
+          <el-dropdown-item command="library">从学生库添加</el-dropdown-item>
+          <el-dropdown-item command="course">从课程班级添加</el-dropdown-item>
+          <el-dropdown-item command="excel">批量导入 Excel</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
+    <el-button v-if="canExport" :icon="Download" :loading="busy === 'export'" :disabled="!!busy" @click="download('export')">导出学生名单</el-button>
   </div>
-  <el-dialog v-model="addOpen" title="添加学生" width="min(460px, 92vw)" append-to-body
+  <course-student-picker v-if="canImport" v-model="pickerOpen" :course-id="courseId" :class-id="classId"
+    :from-class="fromClass" @added="emit('imported')" />
+  <el-dialog v-model="addOpen" title="手动添加学生" width="min(460px, 92vw)" append-to-body
     :show-close="!busy" :close-on-click-modal="!busy" :close-on-press-escape="!busy">
     <el-input v-model="studentAccount" maxlength="30" aria-label="学生学号或账号"
       placeholder="输入本组织已有学生的学号或账号" :disabled="!!busy" @keyup.enter="addStudent" />
@@ -128,7 +157,7 @@ async function importRoster() {
 </template>
 
 <style scoped>
-.roster-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.roster-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .roster-actions .el-button { margin-left: 0; }
 .roster-hint { color: var(--muted); margin: 0 0 12px; line-height: 1.6; }
 </style>

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduCourseManagementMapper">
+    <sql id="activeTeacherAccount">
+        EXISTS (SELECT 1 FROM v_identity_user u
+                JOIN v_identity_user_role ur ON ur.user_id = u.user_id
+                JOIN v_identity_role r ON r.role_id = ur.role_id
+                WHERE u.user_id = team.user_id AND u.status = '0' AND u.del_flag = '0'
+                  AND r.role_key = 'teacher' AND r.status = '0' AND r.del_flag = '0')
+    </sql>
+    <select id="teamAccess" resultType="java.util.Map">
+        SELECT team.can_manage_students AS canManageStudents, team.can_export AS canExport
+        FROM edu_course_teacher team
+        WHERE team.course_space_id = #{courseId} AND team.user_id = #{userId}
+          AND team.ended_at IS NULL AND <include refid="activeTeacherAccount"/>
+    </select>
+    <select id="teamClassAccess" resultType="java.util.Map">
+        SELECT MAX(team.can_manage_students) AS canManageStudents, MAX(team.can_export) AS canExport
+        FROM edu_course_teacher team
+        JOIN edu_course_space course ON course.id = team.course_space_id
+        JOIN edu_course_class_binding binding ON binding.course_space_id = course.id
+        WHERE binding.teaching_class_id = #{classId} AND binding.ended_at IS NULL
+          AND binding.published_at &lt;= NOW(3) AND course.deleted_at IS NULL AND course.status &lt;&gt; 'ARCHIVED'
+          AND team.user_id = #{userId} AND team.ended_at IS NULL AND <include refid="activeTeacherAccount"/>
+        HAVING COUNT(*) > 0
+    </select>
+    <select id="team" resultType="java.util.Map">
+        SELECT course.owner_user_id AS userId, u.user_name AS userName, u.nick_name AS nickName,
+               d.dept_name AS deptName, 'OWNER' AS teamRole, 1 AS canManageStudents, 1 AS canExport,
+               u.status AS status
+        FROM edu_course_space course
+        LEFT JOIN v_identity_user u ON u.user_id = course.owner_user_id
+        LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        WHERE course.id = #{courseId} AND course.deleted_at IS NULL
+        UNION ALL
+        SELECT team.user_id, u.user_name, u.nick_name, d.dept_name, 'TEACHER',
+               team.can_manage_students, team.can_export, u.status
+        FROM edu_course_teacher team
+        LEFT JOIN v_identity_user u ON u.user_id = team.user_id
+        LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        WHERE team.course_space_id = #{courseId} AND team.ended_at IS NULL
+        ORDER BY teamRole, userId
+    </select>
+    <select id="teacherCandidates" resultType="java.util.Map">
+        SELECT u.user_id AS userId, u.user_name AS userName, u.nick_name AS nickName, d.dept_name AS deptName
+        FROM v_identity_user u JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        WHERE u.status = '0' AND u.del_flag = '0' AND d.status = '0' AND d.del_flag = '0'
+          AND (d.dept_id = #{organizationId} OR FIND_IN_SET(#{organizationId}, d.ancestors))
+          AND NOT EXISTS (SELECT 1 FROM v_identity_dept ancestor WHERE FIND_IN_SET(ancestor.dept_id, d.ancestors)
+                          AND (ancestor.status &lt;&gt; '0' OR ancestor.del_flag &lt;&gt; '0'))
+          AND EXISTS (SELECT 1 FROM v_identity_user_role ur JOIN v_identity_role r ON r.role_id = ur.role_id
+                      WHERE ur.user_id = u.user_id AND r.role_key = 'teacher' AND r.status = '0' AND r.del_flag = '0')
+          AND u.user_id &lt;&gt; (SELECT owner_user_id FROM edu_course_space WHERE id = #{courseId})
+        <if test="userId != null">AND u.user_id = #{userId}</if>
+        <if test="keyword != null and keyword != ''">
+          AND (u.user_name LIKE CONCAT('%', #{keyword}, '%') OR u.nick_name LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        ORDER BY u.user_name, u.user_id
+    </select>
+    <insert id="saveTeacher">
+        INSERT INTO edu_course_teacher(course_space_id, user_id, can_manage_students, can_export, added_by_user_id)
+        VALUES (#{courseId}, #{userId}, #{manageStudents}, #{export}, #{operatorId})
+        ON DUPLICATE KEY UPDATE can_manage_students = #{manageStudents}, can_export = #{export}
+    </insert>
+    <update id="removeTeacher">
+        UPDATE edu_course_teacher
+        SET ended_at = GREATEST(NOW(3), TIMESTAMPADD(MICROSECOND, 1000, joined_at)), ended_by_user_id = #{operatorId}
+        WHERE course_space_id = #{courseId} AND user_id = #{userId} AND ended_at IS NULL
+    </update>
+    <select id="lockClass" resultType="java.lang.Long">
+        SELECT id FROM edu_teaching_class WHERE id = #{classId} FOR UPDATE
+    </select>
+    <select id="activeBindingCount" resultType="int">
+        SELECT COUNT(*) FROM edu_course_class_binding WHERE teaching_class_id = #{classId} AND ended_at IS NULL
+    </select>
+    <select id="courseClassHistory" resultType="int">
+        SELECT COUNT(*) FROM edu_course_class_binding WHERE course_space_id = #{courseId} AND teaching_class_id = #{classId}
+    </select>
+    <update id="renameClass">
+        UPDATE edu_teaching_class SET name = #{name} WHERE id = #{classId}
+    </update>
+    <update id="detachClass">
+        UPDATE edu_course_class_binding
+        SET ended_at = GREATEST(NOW(3), TIMESTAMPADD(MICROSECOND, 1000, published_at)),
+            ended_by_user_id = #{operatorId}, end_reason = '教师删除教学班'
+        WHERE course_space_id = #{courseId} AND teaching_class_id = #{classId} AND ended_at IS NULL
+    </update>
+    <update id="archiveClass">
+        UPDATE edu_teaching_class SET status = 'ARCHIVED' WHERE id = #{classId}
+    </update>
+    <select id="activeStudentIds" resultType="java.lang.Long">
+        SELECT user_id FROM edu_class_student WHERE teaching_class_id = #{classId}
+          AND joined_at &lt;= NOW(3) AND (left_at IS NULL OR left_at &gt; NOW(3))
+          AND user_id IN <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>
+        ORDER BY user_id
+    </select>
+    <update id="endStudents">
+        UPDATE edu_class_student SET left_at = GREATEST(NOW(3), TIMESTAMPADD(MICROSECOND, 1000, joined_at)),
+            left_by_user_id = #{operatorId}, leave_reason = #{reason}
+        WHERE teaching_class_id = #{classId} AND joined_at &lt;= NOW(3) AND (left_at IS NULL OR left_at &gt; NOW(3))
+          AND user_id IN <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>
+    </update>
+</mapper>

@@ -18,7 +18,7 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="3">
-        <el-button type="primary" plain @click="handleAdd">新建学期</el-button>
+        <el-button type="primary" plain :loading="loadingSchools" @click="handleAdd">新建学期</el-button>
       </el-col>
     </el-row>
 
@@ -37,6 +37,7 @@
           <span class="edu-strong">{{ row.name }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="所属学校" prop="schoolName" min-width="190" show-overflow-tooltip />
       <el-table-column label="编码" prop="code" width="180" />
       <el-table-column label="起止日期" min-width="220">
         <template #default="{ row }">{{ row.startsOn || '—' }} 至 {{ row.endsOn || '—' }}</template>
@@ -73,6 +74,19 @@
 
     <el-dialog v-model="open" :title="form.id ? '编辑学期' : '新建学期'" width="520px" append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+        <el-form-item v-if="!form.id" label="所属学校" prop="organizationId">
+          <el-select v-model="form.organizationId" filterable placeholder="请选择学校" style="width: 100%">
+            <el-option
+              v-for="school in schools"
+              :key="school.organizationId"
+              :label="school.schoolName"
+              :value="school.organizationId"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else label="所属学校">
+          <span>{{ form.schoolName || '—' }}</span>
+        </el-form-item>
         <el-form-item label="学期名称" prop="name">
           <el-input v-model="form.name" placeholder="如 2026-2027 学年第一学期" maxlength="64" />
         </el-form-item>
@@ -96,7 +110,7 @@
 
 <script setup name="EduTermList">
 import { ref, reactive, getCurrentInstance, onMounted } from 'vue'
-import { listTerm, addTerm, updateTerm, setCurrentTerm } from '@/api/education/term'
+import { listTerm, listTermSchools, addTerm, updateTerm, setCurrentTerm } from '@/api/education/term'
 import { eduErrorText } from '@/api/education/http'
 
 const { proxy } = getCurrentInstance()
@@ -108,11 +122,14 @@ const list = ref([])
 const total = ref(0)
 const open = ref(false)
 const formRef = ref()
+const loadingSchools = ref(false)
+const schools = ref([])
 
 const queryParams = reactive({ pageNum: 1, pageSize: 10, keyword: '' })
-const form = reactive({ id: null, name: '', code: '', startsOn: '', endsOn: '' })
+const form = reactive({ id: null, organizationId: '', schoolName: '', name: '', code: '', startsOn: '', endsOn: '' })
 
 const rules = {
+  organizationId: [{ required: true, message: '请选择所属学校', trigger: 'change' }],
   name: [{ required: true, message: '学期名称不能为空', trigger: 'blur' }],
   code: [{ required: true, message: '学期编码不能为空', trigger: 'blur' }],
   startsOn: [{ required: true, message: '开始日期不能为空', trigger: 'change' }],
@@ -162,20 +179,37 @@ function resetQuery() {
 }
 
 function resetForm() {
-  Object.assign(form, { id: null, name: '', code: '', startsOn: '', endsOn: '' })
+  Object.assign(form, { id: null, organizationId: '', schoolName: '', name: '', code: '', startsOn: '', endsOn: '' })
   // 不用 resetFields：弹窗复用同一个 form 实例，重置到"挂载时快照"会把上一行数据带回来
   formRef.value && formRef.value.clearValidate()
 }
 
-function handleAdd() {
-  resetForm()
-  open.value = true
+async function handleAdd() {
+  loadingSchools.value = true
+  try {
+    const { data = [] } = await listTermSchools()
+    if (data.length === 0) {
+      proxy.$modal.msgWarning('没有可用的学校，请先在组织架构中添加或启用学校')
+      return
+    }
+    resetForm()
+    schools.value = data
+    if (data.length === 1) {
+      form.organizationId = data[0].organizationId
+    }
+    open.value = true
+  } catch (e) {
+    proxy.$modal.msgError(eduErrorText(e))
+  } finally {
+    loadingSchools.value = false
+  }
 }
 
 function handleUpdate(row) {
   resetForm()
   Object.assign(form, {
     id: row.id,
+    schoolName: row.schoolName,
     name: row.name,
     code: row.code,
     startsOn: row.startsOn || '',
@@ -199,7 +233,7 @@ function submitForm() {
         await updateTerm(form.id, payload)
         proxy.$modal.msgSuccess('已保存')
       } else {
-        await addTerm(payload)
+        await addTerm({ ...payload, organizationId: form.organizationId })
         proxy.$modal.msgSuccess('学期已创建')
       }
       open.value = false
@@ -218,6 +252,7 @@ function handleSetCurrent(row) {
       try {
         await setCurrentTerm(row.id)
         proxy.$modal.msgSuccess('已设为当前学期')
+        window.dispatchEvent(new Event('edu:refresh-term'))
         getList()
       } catch (e) {
         proxy.$modal.msgError(eduErrorText(e))

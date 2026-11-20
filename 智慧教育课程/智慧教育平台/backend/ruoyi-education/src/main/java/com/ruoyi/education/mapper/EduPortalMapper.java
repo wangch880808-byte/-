@@ -19,7 +19,11 @@ public interface EduPortalMapper {
 
     List<Map<String, Object>> selectTermList(@Param("keyword") String keyword);
 
+    List<Map<String, Object>> selectTermSchools(@Param("organizationId") Long organizationId);
+
     Map<String, Object> selectTermById(@Param("id") Long id);
+
+    Long selectCourseClassTermId(@Param("organizationId") Long organizationId, @Param("termId") Long termId);
 
     int clearCurrentTerm();
 
@@ -29,7 +33,12 @@ public interface EduPortalMapper {
 
     List<Map<String, Object>> selectTeachingClassList(@Param("keyword") String keyword,
                                                       @Param("termId") Long termId,
-                                                      @Param("status") String status);
+                                                      @Param("status") String status,
+                                                      @Param("deptId") Long deptId);
+
+    List<Map<String, Object>> selectMajorClasses(@Param("majorId") Long majorId, @Param("keyword") String keyword);
+
+    boolean hasOrganizationReferences(@Param("ids") List<Long> ids);
 
     Map<String, Object> selectTeachingClassById(@Param("id") Long id);
 
@@ -42,6 +51,25 @@ public interface EduPortalMapper {
 
     List<Map<String, Object>> selectRosterStudents(@Param("organizationId") Long organizationId,
             @Param("accounts") List<String> accounts);
+
+    List<Map<String, Object>> selectCourseRosterSources(@Param("organizationId") Long organizationId,
+            @Param("teacherId") Long teacherId, @Param("classId") Long classId,
+            @Param("sourceCourseId") Long sourceCourseId, @Param("sourceClassId") Long sourceClassId);
+
+    List<Map<String, Object>> selectCourseRosterOrganizations(@Param("organizationId") Long organizationId);
+
+    String selectCourseRosterDepartmentType(@Param("organizationId") Long organizationId,
+            @Param("sourceDeptId") Long sourceDeptId);
+
+    List<Map<String, Object>> selectCourseRosterCandidates(@Param("organizationId") Long organizationId,
+            @Param("classId") Long classId, @Param("sourceClassId") Long sourceClassId,
+            @Param("sourceDeptId") Long sourceDeptId, @Param("includeDescendants") boolean includeDescendants,
+            @Param("keyword") String keyword);
+
+    List<Long> selectCourseRosterStudentIds(@Param("organizationId") Long organizationId,
+            @Param("classId") Long classId, @Param("sourceClassId") Long sourceClassId,
+            @Param("sourceDeptId") Long sourceDeptId, @Param("includeDescendants") boolean includeDescendants,
+            @Param("studentIds") List<Long> studentIds);
 
     int countActiveTeacher(@Param("classId") Long classId, @Param("userId") Long userId);
 
@@ -60,11 +88,11 @@ public interface EduPortalMapper {
 
     List<Map<String, Object>> selectTeacherClasses(@Param("userId") Long userId);
 
-    List<Map<String, Object>> selectStudentList(@Param("keyword") String keyword);
+    List<Map<String, Object>> selectStudentList(@Param("keyword") String keyword, @Param("deptId") Long deptId);
 
     List<Map<String, Object>> selectStudentClasses(@Param("userId") Long userId);
 
-    List<Map<String, Object>> selectDeptTree();
+    List<Map<String, Object>> selectDeptTree(@Param("teacherOnly") boolean teacherOnly);
 
     List<Map<String, Object>> selectOfficialCourses(@Param("keyword") String keyword,@Param("organizationId") Long organizationId);
 
@@ -89,6 +117,8 @@ public interface EduPortalMapper {
     int countStudentInCourse(@Param("courseId") Long courseId, @Param("userId") Long userId);
 
     int countActiveBinding(@Param("courseId") Long courseId, @Param("classId") Long classId);
+
+    int countCourseClassByName(@Param("courseId") Long courseId, @Param("name") String name);
 
     int endCourseBindings(@Param("courseId") Long courseId, @Param("userId") Long userId);
 

@@ -44,7 +44,14 @@ public interface Group3Mapper
 
     Map<String, Object> selectActiveRelease(
             @Param("bindingId") Long bindingId,
-            @Param("resourceId") Long resourceId);
+            @Param("resourceId") Long resourceId,
+            @Param("source") String source);
+
+    String selectResourceOrigin(
+            @Param("resourceId") Long resourceId,
+            @Param("courseSpaceId") Long courseSpaceId);
+
+    int endReleasesBySource(Map<String, Object> row);
 
     Long lockBinding(@Param("bindingId") Long bindingId);
 
@@ -72,6 +79,47 @@ public interface Group3Mapper
 
     int updateResourceStatus(Map<String, Object> row);
 
+    /** 更新资料增强设置：下载开关、水印、任务点配置。 */
+    int updateResourceEnhance(Map<String, Object> row);
+
+    /** 读取资料的增强设置与媒体信息，供学生端做进度判定。 */
+    Map<String, Object> selectResourceTaskInfo(
+            @Param("resourceId") Long resourceId,
+            @Param("bindingId") Long bindingId);
+
+    /** 学生观看进度 upsert。 */
+    int upsertResourceProgress(Map<String, Object> row);
+
+    /** 查询学生在指定绑定的观看进度。 */
+    List<Map<String, Object>> selectResourceProgress(
+            @Param("bindingId") Long bindingId,
+            @Param("userId") Long userId);
+
+    /** 学生在计分讨论话题中的参与次数，供学习进度看板统计。 */
+    List<Map<String, Object>> selectStudentDiscussionParticipation(
+            @Param("bindingId") Long bindingId,
+            @Param("userId") Long userId);
+
+    /** 学生已提交且解析已公布的题目作答，供作答回看与错题本使用。 */
+    List<Map<String, Object>> selectStudentAnswerReview(
+            @Param("bindingId") Long bindingId,
+            @Param("userId") Long userId);
+
+    /** 学情契约：按资料汇总全班观看进度。 */
+    List<Map<String, Object>> selectResourceProgressStats(@Param("bindingId") Long bindingId);
+
+    /** 学情契约：按预习任务汇总全班提交情况。 */
+    List<Map<String, Object>> selectAssignmentSubmissionStats(@Param("bindingId") Long bindingId);
+
+    /** 学情契约：按话题与学生汇总讨论参与。 */
+    List<Map<String, Object>> selectDiscussionParticipationStats(@Param("bindingId") Long bindingId);
+
+    /** 学情契约：全班逐题作答记录（含未公布解析的提交事实）。 */
+    List<Map<String, Object>> selectSubmissionAnalytics(@Param("bindingId") Long bindingId);
+
+    /** 学情契约：作答记录总条数，用于标记结果是否被截断。 */
+    int selectSubmissionAnalyticsCount(@Param("bindingId") Long bindingId);
+
     int endRelease(Map<String, Object> row);
 
     int insertRelease(Map<String, Object> row);
@@ -80,7 +128,8 @@ public interface Group3Mapper
 
     List<Map<String, Object>> selectStudentMaterials(
             @Param("bindingId") Long bindingId,
-            @Param("userId") Long userId);
+            @Param("userId") Long userId,
+            @Param("source") String source);
 
     List<Map<String, Object>> selectQuestions(
             @Param("bindingId") Long bindingId,
@@ -99,6 +148,9 @@ public interface Group3Mapper
     int insertQuestion(Map<String, Object> row);
 
     int insertQuestionVersion(Map<String, Object> row);
+
+    /** 组卷：按题型/难度/知识点/标签筛选当前有效版本的题目。 */
+    List<Map<String, Object>> selectQuestionsForCompose(Map<String, Object> row);
 
     int linkQuestionKnowledgePoint(
             @Param("questionId") Long questionId,
@@ -180,23 +232,7 @@ public interface Group3Mapper
 
     int selectSubmissionCount(@Param("assignmentId") Long assignmentId);
 
-    int insertUnit(Map<String, Object> row);
-
-    int updateUnit(Map<String, Object> row);
-
-    int deleteUnit(@Param("unitId") Long unitId, @Param("courseSpaceId") Long courseSpaceId);
-
-    int deleteKnowledgePointsByUnit(@Param("unitId") Long unitId, @Param("courseSpaceId") Long courseSpaceId);
-
     int selectMaxUnitSort(@Param("courseSpaceId") Long courseSpaceId, @Param("parentUnitId") Long parentUnitId);
-
-    int updateUnitSort(Map<String, Object> row);
-
-    int insertKnowledgePoint(Map<String, Object> row);
-
-    int updateKnowledgePoint(Map<String, Object> row);
-
-    int deleteKnowledgePoint(@Param("pointId") Long pointId, @Param("courseSpaceId") Long courseSpaceId);
 
     /** 保留策略：清理超过保留期限的 FAILED 资源版本（仅清理失败版本，不影响 READY/PENDING 版本）。 */
     List<Map<String, Object>> selectExpiredFailedVersions(@Param("before") java.time.LocalDateTime before);
@@ -243,4 +279,127 @@ public interface Group3Mapper
             @Param("courseSpaceId") Long courseSpaceId,
             @Param("folderId") Long folderId,
             @Param("ids") List<Long> ids);
+
+    /* ---------- 讨论区：文件夹 ---------- */
+
+    List<Map<String, Object>> selectDiscussionFolders(@Param("bindingId") Long bindingId);
+
+    int selectNextDiscussionFolderSort(@Param("bindingId") Long bindingId);
+
+    int insertDiscussionFolder(Map<String, Object> row);
+
+    /* ---------- 讨论区：话题 ---------- */
+
+    List<Map<String, Object>> selectDiscussionTopics(
+            @Param("bindingId") Long bindingId,
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("userId") Long userId,
+            @Param("keyword") String keyword,
+            @Param("folderId") Long folderId,
+            @Param("sort") String sort,
+            @Param("scope") String scope,
+            @Param("view") String view);
+
+    List<Map<String, Object>> selectStudentDiscussionTopics(
+            @Param("bindingId") Long bindingId,
+            @Param("userId") Long userId,
+            @Param("keyword") String keyword,
+            @Param("folderId") Long folderId,
+            @Param("sort") String sort,
+            @Param("scope") String scope);
+
+    Map<String, Object> selectDiscussionTopic(
+            @Param("bindingId") Long bindingId,
+            @Param("topicId") Long topicId,
+            @Param("userId") Long userId);
+
+    int insertDiscussionTopic(Map<String, Object> row);
+
+    int updateDiscussionTopicSettings(Map<String, Object> row);
+
+    int updateDiscussionTopicFlags(Map<String, Object> row);
+
+    int updateDiscussionTopicStatus(
+            @Param("bindingId") Long bindingId,
+            @Param("topicId") Long topicId,
+            @Param("status") String status);
+
+    int updateDiscussionTopicCounters(
+            @Param("bindingId") Long bindingId,
+            @Param("topicId") Long topicId,
+            @Param("replyDelta") int replyDelta,
+            @Param("viewDelta") int viewDelta);
+
+    int updateDiscussionTopicLikeCount(
+            @Param("topicId") Long topicId,
+            @Param("delta") int delta);
+
+    int updateDiscussionTopicFolder(
+            @Param("bindingId") Long bindingId,
+            @Param("topicId") Long topicId,
+            @Param("folderId") Long folderId);
+
+    int updateDiscussionTopicScoreConfig(Map<String, Object> row);
+
+    /* ---------- 讨论区：回复 ---------- */
+
+    List<Map<String, Object>> selectDiscussionPosts(
+            @Param("topicId") Long topicId,
+            @Param("userId") Long userId);
+
+    Map<String, Object> selectDiscussionPost(
+            @Param("topicId") Long topicId,
+            @Param("postId") Long postId);
+
+    int insertDiscussionPost(Map<String, Object> row);
+
+    int updateDiscussionPostStatus(
+            @Param("topicId") Long topicId,
+            @Param("postId") Long postId,
+            @Param("status") String status);
+
+    int updateDiscussionPostLikeCount(
+            @Param("postId") Long postId,
+            @Param("delta") int delta);
+
+    /* ---------- 讨论区：点赞 / 评分 ---------- */
+
+    int selectDiscussionLike(
+            @Param("topicId") Long topicId,
+            @Param("postId") Long postId,
+            @Param("userId") Long userId);
+
+    int insertDiscussionLike(
+            @Param("topicId") Long topicId,
+            @Param("postId") Long postId,
+            @Param("userId") Long userId);
+
+    int deleteDiscussionLike(
+            @Param("topicId") Long topicId,
+            @Param("postId") Long postId,
+            @Param("userId") Long userId);
+
+    java.math.BigDecimal selectDiscussionScore(
+            @Param("topicId") Long topicId,
+            @Param("userId") Long userId);
+
+    int upsertDiscussionScore(Map<String, Object> row);
+
+    /* ---------- 时间轴环节更新：QUIZ / PLAN 及资料发布时间 ---------- */
+
+    Map<String, Object> selectAssignmentStage(
+            @Param("bindingId") Long bindingId,
+            @Param("assignmentId") Long assignmentId);
+
+    int updateAssignmentStage(Map<String, Object> row);
+
+    Map<String, Object> selectLessonPlanStage(
+            @Param("bindingId") Long bindingId,
+            @Param("planId") Long planId);
+
+    int updateLessonPlanStage(Map<String, Object> row);
+
+    int updatePlanTemplateDuration(Map<String, Object> row);
+
+    int updateActiveReleaseTimes(Map<String, Object> row);
 }

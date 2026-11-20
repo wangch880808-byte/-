@@ -1,19 +1,24 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { Delete, EditPen, Plus } from '@element-plus/icons-vue'
 import { api } from '@/api/education/client.js'
 import { hasPermission } from '@/education/session.js'
 import { toast } from '@/utils/education/toast.js'
 import AppModal from '@/components/education/AppModal.vue'
 import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
+import OrganizationTransferActions from '@/components/education/OrganizationTransferActions.vue'
 
 const props = defineProps({
   config: { type: Object, required: true }
 })
 
 const cfg = props.config
+const isOrganization = cfg.kind === 'dept'
 const rows = ref([])
 const keyword = ref('')
 const status = ref('')
+const appliedFilters = ref({})
+const filtersOpen = ref(false)
 const expanded = ref(true)
 const collapsedIds = ref(new Set())
 const loading = ref(false)
@@ -21,7 +26,8 @@ const error = ref('')
 let disposed = false
 
 const form = reactive({ open: false, mode: 'add', id: null, data: {}, error: '', saving: false, parentChoices: [] })
-const confirmState = reactive({ open: false, text: '', action: null, busy: false, error: '', danger: true })
+const confirmState = reactive({ open: false, text: '', warnings: [], force: false, action: null, busy: false, error: '' })
+const removalPreviewId = ref(null)
 
 const ordered = computed(() => orderedRowsOf(rows.value, cfg.idKey))
 
@@ -63,12 +69,14 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
+    const filters = { [cfg.labelKey]: keyword.value.trim(), status: status.value }
     const params = new URLSearchParams()
-    if (keyword.value.trim()) params.set(cfg.labelKey, keyword.value.trim())
-    if (status.value !== '') params.set('status', status.value)
+    if (filters[cfg.labelKey]) params.set(cfg.labelKey, filters[cfg.labelKey])
+    if (filters.status !== '') params.set('status', filters.status)
     const data = await api.get(`${cfg.base}/list?${params}`)
     if (disposed) return
     rows.value = Array.isArray(data.data) ? data.data : []
+    if (isOrganization) appliedFilters.value = filters
   } catch (err) {
     if (!disposed && !err.forbidden && !err.unauthorized) error.value = err.message || '加载失败'
   } finally {
@@ -95,12 +103,14 @@ function parentChoices(list, excludeId, currentParent, editing) {
     })
   }
   const choices = []
-  if (cfg.rootAllowed) choices.push({ value: '0', label: '顶级' })
+  const rootAllowed = typeof cfg.rootAllowed === 'function' ? cfg.rootAllowed() : cfg.rootAllowed
+  if (rootAllowed) choices.push({ value: '0', label: '顶级' })
   else if (editing && String(currentParent) === '0') choices.push({ value: '0', label: '顶级（不可修改）', disabled: true })
   const orderedList = orderedRowsOf(list, cfg.idKey)
   orderedList.forEach((item) => {
     if (blocked.has(String(item.row[cfg.idKey]))) return
     if (cfg.kind === 'menu' && item.row.menuType === 'F') return
+    if (isOrganization && item.row.deptType === 'CLASS') return
     choices.push({
       value: String(item.row[cfg.idKey]),
       label: '　'.repeat(item.depth) + item.row[cfg.labelKey]
@@ -151,12 +161,15 @@ async function openForm(id = null, parentId = undefined) {
         if (cfg.defaults[field.key] !== undefined) data[field.key] = String(cfg.defaults[field.key])
       }
     })
+    if (isOrganization && !data.deptType) data.deptType = ''
     form.mode = id === null ? 'add' : 'edit'
     form.id = id
     form.data = data
     form.error = ''
     form.parentChoices = parentChoices(listResult.data, id, data.parentId, id !== null)
-    if ((data.parentId === undefined || data.parentId === '') && form.parentChoices.length) {
+    const needsParent = data.parentId === undefined || data.parentId === ''
+      || (isOrganization && id === null && !form.parentChoices.some((choice) => choice.value === data.parentId))
+    if (needsParent && form.parentChoices.length) {
       form.data.parentId = form.parentChoices[0].value
     }
     form.open = true
@@ -225,12 +238,50 @@ async function save() {
   }
 }
 
-function askRemove(item) {
-  confirmState.text = `确定删除${cfg.title}“${item[cfg.labelKey]}”吗？`
-  confirmState.danger = true
+async function askRemove(item) {
+  if (removalPreviewId.value !== null || confirmState.open) return
+  const id = item[cfg.idKey]
+  const name = item[cfg.labelKey]
+  let endpoint = `${cfg.base}/${id}`
+  let message = `确定删除${cfg.title}“${name}”吗？`
+  let force = false
+  const warnings = []
+  if (isOrganization) {
+    removalPreviewId.value = id
+    try {
+      const response = await api.get(`${endpoint}/delete-preview`, { silent403: true })
+      if (disposed) return
+      const { count, scope, forceRequired, userCount, roleCount, teachingRecords } = response.data || {}
+      if (!Number.isInteger(count) || count < 1 || typeof scope !== 'string' || !scope
+        || typeof forceRequired !== 'boolean') {
+        throw new Error('无法确定组织删除范围')
+      }
+      force = forceRequired
+      message = count > 1
+        ? `将删除“${name}”及其全部下级，共 ${count} 个组织。`
+        : `确定删除组织“${name}”吗？`
+      endpoint += `?expectedScope=${encodeURIComponent(scope)}`
+      if (force) {
+        endpoint += '&force=true'
+        if (count > 1) warnings.push('此分支中的班级会从班级管理中移除。')
+        if (userCount) warnings.push(`${userCount} 个账号将失去原组织归属，学生可能需要重新分班，在线用户可能需要重新登录。`)
+        if (roleCount) warnings.push(`${roleCount} 个角色将移除这些组织的数据范围授权。`)
+        if (teachingRecords) warnings.push('已有学期、课程和教学班记录会保留，依赖原组织的查询或绑定可能受影响。')
+      }
+    } catch (err) {
+      if (!disposed && !err.cancelled && !err.unauthorized) toast(err.message || '无法查询删除范围', 'error')
+      return
+    } finally {
+      removalPreviewId.value = null
+    }
+  }
+  confirmState.text = message
+  confirmState.force = force
+  confirmState.warnings = warnings
   confirmState.error = ''
   confirmState.action = async () => {
-    await api.del(`${cfg.base}/${item[cfg.idKey]}`)
+    const result = await api.del(endpoint, { silent403: isOrganization })
+    if (isOrganization) toast(result.msg || '组织已删除')
     await load()
   }
   confirmState.open = true
@@ -244,7 +295,7 @@ async function runConfirm() {
     await confirmState.action()
     confirmState.open = false
   } catch (err) {
-    confirmState.error = err.forbidden || err.unauthorized ? '' : err.message || '操作失败'
+    confirmState.error = err.unauthorized || (!isOrganization && err.forbidden) ? '' : err.message || '操作失败'
   } finally {
     confirmState.busy = false
   }
@@ -255,21 +306,44 @@ onUnmounted(() => { disposed = true })
 </script>
 
 <template>
-  <div class="panel">
-    <div class="toolbar">
+  <div class="panel" :class="{ 'org-list': isOrganization }">
+    <div v-if="isOrganization" class="org-heading">
+      <h2>组织列表</h2>
+      <div class="org-actions">
+        <button v-if="can('add')" class="ui-btn primary" type="button" @click="openForm()">
+          <Plus class="org-icon" aria-hidden="true" />新建组织
+        </button>
+        <OrganizationTransferActions :filters="appliedFilters" @imported="load" />
+        <button class="ui-btn" type="button" :disabled="!branchIds.size" @click="toggleAll">
+          {{ hasExpandedBranches ? '收起全部' : '展开全部' }}
+        </button>
+        <button
+          class="ui-btn"
+          :class="{ 'filter-active': keyword.trim() || status !== '' }"
+          type="button"
+          :aria-expanded="filtersOpen"
+          aria-controls="organization-filters"
+          @click="filtersOpen = !filtersOpen"
+        >筛选</button>
+      </div>
+    </div>
+
+    <div v-show="!isOrganization || filtersOpen" :id="isOrganization ? 'organization-filters' : undefined" class="toolbar">
       <input v-model="keyword" class="ui-input" :placeholder="`按${cfg.title}名称搜索`" @keyup.enter="load" />
-      <select v-model="status" class="ui-select">
+      <select v-model="status" class="ui-select" aria-label="状态">
         <option value="">全部状态</option>
-        <option value="0">正常</option>
+        <option value="0">{{ isOrganization ? '开启' : '正常' }}</option>
         <option value="1">停用</option>
       </select>
       <button class="ui-btn primary" type="button" @click="load">查询</button>
       <button class="ui-btn" type="button" @click="resetFilters">重置</button>
-      <button class="ui-btn" type="button" :disabled="cfg.collapsible && !branchIds.size" @click="toggleAll">
-        {{ hasExpandedBranches ? '折叠全部' : '展开全部' }}
-      </button>
-      <span class="spacer"></span>
-      <button v-if="can('add')" class="ui-btn primary" type="button" @click="openForm()">新增{{ cfg.title }}</button>
+      <template v-if="!isOrganization">
+        <button class="ui-btn" type="button" :disabled="cfg.collapsible && !branchIds.size" @click="toggleAll">
+          {{ hasExpandedBranches ? '折叠全部' : '展开全部' }}
+        </button>
+        <span class="spacer"></span>
+        <button v-if="can('add')" class="ui-btn primary" type="button" @click="openForm()">新增{{ cfg.title }}</button>
+      </template>
     </div>
 
     <div class="table-wrap">
@@ -300,17 +374,26 @@ onUnmounted(() => { disposed = true })
                 <span v-else class="tree-spacer" aria-hidden="true"></span>
                 <span>{{ column.format ? column.format(item.row[column.key], item.row) : (item.row[column.key] ?? '—') }}</span>
               </span>
+              <span v-else-if="isOrganization && column.key === 'status'" class="org-status">
+                <span class="org-status-dot" :class="{ active: String(item.row.status) === '0' }" aria-hidden="true"></span>
+                {{ column.format(item.row.status) }}
+              </span>
               <template v-else>{{ column.format ? column.format(item.row[column.key], item.row) : (item.row[column.key] ?? '—') }}</template>
             </td>
             <td class="actions">
               <button
-                v-if="can('add') && item.row.menuType !== 'F'"
+                v-if="can('add') && item.row.menuType !== 'F' && (!isOrganization || item.row.deptType !== 'CLASS')"
                 class="ui-btn link"
                 type="button"
                 @click="openForm(null, item.row[cfg.idKey])"
-              >新增下级</button>
-              <button v-if="can('edit')" class="ui-btn link" type="button" @click="openForm(item.row[cfg.idKey])">编辑</button>
-              <button v-if="can('remove')" class="ui-btn link danger" type="button" @click="askRemove(item.row)">删除</button>
+              ><Plus v-if="isOrganization" class="org-icon" aria-hidden="true" />{{ isOrganization ? '新建下级' : '新增下级' }}</button>
+              <button v-if="can('edit')" class="ui-btn link" type="button" @click="openForm(item.row[cfg.idKey])">
+                <EditPen v-if="isOrganization" class="org-icon" aria-hidden="true" />{{ isOrganization ? '修改' : '编辑' }}
+              </button>
+              <button v-if="can('remove')" class="ui-btn link danger" type="button"
+                :disabled="removalPreviewId !== null" @click="askRemove(item.row)">
+                <Delete v-if="isOrganization" class="org-icon" aria-hidden="true" />删除
+              </button>
             </td>
           </tr>
         </tbody>
@@ -326,7 +409,7 @@ onUnmounted(() => { disposed = true })
 
     <AppModal
       v-if="form.open"
-      :title="(form.mode === 'edit' ? '编辑' : '新增') + cfg.title"
+      :title="(form.mode === 'edit' ? '编辑' : isOrganization ? '新建' : '新增') + cfg.title"
       wide
       :busy="form.saving"
       :error="form.error"
@@ -383,11 +466,13 @@ onUnmounted(() => { disposed = true })
 
     <ConfirmDialog
       v-if="confirmState.open"
+      :title="confirmState.force ? '确认强制删除' : '请确认'"
       :text="confirmState.text"
+      :warnings="confirmState.warnings"
       :busy="confirmState.busy"
       :error="confirmState.error"
-      :danger="confirmState.danger"
-      ok-text="删除"
+      danger
+      :ok-text="confirmState.force ? '强制删除' : '删除'"
       @close="confirmState.open = false"
       @confirm="runConfirm"
     />
@@ -400,4 +485,92 @@ onUnmounted(() => { disposed = true })
 .tree-toggle { display: inline-flex; align-items: center; justify-content: center; height: 22px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .tree-toggle:hover { color: var(--primary); background: #e6f7ff; }
 .tree-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.org-list {
+  --org-primary: #0866cf;
+  padding: 12px;
+}
+.org-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 8px;
+}
+.org-heading h2 {
+  margin: 0;
+  color: #17191c;
+  font-size: 16px;
+  font-weight: 600;
+}
+.org-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.org-actions .ui-btn,
+.org-list .actions .ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.org-actions .ui-btn:not(.primary) {
+  box-shadow: 0 2px 0 #eff0f2;
+}
+.org-actions .ui-btn.primary {
+  background: var(--org-primary);
+  border-color: var(--org-primary);
+}
+.org-actions .ui-btn.primary:hover {
+  background: #0758b4;
+  border-color: #0758b4;
+}
+.org-actions .filter-active {
+  color: var(--org-primary);
+  border-color: var(--org-primary);
+}
+.org-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+.org-list .table-wrap {
+  border-color: #eaebee;
+}
+.org-list .ui-table {
+  min-width: 740px;
+  color: #22262b;
+}
+.org-list .ui-table th {
+  padding-block: 12px;
+  background: #f0f0f2;
+  border-bottom-color: #e8e9ec;
+  color: #555b64;
+  font-weight: 500;
+}
+.org-list .ui-table th + th::before {
+  content: '';
+  position: absolute;
+  inset: 10px auto 10px 0;
+  width: 1px;
+  background: #dcdde1;
+}
+.org-list .ui-table td {
+  padding-block: 9px;
+  border-bottom-color: #eeeff2;
+}
+.org-list .ui-table th:first-child { width: 24%; }
+.org-list .ui-table th:nth-child(2),
+.org-list .ui-table th:nth-child(4),
+.org-list .ui-table th:nth-child(5) { width: 10%; }
+.org-list .ui-table th:nth-child(3) { width: 12%; }
+.org-list .ui-table th:nth-child(6) { width: 16%; }
+.org-list .ui-table tbody tr:last-child td { border-bottom: 0; }
+.org-list .tree-toggle { color: #646a73; }
+.org-status { display: inline-flex; align-items: center; gap: 6px; }
+.org-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #9298a1; }
+.org-status-dot.active { background: #1d7846; }
+.org-list .actions .ui-btn.link:not(.danger) { color: var(--org-primary); }
 </style>

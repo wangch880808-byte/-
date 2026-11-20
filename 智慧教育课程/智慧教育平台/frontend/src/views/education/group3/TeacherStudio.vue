@@ -37,7 +37,7 @@
             </el-dropdown>
             <el-button @click="createResourceFolder">新建文件夹</el-button>
             <el-button :loading="resourceImporting" @click="triggerResourceImport">导入</el-button>
-            <el-button @click="exportResources">导出</el-button>
+            <el-button :disabled="!current?.canExport" @click="exportResources">导出</el-button>
             <input
               ref="resourceZipInputRef"
               type="file"
@@ -117,12 +117,6 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="阅读人数" width="100" align="center">
-              <template #default="{ row }">{{ row.rowType === 'resource' ? (row.resource.readCount ?? '-') : '-' }}</template>
-            </el-table-column>
-            <el-table-column label="下载次数" width="100" align="center">
-              <template #default="{ row }">{{ row.rowType === 'resource' ? (row.resource.downloadCount ?? '-') : '-' }}</template>
-            </el-table-column>
             <el-table-column label="大小" width="110" align="center">
               <template #default="{ row }">
                 {{ row.rowType === 'resource' && Number(row.resource.byteSize) > 0 ? formatFileSize(Number(row.resource.byteSize)) : '-' }}
@@ -149,8 +143,10 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">预览</el-dropdown-item>
                         <el-dropdown-item command="versions">版本记录</el-dropdown-item>
-                        <el-dropdown-item v-if="row.resource.processingStatus === 'READY'" command="release">发布</el-dropdown-item>
-                        <el-dropdown-item v-if="row.resource.releaseId" command="revoke">撤回</el-dropdown-item>
+                        <el-dropdown-item command="enhance">设置（下载/水印/任务点）</el-dropdown-item>
+                        <el-dropdown-item v-if="row.resource.studioReleaseId" command="revoke">下架</el-dropdown-item>
+                        <el-dropdown-item v-else command="publish">上架</el-dropdown-item>
+                        <el-dropdown-item v-if="row.resource.processingStatus === 'FAILED'" command="retry">重试转换</el-dropdown-item>
                         <el-dropdown-item v-if="row.resource.resourceKind === 'FILE'" command="newVersion">新版本</el-dropdown-item>
                         <el-dropdown-item :command="row.resource.resourceStatus === 'ARCHIVED' ? 'unarchive' : 'archive'" divided>
                           {{ row.resource.resourceStatus === 'ARCHIVED' ? '取消归档' : '归档' }}
@@ -187,8 +183,9 @@
               </template>
             </el-dropdown>
             <el-button :disabled="questionReadonly" @click="createQuestionFolder">新建文件夹</el-button>
+            <el-button :disabled="questionReadonly" type="success" plain @click="openCompose">智能组卷</el-button>
             <el-checkbox v-model="showQuestionDetail">显示题目详情</el-checkbox>
-            <el-button @click="exportQuestions">导出全部</el-button>
+            <el-button :disabled="!current?.canExport" @click="exportQuestions">导出全部</el-button>
             <el-tag v-if="questionReadonly" type="warning" size="small">
               正在查看其他教学班题库，仅可查看；新增/编辑请切回当前课程
             </el-tag>
@@ -210,6 +207,10 @@
             <span class="filter-label">题型</span>
             <el-select v-model="questionKind" placeholder="全部题型" clearable style="width: 160px">
               <el-option v-for="item in questionKindOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+            <span class="filter-label">难度</span>
+            <el-select v-model="questionDifficulty" placeholder="全部难度" clearable style="width: 130px">
+              <el-option v-for="item in difficultyOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
             <span class="filter-label">知识点</span>
             <el-select v-model="questionPoint" placeholder="请选择" clearable style="width: 200px">
@@ -275,7 +276,12 @@
               </template>
             </el-table-column>
             <el-table-column label="难易" width="80" align="center">
-              <template #default>-</template>
+              <template #default="{ row }">
+                <el-tag v-if="row.rowType === 'question'" size="small" :type="difficultyTagType(row.question.difficulty)">
+                  {{ difficultyLabel(row.question.difficulty) }}
+                </el-tag>
+                <span v-else>-</span>
+              </template>
             </el-table-column>
             <el-table-column label="使用量" width="90" align="center">
               <template #default>-</template>
@@ -315,9 +321,9 @@
         <!-- ============ 章节与知识点 ============ -->
         <el-tab-pane label="章节与知识点" name="outline">
           <div class="toolbar">
-            <el-button type="primary" @click="openCreateUnit('CHAPTER', null)">+ 新建章</el-button>
-            <el-button @click="openCreateKnowledgePoint(null)">+ 新建知识点</el-button>
-            <el-button @click="editorOpen = true">批量编辑</el-button>
+            <el-button v-if="canManageOutline" type="primary" @click="openCreateUnit('CHAPTER', null)">+ 新建章</el-button>
+            <el-button v-if="canManageOutline" @click="openCreateKnowledgePoint(null)">+ 新建知识点</el-button>
+            <el-button v-if="canManageOutline" @click="editorOpen = true">批量编辑</el-button>
             <div class="spacer"></div>
             <el-input v-model="outlineSearch" placeholder="搜索" clearable style="width: 220px" />
           </div>
@@ -370,7 +376,7 @@
               <span>-</span>
               <span>-</span>
               <span class="outline-actions">
-                <el-button link type="primary" @click="openEditPoint(row.point)">编辑</el-button>
+                <el-button v-if="canManageOutline" link type="primary" @click="openEditPoint(row.point)">编辑</el-button>
                 <el-button link type="danger" @click="confirmDeletePoint(row.point)">删除</el-button>
               </span>
             </template>
@@ -481,6 +487,9 @@
         <el-table-column prop="rowNo" label="行号" width="70" align="center" />
         <el-table-column prop="title" label="题目名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="questionKindLabel" label="题型" width="90" />
+        <el-table-column label="难度" width="80" align="center">
+          <template #default="{ row }">{{ difficultyLabel(row.difficulty) }}</template>
+        </el-table-column>
         <el-table-column prop="maxScore" label="满分" width="80" align="center" />
         <el-table-column prop="stem" label="题干" min-width="240" show-overflow-tooltip />
         <el-table-column label="状态" width="90" align="center">
@@ -527,32 +536,12 @@
           </div>
         </el-form-item>
         <el-form-item label="提示">
-          <span class="cell-meta">新版本不会改写已发布版本；需要重新选择该版本发布。</span>
+          <span class="cell-meta">上传后学生端「课程资料」即显示该新版本，旧版本自动失效。</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="versionOpen = false">取 消</el-button>
         <el-button type="primary" :loading="versionSaving" @click="submitNewVersion">保存新版本</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- ============ 发布 ============ -->
-    <el-dialog v-model="releaseOpen" title="设置开放时间并发布" width="480px" append-to-body>
-      <div class="release-title">{{ releaseForm.title }}</div>
-      <p class="cell-meta">
-        发布到 {{ current?.className || '当前教学班' }}；学生只在开放窗口内看到该版本，撤回后旧访问地址立即失效。
-      </p>
-      <el-form label-width="90px" class="mt12">
-        <el-form-item label="开放时间">
-          <el-date-picker v-model="releaseForm.opensAt" type="datetime" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="截止时间">
-          <el-date-picker v-model="releaseForm.closesAt" type="datetime" style="width: 100%" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="releaseOpen = false">取 消</el-button>
-        <el-button type="primary" :loading="releaseSaving" @click="submitRelease">确认发布</el-button>
       </template>
     </el-dialog>
 
@@ -599,18 +588,24 @@
             该资料为外部链接。
             <el-link type="primary" :href="previewLink" target="_blank" rel="noopener noreferrer">打开链接</el-link>
           </div>
-          <video v-else-if="previewMode === 'video'" :src="previewVideoUrl" controls autoplay class="preview-video" />
+          <div v-else-if="previewMode === 'video'" class="preview-watermark-host">
+            <video :src="previewVideoUrl" controls autoplay class="preview-video" />
+            <div v-if="previewWatermark" class="preview-watermark">{{ previewWatermark }}</div>
+          </div>
           <div v-else-if="previewMode === 'empty'" class="preview-empty">
             <strong>该资料没有分页预览</strong>
             <p class="cell-meta">可使用受控下载打开原文件。</p>
             <el-button @click="handleDownload(previewVersionId, bindingId)">下载原文件</el-button>
           </div>
           <template v-else>
-            <img
-              :src="previewPages[previewPageIndex]"
-              :alt="'第 ' + (previewPageIndex + 1) + ' 页'"
-              class="preview-image"
-            />
+            <div class="preview-watermark-host">
+              <img
+                :src="previewPages[previewPageIndex]"
+                :alt="'第 ' + (previewPageIndex + 1) + ' 页'"
+                class="preview-image"
+              />
+              <div v-if="previewWatermark" class="preview-watermark">{{ previewWatermark }}</div>
+            </div>
             <div class="preview-nav">
               <el-button :disabled="previewPageIndex === 0" @click="previewPageIndex -= 1">上一页</el-button>
               <span class="cell-meta">{{ previewPageIndex + 1 }} / {{ previewPages.length }}</span>
@@ -646,6 +641,14 @@
         </el-form-item>
         <el-form-item label="满分">
           <el-input-number v-model="questionForm.maxScore" :min="0" :step="0.5" />
+        </el-form-item>
+        <el-form-item label="难度">
+          <el-select v-model="questionForm.difficulty" style="width: 220px">
+            <el-option v-for="item in difficultyOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="questionForm.tags" placeholder="多个标签用逗号分隔，如：期中,重点" />
         </el-form-item>
         <el-form-item label="题干">
           <el-input v-model="questionForm.stem" type="textarea" :rows="3" placeholder="请输入题干" />
@@ -704,16 +707,97 @@
         <p><strong>答案：</strong>{{ questionPreviewAnswer }}</p>
         <p><strong>答案解析:</strong></p>
         <p>{{ questionPreviewAnalysis }}</p>
-        <p class="cell-meta">难易：{{ questionPreviewCurrent.difficulty || '-' }}</p>
+        <p class="cell-meta">难易：{{ difficultyLabel(questionPreviewCurrent.difficulty) }}</p>
+        <p class="cell-meta">标签：{{ questionPreviewCurrent.tags || '无' }}</p>
         <p class="cell-meta">知识点：{{ questionPreviewCurrent.knowledgePoints || '未关联知识点' }}</p>
       </div>
+    </el-dialog>
+
+    <!-- ============ 智能组卷 ============ -->
+    <el-dialog v-model="composeOpen" title="智能组卷" width="900px" top="6vh" append-to-body>
+      <el-form label-width="80px" inline>
+        <el-form-item label="题型">
+          <el-select v-model="composeForm.questionKind" placeholder="全部" clearable style="width: 140px">
+            <el-option v-for="item in questionKindOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="难度">
+          <el-select v-model="composeForm.difficulty" placeholder="全部" clearable style="width: 130px">
+            <el-option v-for="item in difficultyOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="知识点">
+          <el-select v-model="composeForm.knowledgePoint" placeholder="全部" clearable style="width: 180px">
+            <el-option v-for="item in knowledgePoints" :key="pointId(item)" :label="item.name" :value="item.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="composeForm.tag" placeholder="标签关键字" clearable style="width: 140px" />
+        </el-form-item>
+        <el-form-item label="题量">
+          <el-input-number v-model="composeForm.count" :min="1" :max="100" />
+        </el-form-item>
+        <el-form-item label="方式">
+          <el-select v-model="composeForm.mode" style="width: 120px">
+            <el-option label="随机" value="RANDOM" />
+            <el-option label="顺序" value="SEQUENTIAL" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="composeLoading" @click="submitCompose">生成试卷</el-button>
+        </el-form-item>
+      </el-form>
+      <div v-if="composeResult" class="compose-summary">
+        共 {{ composeResult.count }} 题 · 合计 {{ composeResult.totalScore }} 分
+      </div>
+      <el-table v-if="composeResult" :data="composeResult.questions" border max-height="440" size="small" empty-text="没有符合条件的题目">
+        <el-table-column type="index" label="序号" width="60" align="center" />
+        <el-table-column label="题型" width="90">
+          <template #default="{ row }">{{ questionKindLabel(row.questionKind) }}</template>
+        </el-table-column>
+        <el-table-column label="难度" width="80">
+          <template #default="{ row }">{{ difficultyLabel(row.difficulty) }}</template>
+        </el-table-column>
+        <el-table-column label="题干" min-width="300" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.stem }}</template>
+        </el-table-column>
+        <el-table-column label="分值" width="70" align="center" prop="maxScore" />
+      </el-table>
+      <template #footer>
+        <el-button @click="composeOpen = false">关 闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ============ 资料增强设置 ============ -->
+    <el-dialog v-model="enhanceOpen" :title="`资料设置 · ${enhanceTarget?.title || ''}`" width="560px" append-to-body>
+      <el-form label-width="120px">
+        <el-form-item label="允许下载原文件">
+          <el-switch v-model="enhanceForm.downloadEnabled" />
+          <span class="cell-meta ml6">关闭后学生端无法下载原文件，仅可在线预览</span>
+        </el-form-item>
+        <el-form-item label="预览水印">
+          <el-input v-model="enhanceForm.watermarkText" placeholder="留空表示不叠加水印" maxlength="200" />
+          <div class="cell-meta">预览页将平铺显示该文字，用于防截图泄露</div>
+        </el-form-item>
+        <el-form-item label="设为视频任务点">
+          <el-switch v-model="enhanceForm.taskEnabled" />
+        </el-form-item>
+        <el-form-item v-if="enhanceForm.taskEnabled" label="要求观看秒数">
+          <el-input-number v-model="enhanceForm.taskRequiredSeconds" :min="0" :step="10" />
+          <div class="cell-meta">填 0 时默认要求观看 30 秒；达到时长即标记为完成</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="enhanceOpen = false">取 消</el-button>
+        <el-button type="primary" :loading="enhanceSaving" @click="submitEnhance">保 存</el-button>
+      </template>
     </el-dialog>
 
     <!-- ============ 章节编辑（批量编辑） ============ -->
     <el-dialog v-model="editorOpen" title="编辑章节" width="820px" top="6vh" append-to-body>
       <div class="toolbar">
         <el-button @click="openCreateUnit('CHAPTER', null)">+ 新建章</el-button>
-        <span class="cell-meta">所有修改即时保存；章节下的小节与知识点会一并删除。</span>
+        <span class="cell-meta">删除章节前请先处理其下的小节、知识点和关联资料。</span>
       </div>
       <div class="editor-tree">
         <div v-for="row in editorRows" :key="row.key" :class="['editor-row', row.rowType]">
@@ -856,6 +940,7 @@ import {
   downloadVersion,
   createRelease,
   revokeRelease,
+  retryVersionConversion,
   updateResource,
   updateResourceStatus,
   createQuestion,
@@ -877,12 +962,18 @@ import {
   importResourcesZip,
   listFolders,
   createFolder,
-  moveToFolder
+  moveToFolder,
+  composeQuestions,
+  updateResourceEnhance
 } from '@/api/education/group3'
 import { useGroup3Binding } from './useGroup3Binding'
+import { PROCESSING_LABELS, PROCESSING_STATUS, RELEASE_SOURCE } from './constants'
 import Group3ContextBar from './Group3ContextBar.vue'
 
-const props = defineProps({ contextBindingId: { type: String, default: '' } })
+const props = defineProps({
+  contextBindingId: { type: String, default: '' },
+  canManageOutline: { type: Boolean, default: false }
+})
 const { list, bindingId, current, loading, error, load, select } = useGroup3Binding(() => props.contextBindingId)
 
 const resourceSources = ['本地上传', '云盘', '添加网址', '在线图书', '笔记', '教学资源库', '跨课导入', '课程思政']
@@ -892,6 +983,11 @@ const questionKindOptions = [
   { value: 'MULTIPLE', label: '多选题' },
   { value: 'TRUE_FALSE', label: '判断题' },
   { value: 'SHORT_TEXT', label: '简答题' }
+]
+const difficultyOptions = [
+  { value: 'EASY', label: '简单' },
+  { value: 'MEDIUM', label: '中等' },
+  { value: 'HARD', label: '困难' }
 ]
 const labels = {
   SINGLE: '单选题',
@@ -909,7 +1005,7 @@ const labels = {
   CLOSED: '已截止',
   PRIVATE: '仅教师可见'
 }
-const roleLabels = { PRIMARY: '主讲教师', CO_TEACHER: '协同教师', ASSISTANT: '助教', GUEST: '客座' }
+const roleLabels = { LEAD: '主讲教师', PRIMARY: '主讲教师', CO_TEACHER: '协同教师', ASSIST: '助教', ASSISTANT: '助教', GUEST: '客座' }
 
 const studioTab = ref('resources')
 const overview = ref(null)
@@ -937,10 +1033,6 @@ const versionSaving = ref(false)
 const versionTarget = ref(null)
 const versionFile = ref(null)
 
-const releaseOpen = ref(false)
-const releaseSaving = ref(false)
-const releaseForm = reactive({ versionId: null, title: '', opensAt: new Date(), closesAt: null })
-
 const versionsOpen = ref(false)
 const versionsLoading = ref(false)
 const versions = ref([])
@@ -956,10 +1048,12 @@ const previewPages = ref([])
 const previewPageIndex = ref(0)
 const previewLink = ref('')
 const previewVideoUrl = ref('')
+const previewWatermark = ref('')
 let previewObjectUrls = []
 
 const questionSearch = ref('')
 const questionKind = ref('')
+const questionDifficulty = ref('')
 const questionPoint = ref('')
 const questionFolders = ref([])
 const currentQuestionFolderId = ref(null)
@@ -990,12 +1084,36 @@ const questionForm = reactive({
   answer: '',
   explanation: '',
   scoringRubric: '',
-  knowledgePointIds: []
+  knowledgePointIds: [],
+  difficulty: 'MEDIUM',
+  tags: ''
 })
 
 const questionPreviewOpen = ref(false)
 const questionPreviewList = ref([])
 const questionPreviewIndex = ref(0)
+
+const composeOpen = ref(false)
+const composeLoading = ref(false)
+const composeResult = ref(null)
+const composeForm = reactive({
+  questionKind: '',
+  difficulty: '',
+  knowledgePoint: '',
+  tag: '',
+  count: 10,
+  mode: 'RANDOM'
+})
+
+const enhanceOpen = ref(false)
+const enhanceSaving = ref(false)
+const enhanceTarget = ref(null)
+const enhanceForm = reactive({
+  downloadEnabled: true,
+  watermarkText: '',
+  taskEnabled: false,
+  taskRequiredSeconds: 0
+})
 
 const outlineSearch = ref('')
 const collapsedChapters = ref([])
@@ -1017,7 +1135,9 @@ const classroomOpen = ref(false)
 const classroomLoading = ref(false)
 const classroom = ref(null)
 
-const resourceList = computed(() => overview.value?.resources || [])
+const resourceList = computed(() =>
+  (overview.value?.resources || []).filter(item => String(item.origin || 'STUDIO').toUpperCase() !== 'PREPARE')
+)
 const knowledgePoints = computed(() => overview.value?.knowledgePoints || [])
 
 const questionReadonly = computed(
@@ -1101,6 +1221,7 @@ const filteredQuestions = computed(() => {
     rows = rows.filter(question => String(question.folderId || '') === String(activeQuestionFolder.value.id))
   }
   if (questionKind.value) rows = rows.filter(question => question.questionKind === questionKind.value)
+  if (questionDifficulty.value) rows = rows.filter(question => question.difficulty === questionDifficulty.value)
   if (questionPoint.value) rows = rows.filter(question => String(question.knowledgePoints || '').includes(questionPoint.value))
   const keyword = questionSearch.value.trim().toLowerCase()
   if (keyword) {
@@ -1114,7 +1235,7 @@ const filteredQuestions = computed(() => {
 })
 
 const showQuestionFolders = computed(
-  () => !activeQuestionFolder.value && !questionKind.value && !questionPoint.value
+  () => !activeQuestionFolder.value && !questionKind.value && !questionDifficulty.value && !questionPoint.value
 )
 
 const questionTableRows = computed(() => {
@@ -1300,14 +1421,18 @@ function resourceIcon(item) {
 }
 
 function resourceMeta(item) {
-  const status = item.processingStatus || 'PENDING'
-  const parts = [item.releaseId ? '已发布' : '未发布', `V${item.versionNo || 1}`, `${Number(item.pageCount || 0)} 页`]
-  if (status !== 'READY') parts.push(statusLabelOf(status))
+  const status = item.processingStatus || PROCESSING_STATUS.PENDING
+  const parts = [
+    status === PROCESSING_STATUS.READY ? (item.studioReleaseId ? '学生端可见' : '已下架') : statusLabelOf(status),
+    `V${item.versionNo || 1}`,
+    `${Number(item.pageCount || 0)} 页`
+  ]
   return parts.join(' · ')
 }
 
 function statusLabelOf(status) {
-  return labels[String(status || '').toUpperCase()] || status || '未知'
+  const key = String(status || '').toUpperCase()
+  return PROCESSING_LABELS[key] || labels[key] || status || '未知'
 }
 
 function statusTagType(status) {
@@ -1326,6 +1451,18 @@ function questionKindLabel(kind) {
   return labels[kind] || kind || '-'
 }
 
+function difficultyLabel(value) {
+  const key = String(value || '').toUpperCase()
+  return difficultyOptions.find(item => item.value === key)?.label || key || '-'
+}
+
+function difficultyTagType(value) {
+  const key = String(value || '').toUpperCase()
+  if (key === 'HARD') return 'danger'
+  if (key === 'EASY') return 'success'
+  return 'warning'
+}
+
 function pointId(point) {
   return point?.knowledgePointId || point?.pointId || point?.name || ''
 }
@@ -1340,7 +1477,7 @@ function formatAnswer(answer, kind) {
 }
 
 function handleActionError(e, fallback = '操作失败') {
-  if (e === 'cancel' || e === 'close') return
+  if (e?.cancelled || e === 'cancel' || e === 'close') return
   ElMessage.error(e?.message || fallback)
 }
 
@@ -1364,6 +1501,7 @@ function resetStudioState() {
   selectedRows.value = []
   questionSearch.value = ''
   questionKind.value = ''
+  questionDifficulty.value = ''
   questionPoint.value = ''
   questionBindingFilter.value = ''
   externalQuestions.value = []
@@ -1388,7 +1526,7 @@ async function loadFilterQuestions() {
   } catch (e) {
     externalQuestions.value = []
     externalQuestionFolders.value = []
-    ElMessage.error(e?.message || '题库加载失败')
+    handleActionError(e, '题库加载失败')
   } finally {
     externalQuestionsLoading.value = false
   }
@@ -1408,7 +1546,7 @@ async function loadOverview() {
     await Promise.all([loadResourceFolders(), loadQuestionFolders()])
   } catch (e) {
     overview.value = null
-    ElMessage.error(e?.message || '课程总览加载失败')
+    handleActionError(e, '课程总览加载失败')
   } finally {
     overviewLoading.value = false
   }
@@ -1666,13 +1804,14 @@ async function submitUpload() {
     for (const file of files) {
       const formData = new FormData()
       formData.append('bindingId', bindingId.value)
+      formData.append('releaseSource', RELEASE_SOURCE.STUDIO)
       formData.append('title', file.name.replace(/\.[^.]+$/, ''))
       if (uploadUnitId.value) formData.append('unitId', uploadUnitId.value)
       formData.append('file', file)
       await createResource(formData)
       done += 1
     }
-    ElMessage.success(`已上传 ${done} 个文件`)
+    ElMessage.success(`已上传 ${done} 个文件，学生端课程资料可见`)
     uploadOpen.value = false
     uploadFiles.value = []
     uploadRef.value?.clearFiles()
@@ -1705,6 +1844,7 @@ async function submitNewVersion() {
   try {
     const formData = new FormData()
     formData.append('bindingId', bindingId.value)
+    formData.append('releaseSource', RELEASE_SOURCE.STUDIO)
     formData.append('file', versionFile.value)
     const res = await createResourceVersion(versionTarget.value.resourceId, formData)
     const data = res.data || {}
@@ -1764,65 +1904,91 @@ function confirmArchive(resource, targetStatus) {
     .catch(e => handleActionError(e))
 }
 
-function openRelease(resource) {
-  releaseForm.versionId = resource.versionId
-  releaseForm.title = resource.title
-  releaseForm.opensAt = new Date()
-  releaseForm.closesAt = new Date(Date.now() + 14 * 86400000)
-  releaseOpen.value = true
-}
-
-async function submitRelease() {
-  if (!releaseForm.opensAt) {
-    ElMessage.warning('请填写开放时间')
-    return
-  }
-  const opensAt = new Date(releaseForm.opensAt).toISOString()
-  const closesAt = releaseForm.closesAt ? new Date(releaseForm.closesAt).toISOString() : null
-  if (closesAt && new Date(closesAt) <= new Date(opensAt)) {
-    ElMessage.warning('截止时间必须晚于开放时间')
-    return
-  }
-  releaseSaving.value = true
-  try {
-    await createRelease({
-      bindingId: Number(bindingId.value),
-      resourceVersionId: releaseForm.versionId,
-      opensAt,
-      closesAt
-    })
-    releaseOpen.value = false
-    ElMessage.success('环节已发布到时间轴')
-    await loadOverview()
-  } catch (e) {
-    ElMessage.error(e?.message || '发布失败')
-  } finally {
-    releaseSaving.value = false
-  }
-}
-
 function confirmRevoke(resource) {
   ElMessageBox.confirm(
-    '撤回后学生旧链接立即失效。',
-    `确认撤回“${resource.title}”在 ${current.value?.className || '当前教学班'} 的发布？`,
+    '下架后学生端立即不可见，之后可随时重新上架。',
+    `确认下架“${resource.title}”在 ${current.value?.className || '当前教学班'} 的发布？`,
     { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' }
   )
-    .then(() => revokeRelease(resource.releaseId, bindingId.value, '教师从课前时间轴撤回'))
+    .then(() => revokeRelease(resource.studioReleaseId, bindingId.value, '教师下架课程资料'))
     .then(() => {
-      ElMessage.success('资料已撤回，学生端不再可见')
+      ElMessage.success('资料已下架，学生端不再可见')
       loadOverview()
     })
     .catch(e => handleActionError(e))
 }
 
+async function publishResource(resource) {
+  try {
+    await createRelease({
+      bindingId: Number(bindingId.value),
+      resourceVersionId: resource.versionId,
+      opensAt: new Date().toISOString(),
+      closesAt: null,
+      source: RELEASE_SOURCE.STUDIO
+    })
+    ElMessage.success(
+      resource.processingStatus === PROCESSING_STATUS.READY ? '资料已上架，学生端课程资料可见' : '资料已上架，转换完成后学生可见'
+    )
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '上架失败')
+  }
+}
+
+async function retryConversion(resource) {
+  try {
+    await retryVersionConversion(resource.versionId, Number(bindingId.value))
+    ElMessage.success('已重新提交转换')
+    await loadOverview()
+    pollPendingConversion()
+  } catch (e) {
+    ElMessage.error(e?.message || '重试转换失败')
+  }
+}
+
 function handleResourceCommand(command, resource) {
   if (command === 'preview') openPreview(resource.versionId, resource.bindingId || bindingId.value)
   if (command === 'versions') openVersions(resource)
-  if (command === 'release') openRelease(resource)
+  if (command === 'enhance') openEnhance(resource)
   if (command === 'revoke') confirmRevoke(resource)
+  if (command === 'publish') publishResource(resource)
+  if (command === 'retry') retryConversion(resource)
   if (command === 'newVersion') openNewVersion(resource)
   if (command === 'archive') confirmArchive(resource, 'ARCHIVED')
   if (command === 'unarchive') confirmArchive(resource, 'ACTIVE')
+}
+
+function openEnhance(resource) {
+  enhanceTarget.value = resource
+  Object.assign(enhanceForm, {
+    downloadEnabled: resource.downloadEnabled !== 0,
+    watermarkText: resource.watermarkText || '',
+    taskEnabled: resource.taskEnabled === 1,
+    taskRequiredSeconds: Number(resource.taskRequiredSeconds || 0)
+  })
+  enhanceOpen.value = true
+}
+
+async function submitEnhance() {
+  if (!enhanceTarget.value?.resourceId) return
+  enhanceSaving.value = true
+  try {
+    await updateResourceEnhance(enhanceTarget.value.resourceId, {
+      bindingId: Number(bindingId.value),
+      downloadEnabled: enhanceForm.downloadEnabled,
+      watermarkText: enhanceForm.watermarkText,
+      taskEnabled: enhanceForm.taskEnabled,
+      taskRequiredSeconds: enhanceForm.taskEnabled ? Number(enhanceForm.taskRequiredSeconds) : 0
+    })
+    ElMessage.success('资料设置已保存')
+    enhanceOpen.value = false
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    enhanceSaving.value = false
+  }
 }
 
 async function openVersions(resource) {
@@ -1867,11 +2033,13 @@ async function openPreview(versionId, binding) {
   previewPageIndex.value = 0
   previewLink.value = ''
   previewVideoUrl.value = ''
+  previewWatermark.value = ''
   previewVersionId.value = versionId
   try {
     const res = await getVersion(versionId, bid)
     const version = res.data || {}
     previewTitle.value = version.title || '资料预览'
+    previewWatermark.value = version.watermarkText || ''
     if (version.mediaKind === 'LINK' && version.externalUri) {
       previewMode.value = 'link'
       previewLink.value = version.externalUri
@@ -1904,6 +2072,7 @@ function onPreviewClosed() {
   revokePreviewUrls()
   previewPages.value = []
   previewVideoUrl.value = ''
+  previewWatermark.value = ''
   previewPageIndex.value = 0
 }
 
@@ -1997,6 +2166,33 @@ function handleQuestionCreateCommand(command) {
   ElMessage.info('当前资源库暂无可添加的资源')
 }
 
+function openCompose() {
+  composeResult.value = null
+  composeOpen.value = true
+}
+
+async function submitCompose() {
+  composeLoading.value = true
+  try {
+    const res = await composeQuestions({
+      bindingId: Number(bindingId.value),
+      questionKind: composeForm.questionKind || null,
+      difficulty: composeForm.difficulty || null,
+      knowledgePoint: composeForm.knowledgePoint || null,
+      tag: composeForm.tag || null,
+      count: Number(composeForm.count),
+      mode: composeForm.mode
+    })
+    composeResult.value = res.data || { questions: [], count: 0, totalScore: 0 }
+    if (!composeResult.value.count) ElMessage.info('没有符合条件的题目，请放宽筛选条件')
+  } catch (e) {
+    composeResult.value = null
+    ElMessage.error(e?.message || '组卷失败')
+  } finally {
+    composeLoading.value = false
+  }
+}
+
 function handleQuestionImportCommand(label) {
   if (label !== '模板导入') {
     ElMessage.info(`${label}暂未接入`)
@@ -2069,7 +2265,9 @@ function openCreateQuestion() {
     answer: '',
     explanation: '',
     scoringRubric: '',
-    knowledgePointIds: []
+    knowledgePointIds: [],
+    difficulty: 'MEDIUM',
+    tags: ''
   })
   questionOpen.value = true
 }
@@ -2095,7 +2293,9 @@ function openQuestionVersion(question) {
     knowledgePointIds: knowledgePoints.value
       .filter(point => pointNames.includes(point.name))
       .map(point => Number(point.knowledgePointId))
-      .filter(Boolean)
+      .filter(Boolean),
+    difficulty: question.difficulty || 'MEDIUM',
+    tags: question.tags || ''
   })
   questionOpen.value = true
 }
@@ -2147,7 +2347,9 @@ async function submitQuestion() {
     explanation: questionForm.explanation.trim(),
     scoringRubric: kind === 'SHORT_TEXT' ? questionForm.scoringRubric.trim() : null,
     maxScore: Number(questionForm.maxScore),
-    knowledgePointIds: questionForm.knowledgePointIds
+    knowledgePointIds: questionForm.knowledgePointIds,
+    difficulty: questionForm.difficulty,
+    tags: questionForm.tags.trim()
   }
   questionSaving.value = true
   try {
@@ -2227,7 +2429,9 @@ async function submitQuestionImport() {
         explanation: row.explanation,
         scoringRubric: row.scoringRubric,
         maxScore: row.maxScore,
-        knowledgePointIds: row.knowledgePointIds
+        knowledgePointIds: row.knowledgePointIds,
+        difficulty: row.difficulty,
+        tags: row.tags
       }))
     })
     const data = res.data || {}
@@ -2338,7 +2542,7 @@ async function moveUnit(unit, delta) {
 }
 
 function confirmDeleteUnit(unit) {
-  ElMessageBox.confirm('章节下的小节和知识点也会一并删除，此操作不可恢复。', `确认删除“${unit.title || '该章节'}”？`, {
+  ElMessageBox.confirm('请先处理该章节的下级内容和业务引用。', `确认删除“${unit.title || '该章节'}”？`, {
     type: 'warning',
     confirmButtonText: '确定',
     cancelButtonText: '取消'
@@ -2581,10 +2785,6 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.release-title {
-  font-size: 14px;
-  font-weight: 600;
-}
 .mt12 {
   margin-top: 12px;
 }
@@ -2713,6 +2913,20 @@ onBeforeUnmount(() => {
 .section-title {
   margin: 16px 0 8px;
   font-size: 14px;
+  font-weight: 600;
+}
+.preview-watermark-host { position: relative; overflow: hidden; }
+.preview-watermark {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; user-select: none; z-index: 5;
+  font-size: 40px; font-weight: 600; color: rgba(0, 0, 0, 0.12);
+  white-space: nowrap; transform: rotate(-24deg);
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.4);
+}
+.compose-summary {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  color: #67c23a;
   font-weight: 600;
 }
 </style>
