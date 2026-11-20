@@ -10,11 +10,14 @@ CREATE TABLE edu_term (
     name VARCHAR(120) NOT NULL,
     starts_on DATE NOT NULL,
     ends_on DATE NOT NULL,
+    is_current TINYINT(1) NOT NULL DEFAULT 0,
+    current_flag TINYINT GENERATED ALWAYS AS (IF(is_current = 1, 1, NULL)) STORED,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_edu_term_id_org (id, organization_id),
     UNIQUE KEY uq_edu_term_org_code (organization_id, code),
+    UNIQUE KEY uq_edu_term_single_current (current_flag),
     KEY idx_edu_term_org_dates (organization_id, starts_on, ends_on),
     CONSTRAINT chk_edu_term_dates CHECK (ends_on >= starts_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

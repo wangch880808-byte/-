@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduCourseClassBindingMapper">
+
+    <resultMap id="BindingResult" type="com.ruoyi.education.domain.EduCourseClassBinding">
+        <id     property="id"              column="id"/>
+        <result property="organizationId"  column="organization_id"/>
+        <result property="teachingClassId" column="teaching_class_id"/>
+        <result property="courseSpaceId"   column="course_space_id"/>
+        <result property="boundByUserId"   column="bound_by_user_id"/>
+        <result property="publishedAt"     column="published_at"/>
+        <result property="endedAt"         column="ended_at"/>
+    </resultMap>
+
+    <sql id="selectVo">
+        SELECT id, organization_id, teaching_class_id, course_space_id,
+        bound_by_user_id, published_at, ended_at
+        FROM edu_course_class_binding
+    </sql>
+
+    <!-- 查某个班当前有效的绑定（ended_at IS NULL） -->
+    <select id="selectActiveListByClassId" resultMap="BindingResult">
+        <include refid="selectVo"/>
+        WHERE teaching_class_id = #{classId} AND ended_at IS NULL AND published_at &lt;= NOW(3)
+    </select>
+
+    <select id="selectById" resultMap="BindingResult"><include refid="selectVo"/> WHERE id=#{id}</select>
+
+    <!-- 查某门课绑定了哪些班 -->
+    <select id="selectByCourseId" resultMap="BindingResult">
+        <include refid="selectVo"/>
+        WHERE course_space_id = #{courseId} AND ended_at IS NULL
+        ORDER BY id DESC
+    </select>
+
+    <insert id="insert" parameterType="com.ruoyi.education.domain.EduCourseClassBinding"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_course_class_binding(organization_id, teaching_class_id, course_space_id,
+        bound_by_user_id, published_at)
+        VALUES (#{organizationId}, #{teachingClassId}, #{courseSpaceId},
+        #{boundByUserId}, NOW(3))
+    </insert>
+
+    <update id="endBinding">
+        UPDATE edu_course_class_binding
+        SET ended_at = NOW(3), ended_by_user_id = #{endedByUserId}
+        WHERE id = #{id} AND ended_at IS NULL
+    </update>
+</mapper>

@@ -70,7 +70,7 @@ public class DataScopeAspect
         List<String> conditions = new ArrayList<String>();
         List<String> scopeCustomIds = new ArrayList<String>();
         user.getRoles().forEach(role -> {
-            if (Constants.Dept.DATA_SCOPE_CUSTOM.equals(role.getDataScope()) && StringUtils.equals(role.getStatus(), UserConstants.ROLE_NORMAL) && (StringUtils.isEmpty(permission) || StringUtils.containsAny(role.getPermissions(), Convert.toStrArray(permission))))
+            if (Constants.Dept.DATA_SCOPE_CUSTOM.equals(role.getDataScope()) && StringUtils.equals(role.getStatus(), UserConstants.ROLE_NORMAL) && (StringUtils.isEmpty(permission) || StringUtils.containsAny(role.getPermissions(), Constants.ALL_PERMISSION) || StringUtils.containsAny(role.getPermissions(), Convert.toStrArray(permission))))
             {
                 scopeCustomIds.add(Convert.toStr(role.getRoleId()));
             }
@@ -83,7 +83,7 @@ public class DataScopeAspect
             {
                 continue;
             }
-            if (StringUtils.isNotEmpty(permission) && !StringUtils.containsAny(role.getPermissions(), Convert.toStrArray(permission)))
+            if (StringUtils.isNotEmpty(permission) && !StringUtils.containsAny(role.getPermissions(), Constants.ALL_PERMISSION) && !StringUtils.containsAny(role.getPermissions(), Convert.toStrArray(permission)))
             {
                 continue;
             }
@@ -107,11 +107,17 @@ public class DataScopeAspect
             }
             else if (Constants.Dept.DATA_SCOPE_DEPT.equals(dataScope))
             {
-                sqlString.append(StringUtils.format(" OR {}.{} = {} ", deptAlias, deptField, user.getDeptId()));
+                if (user.getDeptId() == null)
+                    sqlString.append(" OR 1 = 0 ");
+                else
+                    sqlString.append(StringUtils.format(" OR {}.{} = {} ", deptAlias, deptField, user.getDeptId()));
             }
             else if (Constants.Dept.DATA_SCOPE_DEPT_AND_CHILD.equals(dataScope))
             {
-                sqlString.append(StringUtils.format(" OR {}.{} IN ( SELECT dept_id FROM sys_dept WHERE dept_id = {} or find_in_set( {} , ancestors ) )", deptAlias, deptField, user.getDeptId(), user.getDeptId()));
+                if (user.getDeptId() == null)
+                    sqlString.append(" OR 1 = 0 ");
+                else
+                    sqlString.append(StringUtils.format(" OR {}.{} IN ( SELECT dept_id FROM sys_dept WHERE dept_id = {} or find_in_set( {} , ancestors ) )", deptAlias, deptField, user.getDeptId(), user.getDeptId()));
             }
             else if (Constants.Dept.DATA_SCOPE_SELF.equals(dataScope))
             {

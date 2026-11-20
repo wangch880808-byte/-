@@ -31,6 +31,23 @@ public class SysDept extends BaseEntity
     /** 部门名称 */
     private String deptName;
 
+    /** 组织类型，旧数据可为空 */
+    private String deptType;
+
+    private Integer gradeYear;
+    private String educationLevel;
+    private Integer studyYears;
+    private String classRemark;
+
+    public Integer getGradeYear() { return gradeYear; }
+    public void setGradeYear(Integer gradeYear) { this.gradeYear = gradeYear; }
+    public String getEducationLevel() { return educationLevel; }
+    public void setEducationLevel(String educationLevel) { this.educationLevel = educationLevel; }
+    public Integer getStudyYears() { return studyYears; }
+    public void setStudyYears(Integer studyYears) { this.studyYears = studyYears; }
+    public String getClassRemark() { return classRemark; }
+    public void setClassRemark(String classRemark) { this.classRemark = classRemark; }
+
     /** 显示顺序 */
     private Integer orderNum;
 
@@ -95,6 +112,16 @@ public class SysDept extends BaseEntity
     public void setDeptName(String deptName)
     {
         this.deptName = deptName;
+    }
+
+    public String getDeptType()
+    {
+        return deptType;
+    }
+
+    public void setDeptType(String deptType)
+    {
+        this.deptType = deptType;
     }
 
     @NotNull(message = "显示顺序不能为空")
@@ -188,6 +215,7 @@ public class SysDept extends BaseEntity
             .append("parentId", getParentId())
             .append("ancestors", getAncestors())
             .append("deptName", getDeptName())
+            .append("deptType", getDeptType())
             .append("orderNum", getOrderNum())
             .append("leader", getLeader())
             .append("phone", getPhone())

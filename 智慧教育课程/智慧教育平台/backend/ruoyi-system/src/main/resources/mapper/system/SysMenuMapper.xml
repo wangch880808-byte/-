@@ -117,6 +117,7 @@
 		from sys_menu m
 			 left join sys_role_menu rm on m.menu_id = rm.menu_id
 		where m.status = '0' and rm.role_id = #{roleId}
+          and exists (select 1 from sys_role r where r.role_id = rm.role_id and r.status = '0' and r.del_flag = '0')
 	</select>
 	
 	<select id="selectMenuById" parameterType="Long" resultMap="SysMenuResult">
@@ -212,4 +213,4 @@
 	    delete from sys_menu where menu_id = #{menuId}
 	</delete>
 
-</mapper> 
+</mapper>
