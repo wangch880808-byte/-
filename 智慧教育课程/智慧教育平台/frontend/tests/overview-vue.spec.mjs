@@ -383,6 +383,7 @@ await run('缺权限或缺服务端路由时关闭入口且直达零请求', asy
     })
     await openHash(directPage, item.direct)
     await directPage.waitForFunction(path => !location.hash.includes(path), item.direct, { timeout: 10000 })
+    assert.match(await directPage.locator('body').innerText(), /没有访问权限|未开放/, item.role + ' direct')
     assert.equal(await directPage.locator('.overview-board').count(), 0, item.role + ' direct')
     assert.equal(directRequests.length, 0, item.role + ' direct')
     await directContext.close()
