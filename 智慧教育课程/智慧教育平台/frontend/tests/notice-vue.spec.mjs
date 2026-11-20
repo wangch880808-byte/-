@@ -336,6 +336,12 @@ async function installFixture(page, options = {}) {
       ? opts.contextCheck(url)
       : (opts.contextCheck || contextCheck(url)))
   })
+  // 新 main 的顶栏 CurrentTerm 会请求当前学期；夹具必须显式接管，避免落到本机真实后端。
+  await page.route('**/education/scope/term/current', route => json(route, {
+    code: 200,
+    msg: '操作成功',
+    data: { termId: '1', name: '2026-2027-1', code: '2026-2027-1' }
+  }))
   const registerTeacherAction = async (action, bodyOption, delayOption, abortOption, successStatus) => {
     await page.route(`**/education/teacher/announcements/*/${action}`, async route => {
       const request = route.request()
@@ -683,8 +689,13 @@ await run('授权后工作台入口进入通知列表，顶栏角标显示未读
   const pageErrors = []
   page.on('pageerror', error => pageErrors.push(error))
   const requests = await installFixture(page)
-  await openHash(page, '/student?section=notice')
+  await openHash(page, '/student')
+  await page.waitForSelector('.workspace-shortcuts', { timeout: 15000 })
+  await page.locator('.workspace-shortcuts a', { hasText: '学习通知' }).click()
+  await page.waitForFunction(() => location.hash.includes('/student/notices'), null, { timeout: 10000 })
   await page.waitForSelector('.student-notices', { timeout: 15000 })
+  await page.waitForSelector('.current-term', { timeout: 10000 })
+  assert.equal((await page.locator('.current-term').innerText()).trim(), '2026-2027-1')
   const body = await text(page)
   assert.match(body, /学习通知/)
   assert.match(body, /通知-ALL/)
@@ -721,10 +732,11 @@ await run('缺权限时直达和工作台入口均被拦截', async () => {
   await page.waitForFunction(() => !location.hash.includes('/student/notices'), null, { timeout: 10000 })
   assert.equal(await page.locator('.student-notices').count(), 0)
   assert.match(await text(page), /没有访问权限|未开放/)
-  await openHash(page, '/student?section=notice')
-  await page.waitForTimeout(500)
+  await openHash(page, '/student')
+  await page.waitForSelector('.workspace-shortcuts', { timeout: 10000 })
+  assert.equal(await page.locator('.workspace-shortcuts a', { hasText: '学习通知' }).count(), 0,
+    '缺权限时工作台不应出现通知入口')
   assert.equal(await page.locator('.student-notices').count(), 0)
-  assert.match(await text(page), /未开放|没有访问权限/)
   await context.close()
 })
 
@@ -1645,7 +1657,11 @@ await run('学生从通知打开公告后关闭并切班，不重发不重开', 
   assert.equal(detailRequestsBefore, 1)
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !document.querySelector('.ann-dialog'), null, { timeout: 10000 })
-  await page.locator('.workspace-context select').selectOption('101:202')
+  // 新 main 已移除 AppLayout 的全局课程/班级下拉，切班改为 URL query 驱动；
+  // 仍用同一班级上下文和 tab=announcements，保留原迟到响应断言。
+  await page.evaluate(() => {
+    location.hash = '#/student/notices?courseSpaceId=101&classId=202&bindingId=9002&tab=announcements'
+  })
   await page.waitForFunction(() => document.querySelector('.ann-main')?.innerText.includes('公告-9002'), null, { timeout: 15000 })
   await page.waitForTimeout(1200)
   assert.equal(await page.locator('.ann-dialog').count(), 0, '切班后不得重开旧公告')
@@ -1663,7 +1679,10 @@ await run('教师未选教学班时提示选择班级且零列表请求', async 
     role: 'teacher',
     permissions: ['education:announcement:list', 'education:scope:read']
   })
-  await openHash(page, '/teacher?section=notice')
+  await openHash(page, '/teacher')
+  await page.waitForSelector('.workspace-shortcuts', { timeout: 15000 })
+  await page.locator('.workspace-shortcuts a', { hasText: '班级消息 / 公告' }).click()
+  await page.waitForFunction(() => location.hash.includes('/teacher/announcements'), null, { timeout: 10000 })
   await page.waitForSelector('.teacher-announcements', { timeout: 15000 })
   assert.match(await text(page), /请先选择有效教学班/)
   assert.equal(await page.locator('.teacher-announcements .ann-create').count(), 0)

@@ -3,7 +3,7 @@ import { registerBusinessPage } from './ui-pages'
 /**
  * 教师公告业务页注册（6-04 原型）。
  *
- * 工作台「班级消息 / 公告」分区和直达 `/teacher/announcements` 使用同一组件。
+ * 工作台快捷入口和直达 `/teacher/announcements` 使用同一组件。
  * 角色、`education:announcement:list` 权限和服务端 `education/announcements`
  * 路由三项同时满足才显示/可直达。页面内的新建入口要求
  * `education:announcement:add` + 当前班级 canPublish；编辑入口要求
