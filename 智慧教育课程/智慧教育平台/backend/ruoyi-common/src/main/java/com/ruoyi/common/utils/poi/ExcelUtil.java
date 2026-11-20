@@ -356,8 +356,22 @@ public class ExcelUtil<T>
      */
     public List<T> importExcel(String sheetName, InputStream is, int titleNum) throws Exception
     {
+        try (Workbook workbook = WorkbookFactory.create(is))
+        {
+            return importExcel(sheetName, workbook, titleNum);
+        }
+    }
+
+    /** 导入由调用方打开的工作簿，工作簿由调用方关闭。 */
+    public List<T> importExcel(Workbook workbook) throws Exception
+    {
+        return importExcel(StringUtils.EMPTY, workbook, 0);
+    }
+
+    private List<T> importExcel(String sheetName, Workbook workbook, int titleNum) throws Exception
+    {
         this.type = Type.IMPORT;
-        this.wb = WorkbookFactory.create(is);
+        this.wb = workbook;
         List<T> list = new ArrayList<T>();
         // 如果指定sheet名,则取指定sheet中的内容 否则默认指向第1个sheet
         Sheet sheet = StringUtils.isNotEmpty(sheetName) ? wb.getSheet(sheetName) : wb.getSheetAt(0);
@@ -432,7 +446,7 @@ public class ExcelUtil<T>
                     if (String.class == fieldType)
                     {
                         String s = Convert.toStr(val);
-                        if (s.matches("^\\d+\\.0$"))
+                        if (attr.cellType() != ColumnType.TEXT && s.matches("^\\d+\\.0$"))
                         {
                             val = StringUtils.substringBefore(s, ".0");
                         }

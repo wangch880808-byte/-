@@ -20,6 +20,17 @@ public interface SysUserMapper
      */
     public List<SysUser> selectUserList(SysUser sysUser);
 
+    public List<SysUser> selectStudentAccounts(SysUser filter);
+
+    public List<SysUser> selectAdministrativeRoster(SysUser filter);
+
+    public int moveAdministrativeStudent(@Param("userId") Long userId, @Param("fromId") Long fromId,
+            @Param("toId") Long toId, @Param("adding") boolean adding, @Param("updateBy") String updateBy);
+
+    public int updateStudentAccount(SysUser student);
+
+    public int disableStudentAccount(@Param("userId") Long userId, @Param("updateBy") String updateBy);
+
     /**
      * 根据条件分页查询已配用户角色列表
      * 
@@ -68,6 +79,8 @@ public interface SysUserMapper
      */
     public int updateUser(SysUser user);
 
+    public int updateUserProfile(SysUser user);
+
     /**
      * 修改用户头像
      * 
@@ -104,6 +117,9 @@ public interface SysUserMapper
      * @return 结果
      */
     public int resetUserPwd(@Param("userId") Long userId, @Param("password") String password);
+
+    public int resetUserPwdIfCurrent(@Param("userId") Long userId, @Param("currentPassword") String currentPassword,
+            @Param("password") String password);
 
     /**
      * 通过用户ID删除用户

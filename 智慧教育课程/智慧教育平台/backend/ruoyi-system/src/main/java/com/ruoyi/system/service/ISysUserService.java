@@ -19,6 +19,12 @@ public interface ISysUserService
      */
     public List<SysUser> selectUserList(SysUser user);
 
+    public List<SysUser> selectStudentAccounts(SysUser filter);
+
+    public int updateStudentAccount(SysUser student);
+
+    public int disableStudentAccount(Long userId, String operator);
+
     /**
      * 根据条件分页查询已分配用户角色列表
      * 
@@ -188,6 +194,8 @@ public interface ISysUserService
      * @return 结果
      */
     public int resetUserPwd(Long userId, String password);
+
+    public int resetUserPwdIfCurrent(Long userId, String currentPassword, String password);
 
     /**
      * 通过用户ID删除用户

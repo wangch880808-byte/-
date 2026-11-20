@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduTeachingClassMapper">
+
+    <resultMap id="TeachingClassResult" type="com.ruoyi.education.domain.EduTeachingClass">
+        <id     property="id"                 column="id"/>
+        <result property="organizationId"     column="organization_id"/>
+        <result property="termId"             column="term_id"/>
+        <result property="officialCourseId"   column="official_course_id"/>
+        <result property="code"               column="code"/>
+        <result property="name"               column="name"/>
+        <result property="classKind"          column="class_kind"/>
+        <result property="status"             column="status"/>
+    </resultMap>
+
+    <sql id="selectVo">
+        SELECT id, organization_id, term_id, official_course_id, code, name, class_kind, status
+        FROM edu_teaching_class
+    </sql>
+
+    <!-- 管理员查所有班 -->
+    <select id="selectList" parameterType="com.ruoyi.education.domain.EduTeachingClass" resultMap="TeachingClassResult">
+        <include refid="selectVo"/>
+        <where>
+            <if test="name != null and name != ''"> AND name LIKE concat('%', #{name}, '%')</if>
+            <if test="code != null and code != ''"> AND code LIKE concat('%', #{code}, '%')</if>
+            <if test="status != null and status != ''"> AND status = #{status}</if>
+        </where>
+        ORDER BY id DESC
+    </select>
+
+    <!-- 老师查自己教的班：JOIN 教师授权表，只查 valid_to IS NULL 的 -->
+    <select id="selectListByTeacherUserId" resultMap="TeachingClassResult">
+        SELECT DISTINCT tc.id, tc.organization_id, tc.term_id, tc.official_course_id,
+        tc.code, tc.name, tc.class_kind, tc.status
+        FROM edu_teaching_class tc
+        INNER JOIN edu_class_teacher ct ON tc.id = ct.teaching_class_id
+        WHERE ct.user_id = #{userId}
+        AND ct.valid_to IS NULL
+        ORDER BY tc.id DESC
+    </select>
+
+    <!-- 学生查自己在的班：JOIN 学生表，只查 left_at IS NULL 的 -->
+    <select id="selectListByStudentUserId" resultMap="TeachingClassResult">
+        SELECT DISTINCT tc.id, tc.organization_id, tc.term_id, tc.official_course_id,
+        tc.code, tc.name, tc.class_kind, tc.status
+        FROM edu_teaching_class tc
+        INNER JOIN edu_class_student cs ON tc.id = cs.teaching_class_id
+        WHERE cs.user_id = #{userId}
+        AND cs.left_at IS NULL
+        ORDER BY tc.id DESC
+    </select>
+
+    <select id="selectById" parameterType="Long" resultMap="TeachingClassResult">
+        <include refid="selectVo"/> WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.ruoyi.education.domain.EduTeachingClass"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_teaching_class(organization_id, term_id, official_course_id, code, name, class_kind, status)
+        VALUES (#{organizationId}, #{termId}, #{officialCourseId}, #{code}, #{name}, #{classKind}, #{status})
+    </insert>
+
+    <update id="update" parameterType="com.ruoyi.education.domain.EduTeachingClass">
+        UPDATE edu_teaching_class
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="code != null">code = #{code},</if>
+            <if test="classKind != null">class_kind = #{classKind},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="organizationId != null">organization_id = #{organizationId},</if>
+            <if test="termId != null">term_id = #{termId},</if>
+            <if test="officialCourseId != null">official_course_id = #{officialCourseId},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+</mapper>

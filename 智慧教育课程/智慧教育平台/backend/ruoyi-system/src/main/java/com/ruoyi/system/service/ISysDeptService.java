@@ -67,21 +67,8 @@ public interface ISysDeptService
      */
     public int selectNormalChildrenDeptById(Long deptId);
 
-    /**
-     * 是否存在部门子节点
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
-    public boolean hasChildByDeptId(Long deptId);
-
-    /**
-     * 查询部门是否存在用户
-     * 
-     * @param deptId 部门ID
-     * @return 结果 true 存在 false 不存在
-     */
-    public boolean checkDeptExistUser(Long deptId);
+    /** 获取可删除的组织分支。实际删除时锁定分支，确认范围后再写入。 */
+    List<Long> getDeptBranchForRemoval(Long deptId, boolean lock);
 
     /**
      * 校验部门名称是否唯一
@@ -122,11 +109,9 @@ public interface ISysDeptService
      */
     public void updateDeptSort(String[] deptIds, String[] orderNums);
 
-    /**
-     * 删除部门管理信息
-     * 
-     * @param deptId 部门ID
-     * @return 结果
-     */
-    public int deleteDeptById(Long deptId);
+    BranchReferences getBranchReferences(List<Long> ids, boolean lock);
+
+    int deleteDeptBranch(List<Long> ids, boolean force, String operator);
+
+    record BranchReferences(List<Long> userIds, List<Long> roleIds) {}
 }

@@ -1,0 +1,18 @@
+**/node_modules/
+**/target/
+**/dist/
+**/logs/
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+.idea/
+.vscode/
+
+# Frontend environment files contain only public title/API path settings.
+!frontend/.env.development
+!frontend/.env.production
+!frontend/.env.staging
+
+# Local files uploaded at runtime.
+**/data/uploads/

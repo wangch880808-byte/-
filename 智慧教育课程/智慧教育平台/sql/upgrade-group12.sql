@@ -1,0 +1,149 @@
+-- Existing databases: adds missing current-term and organization columns. Does not insert accounts.
+DROP PROCEDURE IF EXISTS group12_term_columns;
+DELIMITER //
+CREATE PROCEDURE group12_term_columns()
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='edu_term' AND column_name='is_current') THEN
+  ALTER TABLE edu_term ADD COLUMN is_current TINYINT(1) NOT NULL DEFAULT 0;
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='edu_term' AND column_name='current_flag') THEN
+  ALTER TABLE edu_term ADD COLUMN current_flag TINYINT GENERATED ALWAYS AS (IF(is_current=1,1,NULL)) STORED;
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='edu_term' AND index_name='uq_edu_term_single_current') THEN
+  ALTER TABLE edu_term ADD UNIQUE KEY uq_edu_term_single_current(current_flag);
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='dept_type') THEN
+  ALTER TABLE sys_dept ADD COLUMN dept_type VARCHAR(16) NULL COMMENT '组织类型：SCHOOL/COLLEGE/MAJOR/CLASS/OTHER';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='grade_year') THEN
+  ALTER TABLE sys_dept ADD COLUMN grade_year SMALLINT UNSIGNED NULL COMMENT '行政班入学年份';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='education_level') THEN
+  ALTER TABLE sys_dept ADD COLUMN education_level VARCHAR(20) NULL COMMENT '行政班教育层次';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='study_years') THEN
+  ALTER TABLE sys_dept ADD COLUMN study_years TINYINT UNSIGNED NULL COMMENT '行政班学制年数';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sys_dept' AND column_name='class_remark') THEN
+  ALTER TABLE sys_dept ADD COLUMN class_remark VARCHAR(500) NULL COMMENT '行政班备注';
+ END IF;
+END//
+CALL group12_term_columns()//
+DROP PROCEDURE group12_term_columns//
+DELIMITER ;
+-- Group 1 public read-only identity contract for the group 2 directory queries.
+-- No password, token, email, address or authentication secret is exposed.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_user AS
+ SELECT user_id,user_name,nick_name,dept_id,phonenumber,status,del_flag FROM sys_user;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_user_role AS SELECT user_id,role_id FROM sys_user_role;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_role AS SELECT role_id,role_key,status,del_flag FROM sys_role;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW v_identity_dept AS SELECT dept_id,parent_id,ancestors,dept_name,order_num,status,del_flag,dept_type FROM sys_dept;
+
+-- Repeatable group 1/group 2 route and operation permissions.
+SET @edu_parent=(SELECT menu_id FROM sys_menu WHERE menu_type='M' AND path='education' LIMIT 1);
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '教学业务',0,6,'education',NULL,1,1,'M','0','0','','education','integration',NOW() WHERE @edu_parent IS NULL;
+SET @edu_parent=(SELECT menu_id FROM sys_menu WHERE menu_type='M' AND path='education' LIMIT 1);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '学期管理',@edu_parent,1,'term','education/admin/TermList',1,1,'C','0','0','education:term:list','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE component='education/admin/TermList' AND menu_type='C');
+SET @edu_menu=(SELECT menu_id FROM sys_menu WHERE component='education/admin/TermList' AND menu_type='C' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_menu FROM sys_role r WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_menu);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '班级管理',@edu_parent,2,'teaching-class','education/admin/ClassList',1,1,'C','0','0','education:class:list','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE component='education/admin/ClassList' AND menu_type='C');
+SET @edu_menu=(SELECT menu_id FROM sys_menu WHERE component='education/admin/ClassList' AND menu_type='C' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_menu FROM sys_role r WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_menu);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '教师管理',@edu_parent,3,'teacher','education/admin/TeacherList',1,1,'C','0','0','education:directory:list','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE component='education/admin/TeacherList' AND menu_type='C');
+SET @edu_menu=(SELECT menu_id FROM sys_menu WHERE component='education/admin/TeacherList' AND menu_type='C' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_menu FROM sys_role r WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_menu);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '学生管理',@edu_parent,4,'student','education/admin/StudentList',1,1,'C','0','0','education:directory:list','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE component='education/admin/StudentList' AND menu_type='C');
+SET @edu_menu=(SELECT menu_id FROM sys_menu WHERE component='education/admin/StudentList' AND menu_type='C' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_menu FROM sys_role r WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_menu);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '我的课程',@edu_parent,5,'course','education/CourseListPage',1,1,'C','0','0','education:course:list','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE component='education/CourseListPage' AND menu_type='C');
+SET @edu_menu=(SELECT menu_id FROM sys_menu WHERE component='education/CourseListPage' AND menu_type='C' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_menu FROM sys_role r WHERE FIND_IN_SET(r.role_key,'teacher,student') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_menu);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '新增学期',@edu_parent,20,'#',1,1,'F','0','0','education:term:add','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:term:add');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:term:add' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '编辑学期',@edu_parent,21,'#',1,1,'F','0','0','education:term:edit','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:term:edit');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:term:edit' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '当前学期',@edu_parent,22,'#',1,1,'F','0','0','education:term:current','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:term:current');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:term:current' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '新增班级',@edu_parent,23,'#',1,1,'F','0','0','education:class:add','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:class:add');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:class:add' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '编辑班级',@edu_parent,24,'#',1,1,'F','0','0','education:class:edit','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:class:edit');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:class:edit' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '班级成员',@edu_parent,25,'#',1,1,'F','0','0','education:class:member','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:class:member');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:class:member' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '任课授权',@edu_parent,26,'#',1,1,'F','0','0','education:class:teacher','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:class:teacher');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:class:teacher' WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '创建课程',@edu_parent,27,'#',1,1,'F','0','0','education:course:add','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:course:add');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:course:add' WHERE FIND_IN_SET(r.role_key,'teacher') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '编辑课程',@edu_parent,28,'#',1,1,'F','0','0','education:course:edit','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:course:edit');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:course:edit' WHERE FIND_IN_SET(r.role_key,'teacher') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '发布课程',@edu_parent,29,'#',1,1,'F','0','0','education:course:publish','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:course:publish');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:course:publish' WHERE FIND_IN_SET(r.role_key,'teacher') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '绑定班级',@edu_parent,30,'#',1,1,'F','0','0','education:course:bind','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:course:bind');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:course:bind' WHERE FIND_IN_SET(r.role_key,'teacher') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,create_by,create_time)
+ SELECT '课程上下文',@edu_parent,31,'#',1,1,'F','0','0','education:scope:read','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:scope:read');
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m ON m.perms='education:scope:read' WHERE FIND_IN_SET(r.role_key,'teacher,student') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=m.menu_id);
+
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@edu_parent FROM sys_role r WHERE r.role_key IN ('admin','teacher','student') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@edu_parent);
+
+
+-- Run in the existing project database. Safe to run again.
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS edu_course_teacher (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    can_manage_students TINYINT(1) NOT NULL DEFAULT 0,
+    can_export TINYINT(1) NOT NULL DEFAULT 0,
+    joined_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    ended_at DATETIME(3) NULL,
+    active_user_id BIGINT GENERATED ALWAYS AS (IF(ended_at IS NULL, user_id, NULL)) STORED,
+    added_by_user_id BIGINT NOT NULL,
+    ended_by_user_id BIGINT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_course_teacher_active (course_space_id, active_user_id),
+    KEY idx_course_teacher_user (user_id, ended_at, course_space_id),
+    CONSTRAINT fk_course_teacher_course FOREIGN KEY (course_space_id) REFERENCES edu_course_space(id),
+    CONSTRAINT chk_course_teacher_flags CHECK (can_manage_students IN (0, 1) AND can_export IN (0, 1)),
+    CONSTRAINT chk_course_teacher_dates CHECK (ended_at IS NULL OR ended_at > joined_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

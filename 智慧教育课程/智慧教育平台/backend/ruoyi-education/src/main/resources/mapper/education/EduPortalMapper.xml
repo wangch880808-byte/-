@@ -1,0 +1,742 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduPortalMapper">
+
+    <!-- ================= 学期 ================= -->
+    <select id="selectTermList" resultType="java.util.Map">
+        SELECT t.id,
+               t.organization_id AS organizationId,
+               s.dept_name AS schoolName,
+               t.code,
+               t.name,
+               DATE_FORMAT(t.starts_on, '%Y-%m-%d') AS startsOn,
+               DATE_FORMAT(t.ends_on, '%Y-%m-%d') AS endsOn,
+               t.is_current AS `current`
+        FROM edu_term t
+        LEFT JOIN v_identity_dept s ON s.dept_id = t.organization_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (t.name LIKE concat('%', #{keyword}, '%') OR t.code LIKE concat('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY t.is_current DESC, t.starts_on DESC, t.id DESC
+    </select>
+
+    <select id="selectTermSchools" resultType="java.util.Map">
+        SELECT CAST(dept_id AS CHAR) AS organizationId, dept_name AS schoolName
+        FROM v_identity_dept
+        WHERE parent_id = 0 AND (dept_type = 'SCHOOL' OR dept_type IS NULL)
+          AND status = '0' AND del_flag = '0'
+        <if test="organizationId != null">
+            AND dept_id = #{organizationId}
+        </if>
+        ORDER BY order_num, dept_id
+    </select>
+
+    <select id="selectTermById" resultType="java.util.Map">
+        SELECT id, organization_id AS organizationId, code, name,
+               DATE_FORMAT(starts_on, '%Y-%m-%d') AS startsOn,
+               DATE_FORMAT(ends_on, '%Y-%m-%d') AS endsOn,
+               is_current AS `current`
+        FROM edu_term WHERE id = #{id}
+    </select>
+
+    <select id="selectCourseClassTermId" resultType="java.lang.Long">
+        SELECT id
+        FROM edu_term
+        WHERE organization_id = #{organizationId} AND ends_on &gt;= CURRENT_DATE()
+        <choose>
+            <when test="termId != null">AND id = #{termId}</when>
+            <otherwise>AND (is_current = 1 OR starts_on &lt;= CURRENT_DATE())</otherwise>
+        </choose>
+        ORDER BY is_current DESC, starts_on DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <update id="clearCurrentTerm">
+        UPDATE edu_term SET is_current = 0 WHERE is_current = 1
+    </update>
+
+    <update id="markCurrentTerm">
+        UPDATE edu_term SET is_current = 1 WHERE id = #{id}
+    </update>
+
+    <!-- ================= 教学班 ================= -->
+    <sql id="teachingClassColumns">
+        tc.id,
+        tc.code,
+        tc.name,
+        tc.organization_id AS organizationId,
+        tc.term_id AS termId,
+        tc.term_id AS semesterId,
+        t.name AS semesterName,
+        t.name AS termName,
+        tc.official_course_id AS officialCourseId,
+        tc.official_course_id AS courseId,
+        oc.name AS courseName,
+        tc.class_kind AS classKind,
+        tc.status,
+        tc.status AS classStatus,
+        DATE_FORMAT(tc.updated_at, '%Y-%m-%d') AS updatedAt,
+        (SELECT u.nick_name
+           FROM edu_class_teacher ct
+           JOIN v_identity_user u ON u.user_id = ct.user_id
+          WHERE ct.teaching_class_id = tc.id AND (ct.valid_from &lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt;NOW(3)))
+          ORDER BY (ct.teacher_role = 'LEAD') DESC, ct.id
+          LIMIT 1) AS teacherName,
+        (SELECT COUNT(*)
+           FROM edu_class_student cs
+          WHERE cs.teaching_class_id = tc.id AND (cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3)))) AS studentCount
+    </sql>
+
+    <select id="selectTeachingClassList" resultType="java.util.Map">
+        SELECT <include refid="teachingClassColumns"/>
+        FROM edu_teaching_class tc
+        LEFT JOIN edu_term t ON t.id = tc.term_id
+        LEFT JOIN edu_official_course oc ON oc.id = tc.official_course_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (tc.name LIKE concat('%', #{keyword}, '%') OR tc.code LIKE concat('%', #{keyword}, '%'))
+            </if>
+            <if test="termId != null">AND tc.term_id = #{termId}</if>
+            <if test="status != null and status != ''">AND tc.status = #{status}</if>
+            <if test="deptId != null">
+                AND EXISTS (
+                    SELECT 1 FROM v_identity_dept selected
+                    WHERE selected.dept_id = #{deptId} AND selected.del_flag = '0' AND selected.status = '0'
+                )
+                AND (
+                    tc.organization_id = #{deptId}
+                    OR EXISTS (
+                        SELECT 1 FROM v_identity_dept owner_dept
+                        WHERE owner_dept.dept_id = tc.organization_id
+                          AND owner_dept.del_flag = '0'
+                          AND FIND_IN_SET(#{deptId}, owner_dept.ancestors)
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM edu_class_student member
+                        JOIN v_identity_user student ON student.user_id = member.user_id
+                        JOIN v_identity_dept student_dept ON student_dept.dept_id = student.dept_id
+                        WHERE member.teaching_class_id = tc.id
+                          AND member.joined_at &lt;= NOW(3)
+                          AND (member.left_at IS NULL OR member.left_at &gt; NOW(3))
+                          AND student.del_flag = '0' AND student.status = '0'
+                          AND student_dept.del_flag = '0'
+                          AND (student_dept.dept_id = #{deptId} OR FIND_IN_SET(#{deptId}, student_dept.ancestors))
+                    )
+                )
+            </if>
+        </where>
+        ORDER BY tc.id DESC
+    </select>
+
+    <select id="selectMajorClasses" resultType="java.util.Map">
+        SELECT class_node.dept_id AS id, class_node.dept_name AS name,
+               class_node.status, major.dept_name AS majorName,
+               (SELECT COUNT(*) FROM v_identity_user u
+                WHERE u.dept_id = class_node.dept_id AND u.del_flag = '0'
+                  AND EXISTS (SELECT 1 FROM v_identity_user_role ur
+                              JOIN v_identity_role r ON r.role_id = ur.role_id
+                              WHERE ur.user_id = u.user_id AND r.role_key = 'student'
+                                AND r.status = '0' AND r.del_flag = '0')) AS studentCount
+        FROM v_identity_dept class_node
+        JOIN v_identity_dept major ON major.dept_id = class_node.parent_id
+        JOIN v_identity_dept college ON college.dept_id = major.parent_id
+        JOIN v_identity_dept school ON school.dept_id = college.parent_id
+        WHERE class_node.dept_type = 'CLASS' AND class_node.del_flag = '0'
+          AND major.dept_id = #{majorId} AND (major.dept_type = 'MAJOR' OR major.dept_type IS NULL)
+          AND major.status = '0' AND major.del_flag = '0'
+          AND college.status = '0' AND college.del_flag = '0'
+          AND (college.dept_type = 'COLLEGE' OR (college.dept_type IS NULL
+               AND (TRIM(college.dept_name) LIKE '%学院' OR TRIM(college.dept_name) LIKE '%系')))
+          AND school.parent_id = 0 AND school.status = '0' AND school.del_flag = '0'
+          AND (school.dept_type = 'SCHOOL' OR school.dept_type IS NULL)
+        <if test="keyword != null and keyword != ''">
+            AND class_node.dept_name LIKE concat('%', #{keyword}, '%')
+        </if>
+        ORDER BY class_node.order_num, class_node.dept_id
+    </select>
+
+    <sql id="organizationIds">
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </sql>
+
+    <select id="hasOrganizationReferences" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM edu_term WHERE organization_id IN <include refid="organizationIds"/>
+            UNION ALL
+            SELECT 1 FROM edu_official_course WHERE organization_id IN <include refid="organizationIds"/>
+            UNION ALL
+            SELECT 1 FROM edu_course_space WHERE organization_id IN <include refid="organizationIds"/>
+            UNION ALL
+            SELECT 1 FROM edu_teaching_class WHERE organization_id IN <include refid="organizationIds"/>
+        )
+    </select>
+
+    <select id="selectTeachingClassById" resultType="java.util.Map">
+        SELECT <include refid="teachingClassColumns"/>
+        FROM edu_teaching_class tc
+        LEFT JOIN edu_term t ON t.id = tc.term_id
+        LEFT JOIN edu_official_course oc ON oc.id = tc.official_course_id
+        WHERE tc.id = #{id}
+    </select>
+
+    <select id="selectTeachingClassByTeacher" resultType="java.util.Map">
+        SELECT <include refid="teachingClassColumns"/>, COALESCE(ct.teacher_role, 'CO_TEACHER') AS teacherRole,
+               COALESCE(ct.can_publish, 0) AS canPublish, COALESCE(ct.can_grade, 0) AS canGrade,
+               COALESCE(ct.can_export, 0) AS canExport
+        FROM edu_teaching_class tc
+        LEFT JOIN edu_class_teacher ct ON ct.teaching_class_id = tc.id AND ct.user_id = #{userId}
+          AND ct.valid_from &lt;= NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt; NOW(3))
+        LEFT JOIN edu_term t ON t.id = tc.term_id
+        LEFT JOIN edu_official_course oc ON oc.id = tc.official_course_id
+        WHERE tc.status = 'ACTIVE' AND (ct.id IS NOT NULL OR EXISTS (
+            SELECT 1 FROM edu_course_teacher team
+            JOIN edu_course_class_binding binding ON binding.course_space_id = team.course_space_id
+            JOIN edu_course_space course ON course.id = binding.course_space_id
+            WHERE binding.teaching_class_id = tc.id AND binding.ended_at IS NULL AND binding.published_at &lt;= NOW(3)
+              AND team.user_id = #{userId} AND team.ended_at IS NULL AND course.deleted_at IS NULL AND course.status &lt;&gt; 'ARCHIVED'
+              AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>
+        ))
+        ORDER BY tc.id DESC
+    </select>
+
+    <select id="selectClassMembers" resultType="java.util.Map">
+        SELECT cs.id AS memberId,
+               cs.teaching_class_id AS classId,
+               cs.user_id AS studentId,
+               cs.user_id AS userId,
+               u.user_name AS studentNo,
+               u.user_name AS userName,
+               u.nick_name AS studentName,
+               u.nick_name AS nickName,
+               IF((cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3))), 'ACTIVE', 'LEFT') AS status,
+               DATE_FORMAT(cs.joined_at, '%Y-%m-%d') AS joinedAt,
+               DATE_FORMAT(cs.left_at, '%Y-%m-%d') AS leftAt
+        FROM edu_class_student cs
+        JOIN v_identity_user u ON u.user_id = cs.user_id
+        WHERE cs.teaching_class_id = #{classId}
+        ORDER BY ((cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3)))) DESC, cs.id
+    </select>
+
+    <select id="selectClassTeachers" resultType="java.util.Map">
+        SELECT ct.id, ct.teaching_class_id AS classId,
+               ct.user_id AS userId,
+               u.user_name AS userName,
+               u.nick_name AS nickName,
+               ct.teacher_role AS teacherRole,
+               ct.can_publish AS canPublish,
+               ct.can_grade AS canGrade,
+               ct.can_export AS canExport,
+               DATE_FORMAT(ct.valid_from, '%Y-%m-%d') AS validFrom,
+               DATE_FORMAT(ct.valid_to, '%Y-%m-%d') AS validTo,
+               (ct.valid_from &lt;= NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt; NOW(3))) AS active
+        FROM edu_class_teacher ct
+        JOIN v_identity_user u ON u.user_id = ct.user_id
+        WHERE ct.teaching_class_id = #{classId}
+        ORDER BY ((ct.valid_from &lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt;NOW(3)))) DESC, ct.id
+    </select>
+
+    <sql id="eligibleRosterStudents">
+        FROM v_identity_user u
+        JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        WHERE u.status = '0' AND u.del_flag = '0'
+          AND d.status = '0' AND d.del_flag = '0'
+          AND CASE WHEN d.ancestors LIKE '%,%'
+                   THEN CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(d.ancestors, ',', 2), ',', -1) AS UNSIGNED)
+                   ELSE d.dept_id END = #{organizationId}
+          AND <include refid="activeStudentRole"/>
+    </sql>
+
+    <sql id="activeStudentRole">
+        EXISTS (
+            SELECT 1 FROM v_identity_user_role ur JOIN v_identity_role r ON r.role_id = ur.role_id
+            WHERE ur.user_id = u.user_id AND r.role_key = 'student' AND r.status = '0' AND r.del_flag = '0'
+        )
+    </sql>
+
+    <sql id="activeSchoolBranch">
+        d.status = '0' AND d.del_flag = '0'
+        AND (d.dept_id = #{organizationId} OR FIND_IN_SET(#{organizationId}, d.ancestors))
+        AND NOT EXISTS (
+            SELECT 1 FROM v_identity_dept ancestor
+            WHERE FIND_IN_SET(ancestor.dept_id, d.ancestors)
+              AND (ancestor.status &lt;&gt; '0' OR ancestor.del_flag &lt;&gt; '0')
+        )
+    </sql>
+
+    <select id="selectCourseRosterOrganizations" resultType="java.util.Map">
+        SELECT CAST(d.dept_id AS CHAR) AS id, CAST(d.parent_id AS CHAR) AS parentId,
+               d.dept_name AS name, d.dept_type AS deptType,
+               (SELECT COUNT(*) FROM v_identity_user u
+                WHERE u.dept_id = d.dept_id AND u.status = '0' AND u.del_flag = '0'
+                  AND <include refid="activeStudentRole"/>) AS studentCount
+        FROM v_identity_dept d
+        WHERE <include refid="activeSchoolBranch"/>
+        ORDER BY d.order_num, d.dept_id
+    </select>
+
+    <select id="selectCourseRosterDepartmentType" resultType="java.lang.String">
+        SELECT COALESCE(d.dept_type, '')
+        FROM v_identity_dept d
+        WHERE d.dept_id = #{sourceDeptId} AND <include refid="activeSchoolBranch"/>
+    </select>
+
+    <select id="selectRosterStudents" resultType="java.util.Map">
+        SELECT u.user_id AS userId, u.user_name AS userName
+        <include refid="eligibleRosterStudents"/>
+        AND u.user_name IN
+          <foreach collection="accounts" item="account" open="(" separator="," close=")">#{account}</foreach>
+    </select>
+
+    <select id="selectCourseRosterSources" resultType="java.util.Map">
+        SELECT c.id AS courseId, c.title AS courseTitle, tc.id AS teachingClassId,
+               tc.name AS className, t.name AS termName
+        FROM edu_course_space c
+        JOIN edu_course_class_binding b ON b.course_space_id = c.id AND b.organization_id = c.organization_id
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        JOIN edu_term t ON t.id = tc.term_id
+        WHERE c.deleted_at IS NULL AND c.organization_id = #{organizationId}
+          AND (c.owner_user_id = #{teacherId} OR EXISTS (SELECT 1 FROM edu_course_teacher team
+              WHERE team.course_space_id=c.id AND team.user_id=#{teacherId} AND team.ended_at IS NULL
+                AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>))
+          AND b.ended_at IS NULL AND b.published_at &lt;= NOW(3) AND tc.id &lt;&gt; #{classId}
+          AND (EXISTS (
+              SELECT 1
+              FROM edu_class_teacher teacher
+              WHERE teacher.teaching_class_id = tc.id AND teacher.user_id = #{teacherId}
+                AND teacher.valid_from &lt;= NOW(3)
+                AND (teacher.valid_to IS NULL OR teacher.valid_to &gt; NOW(3))
+          ) OR EXISTS (SELECT 1 FROM edu_course_teacher team WHERE team.course_space_id=c.id
+                AND team.user_id=#{teacherId} AND team.ended_at IS NULL
+                AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>))
+        <if test="sourceCourseId != null">AND c.id = #{sourceCourseId}</if>
+        <if test="sourceClassId != null">AND tc.id = #{sourceClassId}</if>
+        ORDER BY c.updated_at DESC, c.id DESC, tc.name, tc.id
+    </select>
+
+    <sql id="optionalSourceRoster">
+        <if test="sourceClassId != null">
+            AND EXISTS (
+                SELECT 1
+                FROM edu_class_student member
+                WHERE member.teaching_class_id = #{sourceClassId} AND member.user_id = u.user_id
+                  AND member.joined_at &lt;= NOW(3) AND (member.left_at IS NULL OR member.left_at &gt; NOW(3))
+            )
+        </if>
+    </sql>
+
+    <sql id="rosterSourceDepartment">
+        <if test="sourceDeptId != null">
+            AND <include refid="activeSchoolBranch"/>
+            AND (u.dept_id = #{sourceDeptId}
+                <if test="includeDescendants">OR FIND_IN_SET(#{sourceDeptId}, d.ancestors)</if>
+            )
+        </if>
+    </sql>
+
+    <sql id="missingFromTargetRoster">
+        AND NOT EXISTS (
+            SELECT 1
+            FROM edu_class_student member
+            WHERE member.teaching_class_id = #{classId} AND member.user_id = u.user_id
+              AND member.joined_at &lt;= NOW(3) AND (member.left_at IS NULL OR member.left_at &gt; NOW(3))
+        )
+    </sql>
+
+    <select id="selectCourseRosterCandidates" resultType="java.util.Map">
+        SELECT u.user_id AS userId, u.user_name AS userName, u.nick_name AS nickName, d.dept_name AS deptName
+        <include refid="eligibleRosterStudents"/>
+        <include refid="optionalSourceRoster"/>
+        <include refid="rosterSourceDepartment"/>
+        <include refid="missingFromTargetRoster"/>
+        <if test="keyword != null and keyword != ''">
+            AND (u.user_name LIKE concat('%', #{keyword}, '%') OR u.nick_name LIKE concat('%', #{keyword}, '%'))
+        </if>
+        ORDER BY u.user_name, u.user_id
+    </select>
+
+    <select id="selectCourseRosterStudentIds" resultType="java.lang.Long">
+        SELECT u.user_id
+        <include refid="eligibleRosterStudents"/>
+        <include refid="optionalSourceRoster"/>
+        <include refid="rosterSourceDepartment"/>
+        <choose>
+            <when test="studentIds != null">
+                AND u.user_id IN
+                <foreach collection="studentIds" item="studentId" open="(" separator="," close=")">#{studentId}</foreach>
+            </when>
+            <otherwise>
+                <include refid="missingFromTargetRoster"/>
+            </otherwise>
+        </choose>
+        ORDER BY u.user_id
+    </select>
+
+    <select id="countActiveTeacher" resultType="int">
+        SELECT
+            (SELECT COUNT(*) FROM edu_class_teacher
+             WHERE teaching_class_id = #{classId} AND user_id = #{userId}
+               AND valid_from &lt;=NOW(3) AND (valid_to IS NULL OR valid_to &gt;NOW(3)))
+            + (SELECT COUNT(*) FROM edu_course_teacher team
+               JOIN edu_course_class_binding binding ON binding.course_space_id = team.course_space_id
+               JOIN edu_course_space course ON course.id = binding.course_space_id
+               WHERE binding.teaching_class_id = #{classId} AND binding.ended_at IS NULL
+                 AND binding.published_at &lt;= NOW(3) AND team.user_id = #{userId} AND team.ended_at IS NULL
+                 AND course.deleted_at IS NULL AND course.status &lt;&gt; 'ARCHIVED'
+                 AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>)
+    </select>
+
+    <insert id="insertClassStudent">
+        INSERT INTO edu_class_student(teaching_class_id, user_id, joined_at, recorded_by_user_id)
+        VALUES (#{classId}, #{userId}, NOW(3), #{recordedBy})
+    </insert>
+
+    <insert id="insertClassTeacher">
+        INSERT INTO edu_class_teacher(teaching_class_id, user_id, teacher_role,
+                                      can_publish, can_grade, can_export,
+                                      valid_from, valid_to, granted_by_user_id)
+        VALUES (#{classId}, #{userId}, #{teacherRole},
+                IFNULL(#{canPublish}, 0), IFNULL(#{canGrade}, 0), IFNULL(#{canExport}, 0),
+                NOW(3),
+                <choose>
+                    <when test="validTo != null and validTo != ''">STR_TO_DATE(#{validTo}, '%Y-%m-%d')</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+                #{grantedBy})
+    </insert>
+
+    <!-- ================= 教师 / 学生 / 组织 ================= -->
+    <!-- 显式学校、学院优先；旧数据只有根节点及学校直辖的学院/系参与教师筛选。 -->
+    <sql id="teacherDepartment">
+        (
+            (${deptAlias}.parent_id = 0 AND (${deptAlias}.dept_type = 'SCHOOL' OR ${deptAlias}.dept_type IS NULL))
+            OR (
+                (${deptAlias}.dept_type = 'COLLEGE' OR (
+                    ${deptAlias}.dept_type IS NULL
+                    AND (TRIM(${deptAlias}.dept_name) LIKE '%学院' OR TRIM(${deptAlias}.dept_name) LIKE '%系')
+                ))
+                AND EXISTS (
+                    SELECT 1 FROM v_identity_dept school
+                    WHERE school.dept_id = ${deptAlias}.parent_id
+                      AND school.parent_id = 0 AND school.del_flag = '0' AND school.status = '0'
+                      AND (school.dept_type = 'SCHOOL' OR school.dept_type IS NULL)
+                )
+            )
+        )
+    </sql>
+
+    <select id="selectTeacherList" resultType="java.util.Map">
+        SELECT u.user_id AS userId,
+               u.user_name AS userName,
+               u.nick_name AS nickName,
+               d.dept_name AS deptName,
+               u.phonenumber AS phone,
+               u.phonenumber AS phonenumber,
+               (SELECT COUNT(*) FROM edu_class_teacher ct
+                 WHERE ct.user_id = u.user_id AND (ct.valid_from &lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt;NOW(3)))) AS classCount
+        FROM v_identity_user u
+        JOIN v_identity_user_role ur ON ur.user_id = u.user_id
+        JOIN v_identity_role r ON r.role_id = ur.role_id AND r.role_key = 'teacher' AND r.status = '0'
+        LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        WHERE u.del_flag = '0' AND u.status = '0'
+        <if test="keyword != null and keyword != ''">
+            AND (u.user_name LIKE concat('%', #{keyword}, '%') OR u.nick_name LIKE concat('%', #{keyword}, '%'))
+        </if>
+        <if test="deptId != null">
+            AND (u.dept_id = #{deptId} OR FIND_IN_SET(#{deptId}, d.ancestors))
+            AND EXISTS (
+                SELECT 1 FROM v_identity_dept selected
+                WHERE selected.dept_id = #{deptId} AND selected.del_flag = '0' AND selected.status = '0'
+                  AND <include refid="teacherDepartment"><property name="deptAlias" value="selected"/></include>
+            )
+        </if>
+        ORDER BY u.user_id
+    </select>
+
+    <select id="selectTeacherClasses" resultType="java.util.Map">
+        SELECT ct.teaching_class_id AS classId,
+               tc.name AS className,
+               tc.name AS name,
+               t.name AS termName,
+               t.name AS semesterName,
+               ct.teacher_role AS teacherRole,
+               ct.can_publish AS canPublish,
+               ct.can_grade AS canGrade,
+               ct.can_export AS canExport,
+               DATE_FORMAT(ct.valid_from, '%Y-%m-%d') AS validFrom,
+               DATE_FORMAT(ct.valid_to, '%Y-%m-%d') AS validTo,
+               tc.status
+        FROM edu_class_teacher ct
+        JOIN edu_teaching_class tc ON tc.id = ct.teaching_class_id
+        LEFT JOIN edu_term t ON t.id = tc.term_id
+        WHERE ct.user_id = #{userId}
+        ORDER BY ((ct.valid_from &lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt;NOW(3)))) DESC, ct.id DESC
+    </select>
+
+    <select id="selectStudentList" resultType="java.util.Map">
+        SELECT u.user_id AS userId,
+               u.user_name AS userName,
+               u.nick_name AS nickName,
+               d.dept_name AS deptName,
+               (SELECT GROUP_CONCAT(tc.name ORDER BY tc.id SEPARATOR '、')
+                  FROM edu_class_student cs
+                  JOIN edu_teaching_class tc ON tc.id = cs.teaching_class_id
+                 WHERE cs.user_id = u.user_id AND (cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3)))) AS className,
+               (SELECT COUNT(*) FROM edu_class_student cs
+                 WHERE cs.user_id = u.user_id AND (cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3)))) AS classCount
+        FROM v_identity_user u
+        JOIN v_identity_user_role ur ON ur.user_id = u.user_id
+        JOIN v_identity_role r ON r.role_id = ur.role_id AND r.role_key = 'student' AND r.status = '0'
+        LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        WHERE u.del_flag = '0' AND u.status = '0'
+        <if test="keyword != null and keyword != ''">
+            AND (u.user_name LIKE concat('%', #{keyword}, '%') OR u.nick_name LIKE concat('%', #{keyword}, '%'))
+        </if>
+        <if test="deptId != null">
+            AND (u.dept_id = #{deptId} OR FIND_IN_SET(#{deptId}, d.ancestors))
+        </if>
+        ORDER BY u.user_id
+    </select>
+
+    <select id="selectStudentClasses" resultType="java.util.Map">
+        SELECT cs.teaching_class_id AS classId,
+               tc.name AS className,
+               tc.name AS name,
+               tc.code AS code,
+               tc.organization_id AS organizationId,
+               tc.term_id AS termId,
+               tc.class_kind AS classKind,
+               tc.status AS classStatus,
+               t.name AS termName,
+               t.name AS semesterName,
+               IF((cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3))), 'ACTIVE', 'LEFT') AS status,
+               DATE_FORMAT(cs.joined_at, '%Y-%m-%d') AS joinedAt,
+               DATE_FORMAT(cs.left_at, '%Y-%m-%d') AS leftAt
+        FROM edu_class_student cs
+        JOIN edu_teaching_class tc ON tc.id = cs.teaching_class_id
+        LEFT JOIN edu_term t ON t.id = tc.term_id
+        WHERE cs.user_id = #{userId}
+        ORDER BY ((cs.joined_at &lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at &gt;NOW(3)))) DESC, cs.id DESC
+    </select>
+
+    <select id="selectDeptTree" resultType="java.util.Map">
+        SELECT d.dept_id AS id,
+               d.dept_name AS name,
+               d.parent_id AS parentId,
+               d.dept_type AS deptType,
+               d.status AS status,
+               (SELECT COUNT(*) FROM v_identity_user u
+                  JOIN v_identity_user_role ur ON ur.user_id = u.user_id
+                  JOIN v_identity_role r ON r.role_id = ur.role_id AND r.role_key = 'teacher'
+                 WHERE u.dept_id = d.dept_id AND u.del_flag = '0') AS teacherCount,
+               (SELECT COUNT(*) FROM v_identity_user u
+                  JOIN v_identity_user_role ur ON ur.user_id = u.user_id
+                  JOIN v_identity_role r ON r.role_id = ur.role_id AND r.role_key = 'student'
+                 WHERE u.dept_id = d.dept_id AND u.del_flag = '0') AS studentCount
+        FROM v_identity_dept d
+        WHERE d.del_flag = '0' AND d.status = '0'
+        <if test="teacherOnly">
+            AND <include refid="teacherDepartment"><property name="deptAlias" value="d"/></include>
+        </if>
+        ORDER BY d.parent_id, d.order_num, d.dept_id
+    </select>
+
+    <select id="selectOfficialCourses" resultType="java.util.Map">
+        SELECT id, code, name, status
+        FROM edu_official_course
+        <where>
+            <if test="organizationId != null">AND organization_id=#{organizationId}</if>
+            AND status='ACTIVE' 
+            <if test="keyword != null and keyword != ''">
+                AND (name LIKE concat('%', #{keyword}, '%') OR code LIKE concat('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY code
+    </select>
+
+    <!-- ================= 课程空间 ================= -->
+    <sql id="courseColumns">
+        cs.id,
+        cs.title AS name,
+        cs.title,
+        cs.status,
+        cs.summary,
+        cs.learning_objectives AS learningObjectives,
+        cs.official_course_id AS officialCourseId,
+        cs.owner_user_id AS ownerUserId,
+        oc.name AS officialCourseName,
+        u.nick_name AS teacherName,
+        DATE_FORMAT(cs.updated_at, '%Y-%m-%d') AS updatedAt,
+        (SELECT GROUP_CONCAT(tc.name ORDER BY tc.id SEPARATOR '、')
+           FROM edu_course_class_binding b
+           JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+          WHERE b.course_space_id = cs.id AND b.ended_at IS NULL) AS className,
+        (SELECT t.name
+           FROM edu_course_class_binding b
+           JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+           JOIN edu_term t ON t.id = tc.term_id
+          WHERE b.course_space_id = cs.id AND b.ended_at IS NULL
+          ORDER BY b.id LIMIT 1) AS semesterName,
+        (SELECT COUNT(*)
+           FROM edu_course_class_binding b
+          WHERE b.course_space_id = cs.id AND b.ended_at IS NULL) AS classCount,
+        (SELECT COUNT(DISTINCT cst.user_id)
+           FROM edu_course_class_binding b
+           JOIN edu_class_student cst ON cst.teaching_class_id = b.teaching_class_id AND (cst.joined_at &lt;=NOW(3) AND (cst.left_at IS NULL OR cst.left_at &gt;NOW(3)))
+          WHERE b.course_space_id = cs.id AND b.ended_at IS NULL) AS studentCount
+    </sql>
+
+    <select id="selectCourseList" resultType="java.util.Map">
+        SELECT <include refid="courseColumns"/>
+        FROM edu_course_space cs
+        LEFT JOIN edu_official_course oc ON oc.id = cs.official_course_id
+        LEFT JOIN v_identity_user u ON u.user_id = cs.owner_user_id
+        <where>
+            cs.deleted_at IS NULL
+            <if test="ownerUserId != null">
+                AND (cs.owner_user_id = #{ownerUserId} OR EXISTS (
+                    SELECT 1 FROM edu_course_teacher team WHERE team.course_space_id = cs.id
+                      AND team.user_id = #{ownerUserId} AND team.ended_at IS NULL
+                      AND <include refid="com.ruoyi.education.mapper.EduCourseManagementMapper.activeTeacherAccount"/>
+                ))
+            </if>
+            <if test="studentUserId != null">
+                AND cs.status = 'ACTIVE'
+                AND EXISTS (
+                    SELECT 1
+                      FROM edu_course_class_binding b
+                      JOIN edu_class_student cst ON cst.teaching_class_id = b.teaching_class_id
+                     WHERE b.course_space_id = cs.id
+                       AND b.ended_at IS NULL
+                       AND b.published_at &lt;=NOW(3) AND EXISTS(SELECT 1 FROM edu_teaching_class cl WHERE cl.id=b.teaching_class_id AND cl.status='ACTIVE') AND cst.user_id = #{studentUserId}
+                       AND (cst.joined_at &lt;=NOW(3) AND (cst.left_at IS NULL OR cst.left_at &gt;NOW(3))))
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND cs.title LIKE concat('%', #{keyword}, '%')
+            </if>
+        </where>
+        ORDER BY cs.updated_at DESC, cs.id DESC
+    </select>
+
+    <select id="selectCourseById" resultType="java.util.Map">
+        SELECT <include refid="courseColumns"/>
+        FROM edu_course_space cs
+        LEFT JOIN edu_official_course oc ON oc.id = cs.official_course_id
+        LEFT JOIN v_identity_user u ON u.user_id = cs.owner_user_id
+        WHERE cs.id = #{id} AND cs.deleted_at IS NULL
+    </select>
+
+    <select id="selectCourseUnits" resultType="java.util.Map">
+        SELECT id, parent_unit_id AS parentUnitId, unit_kind AS unitKind,
+               title, sort_order AS sortOrder
+        FROM edu_course_unit
+        WHERE course_space_id = #{courseId}
+        ORDER BY sort_order, id
+    </select>
+
+    <select id="selectCourseKnowledgePoints" resultType="java.util.Map">
+        SELECT id, unit_id AS unitId, code, name
+        FROM edu_knowledge_point
+        WHERE course_space_id = #{courseId}
+        ORDER BY code, id
+    </select>
+
+    <select id="selectCourseBindings" resultType="java.util.Map">
+        SELECT b.id,
+               b.teaching_class_id AS classId,
+               tc.name AS name,
+               tc.name AS className,
+               t.name AS termName,
+               DATE_FORMAT(b.published_at, '%Y-%m-%d') AS publishedAt,
+               (SELECT COUNT(*) FROM edu_class_student cst
+                 WHERE cst.teaching_class_id = b.teaching_class_id AND (cst.joined_at &lt;=NOW(3) AND (cst.left_at IS NULL OR cst.left_at &gt;NOW(3)))) AS studentCount
+        FROM edu_course_class_binding b
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        LEFT JOIN edu_term t ON t.id = tc.term_id
+        WHERE b.course_space_id = #{courseId} AND b.ended_at IS NULL
+        ORDER BY b.id
+    </select>
+
+
+    <select id="countStudentInCourse" resultType="int">
+        SELECT COUNT(DISTINCT cst.user_id)
+        FROM edu_course_class_binding b
+        JOIN edu_class_student cst ON cst.teaching_class_id = b.teaching_class_id
+        WHERE b.course_space_id = #{courseId}
+          AND b.ended_at IS NULL
+          AND b.published_at &lt;=NOW(3) AND EXISTS(SELECT 1 FROM edu_teaching_class cl WHERE cl.id=b.teaching_class_id AND cl.status='ACTIVE') AND cst.user_id = #{userId}
+          AND (cst.joined_at &lt;=NOW(3) AND (cst.left_at IS NULL OR cst.left_at &gt;NOW(3)))
+    </select>
+
+    <select id="countActiveBinding" resultType="int">
+        SELECT COUNT(*) FROM edu_course_class_binding
+        WHERE course_space_id = #{courseId} AND teaching_class_id = #{classId} AND ended_at IS NULL
+    </select>
+
+    <select id="countCourseClassByName" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_course_class_binding binding
+        JOIN edu_teaching_class tc ON tc.id = binding.teaching_class_id
+        WHERE binding.course_space_id = #{courseId} AND binding.ended_at IS NULL AND tc.name = #{name}
+    </select>
+
+    <update id="endCourseBindings">
+        UPDATE edu_course_class_binding
+        SET ended_at = GREATEST(NOW(3), TIMESTAMPADD(MICROSECOND, 1000, published_at)),
+            ended_by_user_id = #{userId}
+        WHERE course_space_id = #{courseId} AND ended_at IS NULL
+    </update>
+
+    <update id="updateCourseStatus">
+        UPDATE edu_course_space SET status = #{status} WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
+    <update id="updateCourseStatusForOwner">
+        UPDATE edu_course_space SET status = #{status}
+        WHERE id = #{id} AND owner_user_id = #{ownerUserId}
+    </update>
+
+    <update id="endBinding">
+        UPDATE edu_course_class_binding
+        SET ended_at = NOW(3), ended_by_user_id = #{userId}
+        WHERE id = #{bindingId} AND course_space_id = #{courseId} AND ended_at IS NULL
+    </update>
+
+    <!-- ================= 组织推导 ================= -->
+    <select id="selectOrganizationIdByUserId" resultType="java.lang.Long">
+        SELECT CASE
+                 WHEN d.ancestors LIKE '%,%'
+                   THEN CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(d.ancestors, ',', 2), ',', -1) AS UNSIGNED)
+                 ELSE d.dept_id
+               END
+        FROM v_identity_dept d
+        JOIN v_identity_user u ON u.dept_id = d.dept_id
+        WHERE u.user_id = #{userId}
+    </select>
+
+    <select id="selectOrganizationIdByTermId" resultType="java.lang.Long">
+        SELECT organization_id FROM edu_term WHERE id = #{termId}
+    </select>
+
+    <select id="selectOrganizationIdByClassId" resultType="java.lang.Long">
+        SELECT organization_id FROM edu_teaching_class WHERE id = #{classId}
+    </select>
+
+    <select id="selectOrganizationIdByOfficialCourseId" resultType="java.lang.Long">
+        SELECT organization_id FROM edu_official_course WHERE id = #{officialCourseId}
+    </select>
+    <select id="selectStudentCourseBindings" resultType="java.util.Map">
+      SELECT b.id,tc.id AS classId,tc.name,tc.name AS className,t.name AS termName,b.published_at AS publishedAt
+      FROM edu_course_class_binding b JOIN edu_teaching_class tc ON tc.id=b.teaching_class_id JOIN edu_term t ON t.id=tc.term_id
+      JOIN edu_class_student cs ON cs.teaching_class_id=tc.id AND cs.user_id=#{userId}
+      WHERE b.course_space_id=#{courseId} AND b.ended_at IS NULL AND b.published_at&lt;=NOW(3) AND tc.status='ACTIVE'
+      AND cs.joined_at&lt;=NOW(3) AND (cs.left_at IS NULL OR cs.left_at&gt;NOW(3))
+    </select>
+    <select id="countActiveAccountRole" resultType="int">
+      SELECT COUNT(*) FROM v_identity_user u JOIN v_identity_user_role ur ON ur.user_id=u.user_id JOIN v_identity_role r ON r.role_id=ur.role_id
+      WHERE u.user_id=#{userId} AND u.status='0' AND u.del_flag='0' AND r.role_key=#{roleKey} AND r.status='0' AND r.del_flag='0'
+    </select>
+</mapper>
