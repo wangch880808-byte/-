@@ -274,6 +274,15 @@ function card(page, code) {
   return page.locator(`.ov-card[data-metric="${code}"]`)
 }
 
+async function waitForRecorded(requests, predicate) {
+  const deadline = Date.now() + 3000
+  while (Date.now() < deadline) {
+    if (requests.some(predicate)) return
+    await sleep(20)
+  }
+  throw new Error('等待夹具记录请求超时')
+}
+
 const results = []
 async function run(name, fn) {
   try {
@@ -455,6 +464,7 @@ await run('教师 classId Long 上界、溢出和格式边界按字符串校验'
   await input.fill(validMax)
   await apply.click()
   await maxRequest
+  await waitForRecorded(requests, item => item.kind === 'teacher' && item.query.classId === validMax)
   assert.equal(requests.filter(item => item.kind === 'teacher').at(-1).query.classId, validMax)
 
   const afterMax = requests.length
@@ -471,6 +481,7 @@ await run('教师 classId Long 上界、溢出和格式边界按字符串校验'
   await input.fill(normalLarge)
   await apply.click()
   await largeRequest
+  await waitForRecorded(requests, item => item.kind === 'teacher' && item.query.classId === normalLarge)
   assert.equal(requests.filter(item => item.kind === 'teacher').at(-1).query.classId, normalLarge)
   await context.close()
 })
