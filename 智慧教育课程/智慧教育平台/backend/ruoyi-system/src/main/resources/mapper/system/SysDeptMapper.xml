@@ -9,6 +9,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="parentId"   column="parent_id"   />
 		<result property="ancestors"  column="ancestors"   />
 		<result property="deptName"   column="dept_name"   />
+		<result property="deptType"   column="dept_type"   />
+		<result property="gradeYear" column="grade_year" />
+		<result property="educationLevel" column="education_level" />
+		<result property="studyYears" column="study_years" />
+		<result property="classRemark" column="class_remark" />
 		<result property="orderNum"   column="order_num"   />
 		<result property="leader"     column="leader"      />
 		<result property="phone"      column="phone"       />
@@ -23,7 +28,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</resultMap>
 	
 	<sql id="selectDeptVo">
-        select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.phone, d.email, d.status, d.del_flag, d.create_by, d.create_time 
+        select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.dept_type, d.order_num, d.leader, d.phone, d.email, d.status, d.del_flag, d.create_by, d.create_time,
+               d.grade_year, d.education_level, d.study_years, d.class_remark
         from sys_dept d
     </sql>
     
@@ -47,6 +53,25 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		order by d.parent_id, d.order_num
     </select>
     
+    <select id="selectAdministrativeClasses" parameterType="SysDept" resultMap="SysDeptResult">
+        select d.dept_id, d.dept_name, d.parent_id, d.status, d.create_time,
+               d.grade_year, d.education_level, d.study_years, d.class_remark, p.dept_name as parent_name
+        from sys_dept d
+        left join sys_dept p on p.dept_id = d.parent_id and p.del_flag = '0'
+        where d.del_flag = '0' and d.dept_type = 'CLASS'
+        <if test="parentId != null">
+            and find_in_set(#{parentId}, d.ancestors)
+        </if>
+        <if test="deptName != null and deptName != ''">
+            and d.dept_name like concat('%', #{deptName}, '%')
+        </if>
+        <if test="status != null and status != ''">
+            and d.status = #{status}
+        </if>
+        ${params.dataScope}
+        order by d.create_time desc, d.dept_id desc
+    </select>
+
     <select id="selectDeptListByRoleId" resultType="Long">
 		select d.dept_id
 		from sys_dept d
@@ -59,20 +84,63 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
     
     <select id="selectDeptById" parameterType="Long" resultMap="SysDeptResult">
-		select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.phone, d.email, d.status,
+		select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.dept_type, d.order_num, d.leader, d.phone, d.email, d.status, d.del_flag,
+			d.grade_year, d.education_level, d.study_years, d.class_remark, d.create_time,
 			(select dept_name from sys_dept where dept_id = d.parent_id) parent_name
 		from sys_dept d
 		where d.dept_id = #{deptId}
 	</select>
     
-    <select id="checkDeptExistUser" parameterType="Long" resultType="int">
-		select count(1) from sys_user where dept_id = #{deptId} and del_flag = '0'
-	</select>
-	
-	<select id="hasChildByDeptId" parameterType="Long" resultType="int">
-		select count(1) from sys_dept
-		where del_flag = '0' and parent_id = #{deptId} limit 1
-	</select>
+    <select id="lockDepartment" resultMap="SysDeptResult">
+        <include refid="selectDeptVo"/>
+        where d.dept_id = #{deptId} and d.del_flag = '0'
+        for update
+    </select>
+
+    <select id="selectBranchIds" resultType="long">
+        select dept_id from sys_dept
+        where del_flag = '0' and (dept_id = #{deptId} or find_in_set(#{deptId}, ancestors))
+        order by dept_id
+        <if test="lock">for update</if>
+    </select>
+
+    <sql id="branchIds">
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </sql>
+
+    <select id="selectBranchUsers" resultType="long">
+        select user_id from sys_user
+        where del_flag = '0' and dept_id in <include refid="branchIds"/>
+        order by user_id
+        <if test="lock">for update</if>
+    </select>
+
+    <select id="selectBranchRoleScopes" resultType="long">
+        select rd.role_id from sys_role_dept rd join sys_role r on r.role_id = rd.role_id
+        where r.del_flag = '0' and rd.dept_id in <include refid="branchIds"/>
+        order by rd.role_id, rd.dept_id
+        <if test="lock">for update</if>
+    </select>
+
+    <update id="clearBranchUserDepartments">
+        update sys_user set dept_id = null, update_by = #{operator}, update_time = sysdate()
+        where del_flag = '0' and dept_id in <include refid="branchIds"/>
+    </update>
+
+    <delete id="deleteBranchRoleScopes">
+        delete rd from sys_role_dept rd join sys_role r on r.role_id = rd.role_id
+        where r.del_flag = '0' and rd.dept_id in <include refid="branchIds"/>
+    </delete>
+
+    <select id="checkDeptExistTeacher" parameterType="Long" resultType="int">
+        select count(1) from sys_user u
+        where u.dept_id = #{deptId} and u.del_flag = '0'
+        and exists (
+            select 1 from sys_user_role ur
+            join sys_role r on r.role_id = ur.role_id
+            where ur.user_id = u.user_id and r.role_key = 'teacher' and r.del_flag = '0'
+        )
+    </select>
 	
 	<select id="selectChildrenDeptById" parameterType="Long" resultMap="SysDeptResult">
 		select * from sys_dept where find_in_set(#{deptId}, ancestors)
@@ -87,11 +155,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where dept_name=#{deptName} and parent_id = #{parentId} and del_flag = '0' limit 1
 	</select>
     
-    <insert id="insertDept" parameterType="SysDept">
+    <insert id="insertDept" parameterType="SysDept" useGeneratedKeys="true" keyProperty="deptId">
  		insert into sys_dept(
  			<if test="deptId != null and deptId != 0">dept_id,</if>
  			<if test="parentId != null and parentId != 0">parent_id,</if>
  			<if test="deptName != null and deptName != ''">dept_name,</if>
+ 			<if test="deptType != null">dept_type,</if>
+ 			<if test="gradeYear != null">grade_year,</if>
+ 			<if test="educationLevel != null">education_level,</if>
+ 			<if test="studyYears != null">study_years,</if>
+ 			<if test="classRemark != null">class_remark,</if>
  			<if test="ancestors != null and ancestors != ''">ancestors,</if>
  			<if test="orderNum != null">order_num,</if>
  			<if test="leader != null and leader != ''">leader,</if>
@@ -104,6 +177,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
  			<if test="deptId != null and deptId != 0">#{deptId},</if>
  			<if test="parentId != null and parentId != 0">#{parentId},</if>
  			<if test="deptName != null and deptName != ''">#{deptName},</if>
+ 			<if test="deptType != null">#{deptType},</if>
+ 			<if test="gradeYear != null">#{gradeYear},</if>
+ 			<if test="educationLevel != null">#{educationLevel},</if>
+ 			<if test="studyYears != null">#{studyYears},</if>
+ 			<if test="classRemark != null">#{classRemark},</if>
  			<if test="ancestors != null and ancestors != ''">#{ancestors},</if>
  			<if test="orderNum != null">#{orderNum},</if>
  			<if test="leader != null and leader != ''">#{leader},</if>
@@ -118,8 +196,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<update id="updateDept" parameterType="SysDept">
  		update sys_dept
  		<set>
- 			<if test="parentId != null and parentId != 0">parent_id = #{parentId},</if>
+ 			<if test="parentId != null">parent_id = #{parentId},</if>
  			<if test="deptName != null and deptName != ''">dept_name = #{deptName},</if>
+ 			<if test="deptType != null">dept_type = #{deptType},</if>
+ 			<if test="gradeYear != null">grade_year = #{gradeYear},</if>
+ 			<if test="educationLevel != null">education_level = #{educationLevel},</if>
+ 			<if test="studyYears != null">study_years = #{studyYears},</if>
+ 			<if test="classRemark != null">class_remark = #{classRemark},</if>
  			<if test="ancestors != null and ancestors != ''">ancestors = #{ancestors},</if>
  			<if test="orderNum != null">order_num = #{orderNum},</if>
  			<if test="leader != null">leader = #{leader},</if>
@@ -156,8 +239,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		update sys_dept set order_num = #{orderNum} where dept_id = #{deptId}
 	</update>
 	
-	<delete id="deleteDeptById" parameterType="Long">
-		update sys_dept set del_flag = '2' where dept_id = #{deptId}
-	</delete>
+    <update id="deleteDeptBranch">
+        update sys_dept set del_flag = '2'
+        where del_flag = '0' and dept_id in <include refid="branchIds"/>
+          and not exists (select 1 from sys_user where del_flag = '0' and dept_id in <include refid="branchIds"/>)
+          and not exists (select 1 from sys_role_dept rd join sys_role r on r.role_id = rd.role_id
+                          where r.del_flag = '0' and rd.dept_id in <include refid="branchIds"/>)
+    </update>
 
 </mapper>

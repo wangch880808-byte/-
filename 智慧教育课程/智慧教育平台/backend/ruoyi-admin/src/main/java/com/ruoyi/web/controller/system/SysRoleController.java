@@ -1,6 +1,12 @@
 package com.ruoyi.web.controller.system;
 
 import java.util.List;
+import org.springframework.web.multipart.MultipartFile;
+import com.ruoyi.system.domain.SysRoleImportRow;
+import com.ruoyi.system.service.SysRoleImportService;
+import com.ruoyi.web.core.util.ExcelImportSupport;
+import java.util.Set;
+import java.util.stream.Collectors;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -14,18 +20,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.annotation.Log;
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.entity.SysDept;
+import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.framework.web.service.SysPermissionService;
 import com.ruoyi.framework.web.service.TokenService;
 import com.ruoyi.system.domain.SysUserRole;
 import com.ruoyi.system.service.ISysDeptService;
+import com.ruoyi.system.service.ISysMenuService;
 import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
 
@@ -42,6 +54,9 @@ public class SysRoleController extends BaseController
     private ISysRoleService roleService;
 
     @Autowired
+    private SysRoleImportService roleImportService;
+
+    @Autowired
     private TokenService tokenService;
 
     @Autowired
@@ -52,6 +67,9 @@ public class SysRoleController extends BaseController
 
     @Autowired
     private ISysDeptService deptService;
+
+    @Autowired
+    private ISysMenuService menuService;
 
     @PreAuthorize("@ss.hasPermi('system:role:list')")
     @GetMapping("/list")
@@ -70,6 +88,23 @@ public class SysRoleController extends BaseController
         List<SysRole> list = roleService.selectRoleList(role);
         ExcelUtil<SysRole> util = new ExcelUtil<SysRole>(SysRole.class);
         util.exportExcel(response, list, "角色数据");
+    }
+
+    @Log(title = "角色管理", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('system:role:add')")
+    @PostMapping("/importData")
+    public AjaxResult importData(MultipartFile file) throws Exception
+    {
+        ExcelImportSupport.checkFile(file);
+        List<SysRoleImportRow> rows = new ExcelUtil<SysRoleImportRow>(SysRoleImportRow.class).importExcel(file.getInputStream());
+        return success(roleImportService.importRoles(rows, getUsername()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('system:role:add')")
+    @PostMapping("/importTemplate")
+    public void importTemplate(HttpServletResponse response)
+    {
+        new ExcelUtil<SysRoleImportRow>(SysRoleImportRow.class).importTemplateExcel(response, "角色导入模板");
     }
 
     /**
@@ -91,6 +126,8 @@ public class SysRoleController extends BaseController
     @PostMapping
     public AjaxResult add(@Validated @RequestBody SysRole role)
     {
+        checkNotAdminRoleKey(role);
+        checkMenuSubset(role);
         if (!roleService.checkRoleNameUnique(role))
         {
             return error("新增角色'" + role.getRoleName() + "'失败，角色名称已存在");
@@ -114,6 +151,8 @@ public class SysRoleController extends BaseController
     {
         roleService.checkRoleAllowed(role);
         roleService.checkRoleDataScope(role.getRoleId());
+        checkNotAdminRoleKey(role);
+        checkMenuSubset(role);
         if (!roleService.checkRoleNameUnique(role))
         {
             return error("修改角色'" + role.getRoleName() + "'失败，角色名称已存在");
@@ -143,7 +182,10 @@ public class SysRoleController extends BaseController
     {
         roleService.checkRoleAllowed(role);
         roleService.checkRoleDataScope(role.getRoleId());
-        return toAjax(roleService.authDataScope(role));
+        checkNotAdminRoleKey(role);
+        int rows = roleService.authDataScope(role);
+        if (rows > 0) tokenService.invalidateRoleSessions(role.getRoleId());
+        return toAjax(rows);
     }
 
     /**
@@ -156,8 +198,15 @@ public class SysRoleController extends BaseController
     {
         roleService.checkRoleAllowed(role);
         roleService.checkRoleDataScope(role.getRoleId());
+        checkNotAdminRoleKey(role);
         role.setUpdateBy(getUsername());
-        return toAjax(roleService.updateRoleStatus(role));
+        int rows = roleService.updateRoleStatus(role);
+        if (rows > 0)
+        {
+            // 角色停用/恢复后，刷新所有持有该角色的在线用户权限
+            tokenService.refreshPermissionByRoleId(role.getRoleId(), permissionService);
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -213,7 +262,14 @@ public class SysRoleController extends BaseController
     @PutMapping("/authUser/cancel")
     public AjaxResult cancelAuthUser(@RequestBody SysUserRole userRole)
     {
-        return toAjax(roleService.deleteAuthUser(userRole));
+        checkRoleAssignment(userRole.getRoleId(), new Long[] { userRole.getUserId() });
+        int rows = roleService.deleteAuthUser(userRole);
+        // 授权变更后旧令牌立即失效
+        if (rows > 0)
+        {
+            tokenService.deleteByUserId(userRole.getUserId());
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -224,7 +280,17 @@ public class SysRoleController extends BaseController
     @PutMapping("/authUser/cancelAll")
     public AjaxResult cancelAuthUserAll(Long roleId, Long[] userIds)
     {
-        return toAjax(roleService.deleteAuthUsers(roleId, userIds));
+        checkRoleAssignment(roleId, userIds);
+        int rows = roleService.deleteAuthUsers(roleId, userIds);
+        // 授权变更后旧令牌立即失效
+        if (rows > 0)
+        {
+            for (Long userId : userIds)
+            {
+                tokenService.deleteByUserId(userId);
+            }
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -235,8 +301,17 @@ public class SysRoleController extends BaseController
     @PutMapping("/authUser/selectAll")
     public AjaxResult selectAuthUserAll(Long roleId, Long[] userIds)
     {
-        roleService.checkRoleDataScope(roleId);
-        return toAjax(roleService.insertAuthUsers(roleId, userIds));
+        checkRoleAssignment(roleId, userIds);
+        int rows = roleService.insertAuthUsers(roleId, userIds);
+        // 授权变更后旧令牌立即失效，重新登录后按新角色生效
+        if (rows > 0)
+        {
+            for (Long userId : userIds)
+            {
+                tokenService.deleteByUserId(userId);
+            }
+        }
+        return toAjax(rows);
     }
 
     /**
@@ -246,9 +321,80 @@ public class SysRoleController extends BaseController
     @GetMapping(value = "/deptTree/{roleId}")
     public AjaxResult deptTree(@PathVariable("roleId") Long roleId)
     {
+        roleService.checkRoleDataScope(roleId);
         AjaxResult ajax = AjaxResult.success();
         ajax.put("checkedKeys", deptService.selectDeptListByRoleId(roleId));
         ajax.put("depts", deptService.selectDeptTreeList(new SysDept()));
         return ajax;
+    }
+
+    /**
+     * 提权防护：非超管不得新建或操作 role_key=admin 的超级管理员角色
+     */
+    private void checkRoleAssignment(Long roleId, Long[] userIds)
+    {
+        if (roleId == null || userIds == null || userIds.length == 0)
+        {
+            throw new ServiceException("请选择角色和用户");
+        }
+        roleService.checkRoleDataScope(roleId);
+        SysRole role = roleService.selectRoleById(roleId);
+        if (role == null) throw new ServiceException("角色不存在");
+        checkNotAdminRoleKey(role);
+        for (Long userId : userIds)
+        {
+            if (userId == null) throw new ServiceException("用户编号不能为空");
+            userService.checkUserDataScope(userId);
+            if (!SecurityUtils.isAdmin())
+            {
+                SysUser user = new SysUser();
+                user.setUserId(userId);
+                userService.checkUserAllowed(user);
+                if (userId.equals(SecurityUtils.getUserId()))
+                {
+                    throw new com.ruoyi.common.exception.ForbiddenException("不允许修改自己的角色");
+                }
+            }
+        }
+    }
+
+    private void checkNotAdminRoleKey(SysRole role)
+    {
+        if (SecurityUtils.isAdmin())
+        {
+            return;
+        }
+        if (StringUtils.isNotNull(role.getRoleId()))
+        {
+            SysRole dbRole = roleService.selectRoleById(role.getRoleId());
+            if (dbRole != null && Constants.SUPER_ADMIN.equals(dbRole.getRoleKey()))
+            {
+                throw new com.ruoyi.common.exception.ForbiddenException("不允许操作超级管理员角色");
+            }
+        }
+        if (Constants.SUPER_ADMIN.equals(role.getRoleKey()))
+        {
+            throw new com.ruoyi.common.exception.ForbiddenException("不允许创建超级管理员角色");
+        }
+    }
+
+    /**
+     * 提权防护：非超管新增/编辑角色时，授予的菜单必须是本人拥有菜单的子集
+     */
+    private void checkMenuSubset(SysRole role)
+    {
+        if (SecurityUtils.isAdmin() || StringUtils.isEmpty(role.getMenuIds()))
+        {
+            return;
+        }
+        Set<Long> ownedMenuIds = menuService.selectMenuList(SecurityUtils.getUserId()).stream()
+                .map(SysMenu::getMenuId).collect(Collectors.toSet());
+        for (Long menuId : role.getMenuIds())
+        {
+            if (!ownedMenuIds.contains(menuId))
+            {
+                throw new com.ruoyi.common.exception.ForbiddenException("无权授予超出自身范围的菜单权限");
+            }
+        }
     }
 }

@@ -1,0 +1,14 @@
+# 系统与编辑器本地文件
+.DS_Store
+Thumbs.db
+*.local
+*.log
+.vscode/
+
+# 前端依赖与构建产物（frontend/.gitignore 另有细粒度规则）
+node_modules/
+dist/
+.vite/
+
+# 后端构建产物（backend/.gitignore 另有细粒度规则）
+target/
