@@ -18,7 +18,7 @@
 | `#24` | 四端点 Controller/Service、身份与异常 advice、聚合测试、前端 handoff/checklist | Draft；stacked 在 #23 之上，未进入 main |
 | `main` | `232f463...`，含 6-02 与第 1～3 组已合并代码；历史 6-02 基线为 `f21f51d...` | 不含 6-01 Controller |
 
-本文以 `#24` `feature/6-01-overview-api@233ee45a2af2d73e96fe09f110a87bcb39362df2` 的代码，以及该版本中的 `docs/6-01-frontend-api-handoff.md` v1.5 为行为参考。`#24` 新增的请求总预算、来源提交/排队检查、嵌套结果校验属于后续实现；`#23` 的 `OverviewSourceGuard` 不包含这些新增重载，不能把 #24 的增强倒灌为 #23 已实现。
+行为代码基准为 `#24` `feature/6-01-overview-api@233ee45a2af2d73e96fe09f110a87bcb39362df2`；该历史提交中的 `docs/6-01-frontend-api-handoff.md` 为 **v1.4**。本轮 #24 本地同步工作树（2026-11-21）将 handoff 更新为 **v1.5**；v1.5 只对应本地同步工作树，不回写 #23 已发布文档，也不能归到历史提交 `233ee45`。`#24` 新增的请求总预算、来源提交/排队检查、嵌套结果校验属于后续实现；`#23` 的 `OverviewSourceGuard` 不包含这些新增重载，不能把 #24 的增强倒灌为 #23 已实现。
 
 ## 1. 范围与非目标
 
