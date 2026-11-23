@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.education.mapper.EduMembershipTimelineMapper">
+
+    <!-- 绑定与教学班当前状态（status 无历史时间列，只取当前值） -->
+    <select id="selectBindingWithClass" resultType="java.util.Map">
+        SELECT b.id AS binding_id, b.teaching_class_id AS teaching_class_id,
+               b.course_space_id AS course_space_id, b.published_at AS published_at,
+               b.ended_at AS ended_at, tc.status AS teaching_class_status
+        FROM edu_course_class_binding b
+        JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
+        WHERE b.id = #{bindingId}
+    </select>
+
+    <!-- 某学生在绑定对应教学班中覆盖 at 的成员段；正常至多一段，重叠脏数据取最早入班段 -->
+    <select id="selectStudentSegmentInBinding" resultType="java.util.Map">
+        SELECT cs.id AS member_id, cs.joined_at AS joined_at, cs.left_at AS left_at
+        FROM edu_course_class_binding b
+        JOIN edu_class_student cs ON cs.teaching_class_id = b.teaching_class_id
+            AND cs.user_id = #{userId}
+            AND cs.joined_at &lt;= #{at} AND (cs.left_at IS NULL OR cs.left_at &gt; #{at})
+        WHERE b.id = #{bindingId}
+        ORDER BY cs.joined_at ASC
+        LIMIT 1
+    </select>
+
+    <!-- 绑定下在 at 在班的学生（半开区间 [joined_at, left_at)，且绑定覆盖 at） -->
+    <select id="selectStudentsInBinding" resultType="java.util.Map">
+        SELECT cs.id AS member_id, cs.teaching_class_id AS teaching_class_id,
+               cs.user_id AS user_id, u.user_name AS user_name, u.nick_name AS nick_name,
+               cs.joined_at AS joined_at, cs.left_at AS left_at
+        FROM edu_course_class_binding b
+        JOIN edu_class_student cs ON cs.teaching_class_id = b.teaching_class_id
+            AND cs.joined_at &lt;= #{at} AND (cs.left_at IS NULL OR cs.left_at &gt; #{at})
+        JOIN v_identity_user u ON u.user_id = cs.user_id
+        WHERE b.id = #{bindingId}
+          AND b.published_at &lt;= #{at} AND (b.ended_at IS NULL OR b.ended_at &gt; #{at})
+        ORDER BY cs.joined_at ASC, cs.id ASC
+    </select>
+
+    <!-- 学生在 at 的全部有效绑定（成员段与绑定都覆盖 at） -->
+    <select id="selectStudentBindings" resultType="java.util.Map">
+        SELECT b.id AS binding_id, b.teaching_class_id AS teaching_class_id,
+               b.course_space_id AS course_space_id, tc.status AS teaching_class_status,
+               cs.id AS member_id, cs.joined_at AS joined_at, cs.left_at AS left_at
+        FROM edu_class_student cs
+        JOIN edu_teaching_class tc ON tc.id = cs.teaching_class_id
+        JOIN edu_course_class_binding b ON b.teaching_class_id = cs.teaching_class_id
+            AND b.published_at &lt;= #{at} AND (b.ended_at IS NULL OR b.ended_at &gt; #{at})
+        WHERE cs.user_id = #{userId}
+          AND cs.joined_at &lt;= #{at} AND (cs.left_at IS NULL OR cs.left_at &gt; #{at})
+        ORDER BY b.id ASC, cs.joined_at ASC
+    </select>
+</mapper>
