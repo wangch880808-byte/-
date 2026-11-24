@@ -45,7 +45,9 @@ public class Group3ResourceService implements PublishedResourceProvider
         Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("binding", binding);
-        result.put("outline", mapper.selectCourseOutline(courseSpaceId));
+        result.put("outline", Group3Security.isTeacher()
+                ? mapper.selectOutlineWithStats(courseSpaceId, bindingId)
+                : mapper.selectCourseOutline(courseSpaceId));
         result.put("knowledgePoints", mapper.selectKnowledgePoints(courseSpaceId));
         if (Group3Security.isTeacher())
         {
@@ -70,6 +72,7 @@ public class Group3ResourceService implements PublishedResourceProvider
             Long bindingId,
             String title,
             Long unitId,
+            Long folderId,
             MultipartFile file,
             String releaseSource,
             String origin)
@@ -78,11 +81,12 @@ public class Group3ResourceService implements PublishedResourceProvider
         Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
         String cleanTitle = cleanTitle(title, file == null ? null : file.getOriginalFilename());
         validateUnit(courseSpaceId, unitId);
+        validateResourceFolder(courseSpaceId, folderId);
 
         Group3FileStorageService.StoredUpload stored = storage.store(file, courseSpaceId);
         Map<String, Object> resource = new LinkedHashMap<>();
         resource.put("courseSpaceId", courseSpaceId);
-        resource.put("folderId", null);
+        resource.put("folderId", folderId);
         resource.put("unitId", unitId);
         resource.put("title", cleanTitle);
         resource.put("resourceKind", "FILE");
@@ -93,6 +97,80 @@ public class Group3ResourceService implements PublishedResourceProvider
 
         Map<String, Object> version = createFileVersion(resourceId, courseSpaceId, bindingId, stored);
         publishToClass(bindingId, courseSpaceId, resourceId, version, releaseSource);
+        return version;
+    }
+
+    /**
+     * 创建外链资料（添加网址 / 在线图书）。
+     * <p>
+     * 外链资料无需文件转换，创建后直接处于 READY 状态。
+     * linkKind 仅用于前端区分图标，数据库统一存储为 LINK 类型。
+     * </p>
+     */
+    @Transactional
+    public Map<String, Object> createLink(Group3Requests.CreateLinkResource request)
+    {
+        if (request == null || request.bindingId() == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        String title = request.title() == null ? "" : request.title().trim();
+        if (title.isBlank())
+        {
+            throw new ServiceException("资料名称不能为空", HttpStatus.BAD_REQUEST);
+        }
+        if (title.length() > 200)
+        {
+            throw new ServiceException("资料名称不能超过 200 个字符", HttpStatus.BAD_REQUEST);
+        }
+        String uri = request.externalUri() == null ? "" : request.externalUri().trim();
+        if (uri.isBlank())
+        {
+            throw new ServiceException("链接地址不能为空", HttpStatus.BAD_REQUEST);
+        }
+        if (uri.length() > 1024)
+        {
+            throw new ServiceException("链接地址不能超过 1024 个字符", HttpStatus.BAD_REQUEST);
+        }
+        if (!uri.matches("^https?://.*"))
+        {
+            throw new ServiceException("链接地址必须以 http:// 或 https:// 开头", HttpStatus.BAD_REQUEST);
+        }
+
+        Map<String, Object> binding = accessService.requireTeacherBinding(request.bindingId());
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        validateUnit(courseSpaceId, request.unitId());
+        validateResourceFolder(courseSpaceId, request.folderId());
+
+        Map<String, Object> resource = new LinkedHashMap<>();
+        resource.put("courseSpaceId", courseSpaceId);
+        resource.put("folderId", request.folderId());
+        resource.put("unitId", request.unitId());
+        resource.put("title", title);
+        resource.put("resourceKind", "LINK");
+        resource.put("origin", normalizeOrigin(request.origin()));
+        resource.put("userId", Group3Security.currentUserId());
+        mapper.insertResource(resource);
+        Long resourceId = Group3AccessService.asLong(resource.get("id"));
+
+        Map<String, Object> version = new LinkedHashMap<>();
+        version.put("resourceId", resourceId);
+        version.put("resourceKind", "LINK");
+        version.put("versionNo", 1);
+        version.put("storageKey", null);
+        version.put("externalUri", uri);
+        version.put("sha256", null);
+        version.put("mimeType", "text/uri-list");
+        version.put("byteSize", null);
+        version.put("processingStatus", Group3Constants.PROCESSING_READY);
+        version.put("userId", Group3Security.currentUserId());
+        mapper.insertResourceVersion(version);
+        Long versionId = Group3AccessService.asLong(version.get("id"));
+        version.put("versionId", versionId);
+        version.put("mediaKind", "LINK");
+        version.put("processingMessage", "外链资料已创建");
+
+        publishToClass(request.bindingId(), courseSpaceId, resourceId, version, request.releaseSource());
         return version;
     }
 
@@ -700,6 +778,112 @@ public class Group3ResourceService implements PublishedResourceProvider
         return value;
     }
 
+    /** 文件夹整体上架：把文件夹内未发布的资料按最新版本发布到当前教学班。 */
+    @Transactional
+    public Map<String, Object> publishFolder(Long bindingId, Long folderId)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        validateResourceFolder(courseSpaceId, folderId);
+        int published = 0;
+        for (Map<String, Object> row : folderResources(bindingId, courseSpaceId, folderId))
+        {
+            Long versionId = Group3AccessService.asLong(row.get("versionId"));
+            if (versionId == null || row.get("studioReleaseId") != null
+                    || "ARCHIVED".equals(String.valueOf(row.get("resourceStatus"))))
+            {
+                continue;
+            }
+            release(new Group3Requests.ReleaseResource(bindingId, versionId, null, null, "STUDIO"));
+            published++;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("folderId", folderId);
+        result.put("published", published);
+        return result;
+    }
+
+    /** 文件夹整体下架：撤回文件夹内已在当前教学班发布的资料。 */
+    @Transactional
+    public Map<String, Object> revokeFolder(Long bindingId, Long folderId)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        validateResourceFolder(courseSpaceId, folderId);
+        int revoked = 0;
+        for (Map<String, Object> row : folderResources(bindingId, courseSpaceId, folderId))
+        {
+            Long releaseId = Group3AccessService.asLong(row.get("studioReleaseId"));
+            if (releaseId == null)
+            {
+                continue;
+            }
+            revoke(releaseId, bindingId, "教师下架文件夹");
+            revoked++;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("folderId", folderId);
+        result.put("revoked", revoked);
+        return result;
+    }
+
+    /** 打包下载文件夹内的文件资料；外链资料不参与打包。 */
+    public byte[] zipFolder(Long bindingId, Long folderId)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        validateResourceFolder(courseSpaceId, folderId);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        java.util.Set<String> usedNames = new java.util.HashSet<>();
+        int packed = 0;
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(out))
+        {
+            for (Map<String, Object> row : folderResources(bindingId, courseSpaceId, folderId))
+            {
+                String storageKey = row.get("storageKey") == null ? null : row.get("storageKey").toString();
+                if (storageKey == null || storageKey.isBlank())
+                {
+                    continue;
+                }
+                Resource file = storage.load(storageKey);
+                String storedName = storage.fileName(storageKey);
+                int dot = storedName == null ? -1 : storedName.lastIndexOf('.');
+                String extension = dot >= 0 ? storedName.substring(dot) : "";
+                String base = row.get("title") == null ? "resource" : row.get("title").toString();
+                String name = base + extension;
+                int seq = 2;
+                while (!usedNames.add(name))
+                {
+                    name = base + "(" + (seq++) + ")" + extension;
+                }
+                zip.putNextEntry(new java.util.zip.ZipEntry(name));
+                try (java.io.InputStream in = file.getInputStream())
+                {
+                    in.transferTo(zip);
+                }
+                zip.closeEntry();
+                packed++;
+            }
+        }
+        catch (java.io.IOException e)
+        {
+            throw new ServiceException("打包下载失败", 500);
+        }
+        if (packed == 0)
+        {
+            throw new ServiceException("该文件夹没有可下载的文件", HttpStatus.BAD_REQUEST);
+        }
+        return out.toByteArray();
+    }
+
+    /** 取出指定文件夹下的全部资料行（含最新版本与发布信息）。 */
+    private List<Map<String, Object>> folderResources(Long bindingId, Long courseSpaceId, Long folderId)
+    {
+        return mapper.selectTeacherResources(bindingId, courseSpaceId).stream()
+                .filter(row -> folderId.equals(Group3AccessService.asLong(row.get("folderId"))))
+                .toList();
+    }
+
     private void validateUnit(Long courseSpaceId, Long unitId)
     {
         if (unitId == null)
@@ -711,6 +895,21 @@ public class Group3ResourceService implements PublishedResourceProvider
         if (!found)
         {
             throw new ServiceException("所选章节不属于当前课程", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    /** 校验目标文件夹属于当前课程空间。 */
+    private void validateResourceFolder(Long courseSpaceId, Long folderId)
+    {
+        if (folderId == null)
+        {
+            return;
+        }
+        boolean found = mapper.selectResourceFolders(courseSpaceId).stream()
+                .anyMatch(folder -> folderId.equals(Group3AccessService.asLong(folder.get("id"))));
+        if (!found)
+        {
+            throw new ServiceException("所选文件夹不存在", HttpStatus.BAD_REQUEST);
         }
     }
 

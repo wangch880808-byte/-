@@ -1,6 +1,6 @@
 # 数据库脚本与维护手册
 
-适用于智慧教育平台第一、二组对接版。本文按源码中的 SQL 文件和实际 DDL 整理，覆盖 `sql/` 下的 13 个脚本及 `docs/` 下的 1 个索引草案。环境配置见 [项目运行说明](../运行说明.md)，教学模型设计背景见 [数据库设计](../docs/database-design.md)。
+适用于智慧教育平台第一、二、三组对接版。本文按源码中的 SQL 文件和实际 DDL 整理，覆盖 `sql/` 下的 24 个 SQL 脚本及 `docs/` 下的 1 个索引草案。环境配置见 [项目运行说明](../运行说明.md)，教学模型设计背景见 [数据库设计](../docs/database-design.md)。
 
 ## 1. 先确定要执行哪个脚本
 
@@ -12,6 +12,7 @@
 | 已在用的对接库，增加课程教师团队 | [upgrade-course-team.sql](upgrade-course-team.sql) | 新建 edu_course_teacher，记录课程协作教师及学生管理、名单导出权限。可重复执行。 |
 | 已在用的对接库，只升级学校、学院和班级导入 | [upgrade-organization-types.sql](upgrade-organization-types.sql) | 在已有项目库运行。脚本添加组织类型列并更新组织视图。 |
 | 已在用的对接库，更新行政班列表、组织导入和花名册 | [upgrade-administrative-class.sql](upgrade-administrative-class.sql) | 在原有项目库运行，前置脚本为组织类型升级。 |
+| 已在用的第三组库，补公共教学资源库、题库文件夹归档、题目资源库或学生笔记 | [upgrade-public-resource-library.sql](upgrade-public-resource-library.sql) → [upgrade-question-folder-archive.sql](upgrade-question-folder-archive.sql) → [upgrade-question-library.sql](upgrade-question-library.sql) → [upgrade-student-note.sql](upgrade-student-note.sql) | 四个脚本均可重复执行。公共资源库首次新增 5 张表；题库文件夹归档依赖 `edu_question_folder`；题目资源库新增共享表与引入来源字段；学生笔记表首次新增 1 张表。 |
 | 单独维护身份视图或补齐教学菜单 | [group12-system-directory.sql](group12-system-directory.sql) 或 [group12-menu-permissions.sql](group12-menu-permissions.sql) | 身份视图依赖 `sys_dept.dept_type`，旧库先执行组织类型升级。菜单脚本只补缺失项。 |
 | 为现有若依工程从零接入教学表 | [mysql-v3-m0-core-schema.sql](mysql-v3-m0-core-schema.sql) → [mysql-v3-m0-teaching-schema.sql](mysql-v3-m0-teaching-schema.sql) → 适用的两个升级脚本 | 目标库已具备兼容的若依系统表，且尚无这些教学表。核对用户、组织、角色映射，不导入演示种子。 |
 | 评估学生通知查询索引 | [6-02-notice-index-draft.sql](../docs/6-02-notice-index-draft.sql) | 待审核。只在隔离环境评估，评审通过后另行发布正式迁移。 |
@@ -41,9 +42,11 @@ SOURCE sql/import-2026-11-20-data.sql;
 
 ### install-fresh.sql
 
-全量安装入口，包含 **76 张基础表和 4 个身份视图**。按文件中的顺序依次执行若依系统表、Quartz 表、教学核心表、教学扩展表、教学演示种子、若依演示账号、身份视图、教学菜单权限。随后把演示学期设为当前学期，并补齐课程正文、逻辑删除和附件结构。76 张表由 20 张若依基础表、11 张 Quartz 表、44 张教学基线表和 1 张章节附件表组成。
+全量安装入口，当前脚本创建 **92 张表和 4 个身份视图**（18 张 `sys_*`、2 张 `gen_*`、11 张 `QRTZ_*`、61 张 `edu_*`）。按文件中的顺序依次执行若依系统表、Quartz 表、教学核心表、教学扩展表、教学演示种子、若依演示账号、身份视图、教学菜单权限。随后把演示学期设为当前学期，并补齐课程正文、逻辑删除、附件结构、资料/题库文件夹、资源进度、讨论、题目共享、公共教学资源库和学生笔记结构。
 
-其中 `-- SOURCE ...` 是分段注释，各段 SQL 已嵌入这个文件。完整运行后，表、视图和基础演示数据已齐备。真实业务库沿用升级脚本，数据交接文件独立导入。
+教学表在 44 张 M0 基线之外，还包含章节附件、课程教师、资料文件夹、题库文件夹、资源进度、讨论、题目共享、公共资源库 5 张表以及学生笔记等扩展表。公共教学资源库的默认分类会在建表后自动写入。
+
+其中 `-- SOURCE ...` 是分段注释，各段 SQL 已嵌入这个文件。完整运行后，若依表、教学基线及扩展表、视图和基础演示数据已齐备。真实业务库沿用升级脚本，数据交接文件独立导入。
 
 ### upstream/ruoyi/ry_20260417.sql
 
@@ -214,7 +217,7 @@ Quartz JDBC 持久化表快照。它重建以下 11 张 `QRTZ_*` 表，负责调
 
 ### 第三组课程建设与课前学习
 
-空库只需导入 `install-fresh.sql`。升级已有项目库时，先确认第一、二组数据库已升级，然后按顺序导入以下脚本。
+空库只需导入 `install-fresh.sql`（已包含公共教学资源库和学生笔记表）。升级已有项目库时，先确认第一、二组数据库已升级，然后按顺序导入以下脚本。
 
 1. `upgrade-group3-course-enhance.sql`
 2. `upgrade-group3-library-import-folders.sql`
@@ -222,8 +225,49 @@ Quartz JDBC 持久化表快照。它重建以下 11 张 `QRTZ_*` 表，负责调
 4. `upgrade-group3-decouple-prepare.sql`
 5. `upgrade-group3-resource-unit.sql`
 6. `upgrade-group3-discussion.sql`
+7. `upgrade-public-resource-library.sql`
+8. `upgrade-question-folder-archive.sql`
+9. `upgrade-question-library.sql`
+10. `upgrade-student-note.sql`
 
 建议在停止应用写入后执行。管理员和教师的访问范围沿用课程与教学班授权。
+
+### 题目资源库与题库文件夹归档
+
+[upgrade-question-folder-archive.sql](upgrade-question-folder-archive.sql) 与 [upgrade-question-library.sql](upgrade-question-library.sql) 均为存在性检查、可重复执行。`install-fresh.sql` 已包含这两组结构。
+
+| 表或字段 | 用途 |
+| --- | --- |
+| `edu_question_folder.archived_at` | 题库文件夹归档时间，NULL 表示未归档。归档文件夹及其题目不进入根目录常规列表。 |
+| `edu_question_share` | 题目资源库共享快照。保存 `question_version_id`、来源课程空间、共享人、`scope`、`status`、被引入次数和时间。题目版本在表内唯一，外键指向 `edu_question_version`，`status` 只允许 `PUBLISHED`、`WITHDRAWN`。 |
+| `edu_question.origin_share_id` | 通过题目资源库引入后，记录来源共享记录。 |
+| `idx_edu_question_origin_share` | 按 `(course_space_id, origin_share_id)` 索引，用于判断同一课程是否已引入某条共享。 |
+
+### 公共教学资源库
+
+[upgrade-public-resource-library.sql](upgrade-public-resource-library.sql) 首次创建 5 张表，可重复执行，并初始化 6 个默认资源分类。
+
+| 表 | 用途 |
+| --- | --- |
+| `edu_public_resource_category` | 资源分类和学科分类，`kind` 区分 `RESOURCE` 与 `SUBJECT`，支持父子层级。 |
+| `edu_public_resource` | 公共资源主记录，保存标题、分类、文件或外链类型、描述、标签、难度、浏览/下载/评分统计和审核状态。 |
+| `edu_public_resource_version` | 公共资源版本，保存存储键或外链、哈希、MIME、大小和处理状态。同一资源内版本号唯一。 |
+| `edu_public_resource_page` | 文件型公共资源的分页预览图，按版本和页码唯一。 |
+| `edu_public_resource_favorite` | 用户收藏关系，`(user_id, resource_id)` 唯一。 |
+
+把公共资源加入课程时，服务端在目标课程复制一份 `edu_resource`、资源版本、预览页和班级发布记录，原公共资源与课程副本之后互不影响。
+
+### 学生个人笔记
+
+[upgrade-student-note.sql](upgrade-student-note.sql) 创建 `edu_student_note`，可重复执行；`install-fresh.sql` 已包含本表。
+
+| 字段或约束 | 说明 |
+| --- | --- |
+| `binding_id`、`user_id` | 教学班绑定与学生用户，二者组成唯一键 `uk_student_note_binding_user`，每个学生在每个教学班只有一条笔记。 |
+| `content` | 笔记正文，`TEXT`，接口层按纯文本保存。 |
+| `updated_at` | 更新时间，由接口在保存时写入，不使用数据库默认值。 |
+
+该表用于课程进度板的个人笔记，只允许当前登录用户读写本人记录。
 
 ## 5. 演示数据与草案
 
@@ -264,6 +308,22 @@ WHERE TABLE_SCHEMA = DATABASE()
   AND ((TABLE_NAME = 'edu_course_space' AND COLUMN_NAME = 'deleted_at')
     OR (TABLE_NAME IN ('edu_course_unit', 'edu_knowledge_point') AND COLUMN_NAME = 'content_text')
     OR (TABLE_NAME = 'edu_outline_attachment' AND COLUMN_NAME = 'file_data'));
+
+-- 核对题目资源库、题库文件夹归档与笔记表。
+SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND ((TABLE_NAME = 'edu_question_share')
+    OR (TABLE_NAME = 'edu_question' AND COLUMN_NAME = 'origin_share_id')
+    OR (TABLE_NAME = 'edu_question_folder' AND COLUMN_NAME = 'archived_at')
+    OR (TABLE_NAME = 'edu_student_note'));
+
+-- 核对公共教学资源库 5 张表。结果应为 5。
+SELECT COUNT(*) AS public_library_tables
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME IN ('edu_public_resource_category', 'edu_public_resource',
+    'edu_public_resource_version', 'edu_public_resource_page', 'edu_public_resource_favorite');
 
 -- 核对身份目录视图。
 SELECT TABLE_NAME, SECURITY_TYPE

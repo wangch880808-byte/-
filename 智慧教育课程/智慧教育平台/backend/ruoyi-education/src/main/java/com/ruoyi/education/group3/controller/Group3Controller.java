@@ -3,6 +3,7 @@ package com.ruoyi.education.group3.controller;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,7 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,6 +41,7 @@ import com.ruoyi.education.group3.service.Group3PrepareService;
 import com.ruoyi.education.group3.service.Group3ResourceService;
 import com.ruoyi.education.group3.service.Group3StudentDashboardService;
 import com.ruoyi.education.group3.service.Group3TransferService;
+import com.ruoyi.education.group3.service.Group3PublicLibraryService;
 import com.ruoyi.education.group3.support.Group3Requests;
 import com.ruoyi.education.group3.support.Group3Security;
 import com.ruoyi.education.service.EduOutlineService;
@@ -58,6 +62,7 @@ public class Group3Controller
     private final LearningAnalyticsProvider learningAnalyticsProvider;
     private final EduCourseAccessService courseAccess;
     private final EduOutlineService outline;
+    private final Group3PublicLibraryService publicLibraryService;
 
     public Group3Controller(
             Group3AccessService accessService,
@@ -71,7 +76,8 @@ public class Group3Controller
             PreviewTaskProvider previewTaskProvider,
             LearningAnalyticsProvider learningAnalyticsProvider,
             EduCourseAccessService courseAccess,
-            EduOutlineService outline)
+            EduOutlineService outline,
+            Group3PublicLibraryService publicLibraryService)
     {
         this.accessService = accessService;
         this.resourceService = resourceService;
@@ -85,6 +91,7 @@ public class Group3Controller
         this.learningAnalyticsProvider = learningAnalyticsProvider;
         this.courseAccess = courseAccess;
         this.outline = outline;
+        this.publicLibraryService = publicLibraryService;
     }
 
     @GetMapping("/contexts")
@@ -106,11 +113,12 @@ public class Group3Controller
             @RequestParam Long bindingId,
             @RequestParam(required = false) String title,
             @RequestParam(required = false) Long unitId,
+            @RequestParam(required = false) Long folderId,
             @RequestParam(value = "releaseSource", required = false, defaultValue = "NONE") String releaseSource,
             @RequestParam(value = "origin", required = false, defaultValue = "STUDIO") String origin,
             @RequestParam("file") MultipartFile file)
     {
-        Map<String, Object> result = resourceService.upload(bindingId, title, unitId, file, releaseSource, origin);
+        Map<String, Object> result = resourceService.upload(bindingId, title, unitId, folderId, file, releaseSource, origin);
         String status = String.valueOf(result.get("processingStatus"));
         String message = switch (status)
         {
@@ -119,6 +127,13 @@ public class Group3Controller
             default -> "资料已上传，正在转换，请稍后刷新查看";
         };
         return R.ok(result, message);
+    }
+
+    /** 创建外链资料（添加网址 / 在线图书）。 */
+    @PostMapping("/resources/link")
+    public R<Map<String, Object>> createLink(@RequestBody Group3Requests.CreateLinkResource request)
+    {
+        return R.ok(resourceService.createLink(request), "外链资料已创建");
     }
 
     @PostMapping("/resources/{resourceId}/versions")
@@ -320,10 +335,73 @@ public class Group3Controller
         return R.ok(studentDashboardService.answerReview(bindingId));
     }
 
+    /** 学生个人笔记：读取本人笔记。 */
+    @GetMapping("/student/note")
+    public R<Map<String, Object>> studentNote(@RequestParam Long bindingId)
+    {
+        return R.ok(studentDashboardService.note(bindingId));
+    }
+
+    /** 学生个人笔记：保存本人笔记。 */
+    @PutMapping("/student/note")
+    public R<Map<String, Object>> saveStudentNote(@RequestBody Group3Requests.StudentNote request)
+    {
+        return R.ok(studentDashboardService.saveNote(request.bindingId(), request.content()), "笔记已保存");
+    }
+
     @GetMapping("/questions")
     public R<List<Map<String, Object>>> questions(@RequestParam Long bindingId)
     {
         return R.ok(prepareService.questions(bindingId));
+    }
+
+    /** 题目资源库：发布题目。 */
+    @PostMapping("/questions/library/share")
+    public R<Map<String, Object>> shareQuestions(@RequestBody Group3Requests.ShareQuestions request)
+    {
+        Map<String, Object> result = prepareService.shareQuestions(request);
+        return R.ok(result, "已发布到题目资源库");
+    }
+
+    /** 题目资源库：撤回共享。 */
+    @PostMapping("/questions/library/withdraw")
+    public R<Map<String, Object>> withdrawSharedQuestions(@RequestBody Group3Requests.WithdrawShares request)
+    {
+        Map<String, Object> result = prepareService.withdrawSharedQuestions(request);
+        return R.ok(result, "已撤回共享");
+    }
+
+    /** 题目资源库：检索共享题目。 */
+    @GetMapping("/questions/library")
+    public R<List<Map<String, Object>>> questionLibrary(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String questionKind,
+            @RequestParam(required = false) String difficulty,
+            @RequestParam(required = false) Long collegeId)
+    {
+        return R.ok(prepareService.questionLibrary(keyword, questionKind, difficulty, collegeId));
+    }
+
+    /** 题目资源库：可选学院列表。 */
+    @GetMapping("/questions/library/colleges")
+    public R<List<Map<String, Object>>> questionLibraryColleges()
+    {
+        return R.ok(prepareService.questionLibraryColleges());
+    }
+
+    /** 题目资源库：共享题目详情（含答案与解析）。 */
+    @GetMapping("/questions/library/{shareId}")
+    public R<Map<String, Object>> questionLibraryDetail(@PathVariable Long shareId)
+    {
+        return R.ok(prepareService.questionLibraryDetail(shareId));
+    }
+
+    /** 题目资源库：引入到当前课程题库。 */
+    @PostMapping("/questions/library/import")
+    public R<Map<String, Object>> importSharedQuestions(@RequestBody Group3Requests.ImportSharedQuestions request)
+    {
+        Map<String, Object> result = prepareService.importSharedQuestions(request);
+        return R.ok(result, "题目已引入当前题库");
     }
 
     @PostMapping("/questions")
@@ -531,7 +609,7 @@ public class Group3Controller
     {
         Long courseId = teacherCourseId(body.get("bindingId"));
         Map<String, Object> input = outlineInput(mapper.selectCourseOutline(courseId), "unitId", unitId, body,
-                List.of("title", "parentUnitId", "sortOrder"));
+                List.of("title", "parentUnitId", "sortOrder", "contentText"));
         outline.saveUnit(courseId, unitId, input);
         return R.ok(input, "章节已更新");
     }
@@ -562,7 +640,7 @@ public class Group3Controller
     {
         Long courseId = teacherCourseId(body.get("bindingId"));
         Map<String, Object> input = outlineInput(mapper.selectKnowledgePoints(courseId), "knowledgePointId", pointId,
-                body, List.of("code", "name", "unitId"));
+                body, List.of("code", "name", "unitId", "contentText"));
         outline.savePoint(courseId, pointId, input);
         return R.ok(input, "知识点已更新");
     }
@@ -572,6 +650,56 @@ public class Group3Controller
     {
         outline.delete(teacherCourseId(bindingId), pointId, true);
         return R.ok(Map.of("pointId", pointId), "知识点已删除");
+    }
+
+    /** 章节详情：内容说明、章节下知识点、资料、题目与学习进度。 */
+    @GetMapping("/outline/units/{unitId}/detail")
+    public R<Map<String, Object>> outlineUnitDetail(@PathVariable Long unitId, @RequestParam Long bindingId)
+    {
+        Long courseId = teacherCourseId(bindingId);
+        List<Map<String, Object>> units = mapper.selectOutlineWithStats(courseId, bindingId);
+        Map<String, Object> unit = units.stream()
+                .filter(row -> unitId.equals(Group3AccessService.asLong(row.get("unitId"))))
+                .findFirst()
+                .orElseThrow(() -> new ServiceException("章节不存在或不属于本课程", HttpStatus.NOT_FOUND.value()));
+        Set<Long> scopeIds = new HashSet<>();
+        scopeIds.add(unitId);
+        for (Map<String, Object> row : units)
+        {
+            if (unitId.equals(Group3AccessService.asLong(row.get("parentUnitId"))))
+            {
+                scopeIds.add(Group3AccessService.asLong(row.get("unitId")));
+            }
+        }
+        List<Map<String, Object>> materials = mapper.selectTeacherResources(bindingId, courseId).stream()
+                .filter(row -> row.get("unitId") != null
+                        && scopeIds.contains(Group3AccessService.asLong(row.get("unitId")))
+                        && !"ARCHIVED".equals(String.valueOf(row.get("resourceStatus"))))
+                .toList();
+        List<Map<String, Object>> points = mapper.selectKnowledgePoints(courseId).stream()
+                .filter(row -> scopeIds.contains(Group3AccessService.asLong(row.get("unitId"))))
+                .toList();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("unit", unit);
+        result.put("points", points);
+        result.put("materials", materials);
+        result.put("questions", mapper.selectUnitQuestions(courseId, unitId));
+        return R.ok(result);
+    }
+
+    /** 知识点详情：学习目标说明与关联题目。 */
+    @GetMapping("/outline/knowledge-points/{pointId}/detail")
+    public R<Map<String, Object>> outlinePointDetail(@PathVariable Long pointId, @RequestParam Long bindingId)
+    {
+        Long courseId = teacherCourseId(bindingId);
+        Map<String, Object> point = mapper.selectKnowledgePoints(courseId).stream()
+                .filter(row -> pointId.equals(Group3AccessService.asLong(row.get("knowledgePointId"))))
+                .findFirst()
+                .orElseThrow(() -> new ServiceException("知识点不存在或不属于本课程", HttpStatus.NOT_FOUND.value()));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("point", point);
+        result.put("questions", mapper.selectPointQuestions(courseId, pointId));
+        return R.ok(result);
     }
 
     private Long teacherCourseId(Object bindingId)
@@ -849,6 +977,33 @@ public class Group3Controller
         return R.ok(row, "文件夹已更新");
     }
 
+    /** 题库文件夹归档 / 取消归档。 */
+    @PostMapping("/folders/{folderId}/archive")
+    public R<Map<String, Object>> archiveFolder(
+            @PathVariable Long folderId,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = Long.valueOf(body.get("bindingId").toString());
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String kind = String.valueOf(body.getOrDefault("kind", "QUESTION")).toUpperCase();
+        if (!"QUESTION".equals(kind))
+        {
+            return R.fail("仅题库文件夹支持归档");
+        }
+        boolean archived = body.get("archived") == null
+                || Boolean.parseBoolean(body.get("archived").toString());
+        int changed = mapper.archiveQuestionFolder(courseSpaceId, folderId, archived);
+        if (changed == 0)
+        {
+            return R.fail("文件夹不存在或不属于当前课程");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("folderId", folderId);
+        result.put("archived", archived);
+        return R.ok(result, archived ? "文件夹已归档" : "文件夹已取消归档");
+    }
+
     @DeleteMapping("/folders/{folderId}")
     public R<Map<String, Object>> deleteFolder(
             @PathVariable Long folderId,
@@ -867,6 +1022,34 @@ public class Group3Controller
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("folderId", folderId);
         return R.ok(result, "文件夹已删除");
+    }
+
+    /** 文件夹整体上架：发布文件夹内尚未发布的资料。 */
+    @PostMapping("/folders/{folderId}/release")
+    public R<Map<String, Object>> publishFolder(@PathVariable Long folderId, @RequestParam Long bindingId)
+    {
+        return R.ok(resourceService.publishFolder(bindingId, folderId), "文件夹已上架");
+    }
+
+    /** 文件夹整体下架：撤回文件夹内已发布的资料。 */
+    @PostMapping("/folders/{folderId}/revoke")
+    public R<Map<String, Object>> revokeFolder(@PathVariable Long folderId, @RequestParam Long bindingId)
+    {
+        return R.ok(resourceService.revokeFolder(bindingId, folderId), "文件夹已下架");
+    }
+
+    /** 打包下载文件夹内的文件资料。 */
+    @GetMapping("/folders/{folderId}/download")
+    public ResponseEntity<Resource> downloadFolder(@PathVariable Long folderId, @RequestParam Long bindingId)
+    {
+        byte[] content = resourceService.zipFolder(bindingId, folderId);
+        return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("文件夹资料.zip", StandardCharsets.UTF_8)
+                                .build().toString())
+                .body(new ByteArrayResource(content));
     }
 
     @PostMapping("/folders/move")
@@ -915,5 +1098,131 @@ public class Group3Controller
         return "QUESTION".equalsIgnoreCase(kind)
                 ? mapper.selectQuestionFolders(courseSpaceId)
                 : mapper.selectResourceFolders(courseSpaceId);
+    }
+
+    /* ========== 公共资源库 ========== */
+
+    @GetMapping("/public/categories")
+    public R<List<Map<String, Object>>> publicCategories(
+            @RequestParam(required = false, defaultValue = "RESOURCE") String kind)
+    {
+        return R.ok(publicLibraryService.categories(kind));
+    }
+
+    @GetMapping("/public/resources")
+    public R<Map<String, Object>> publicResources(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) String resourceKind,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize)
+    {
+        return R.ok(publicLibraryService.listResources(keyword, categoryId, resourceKind, pageNum, pageSize));
+    }
+
+    @GetMapping("/public/resources/{id}")
+    public R<Map<String, Object>> publicResourceDetail(@PathVariable Long id)
+    {
+        return R.ok(publicLibraryService.detail(id));
+    }
+
+    @PostMapping("/public/resources/upload")
+    public R<Map<String, Object>> uploadPublicResource(
+            @RequestParam String title,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) String description,
+            @RequestParam(required = false) String tags,
+            @RequestParam(required = false) String difficulty,
+            @RequestParam("file") MultipartFile file)
+    {
+        return R.ok(publicLibraryService.uploadFile(title, categoryId, description, tags, difficulty, file),
+                "资源上传成功");
+    }
+
+    @PostMapping("/public/resources/link")
+    public R<Map<String, Object>> uploadPublicLink(@RequestBody Map<String, Object> request)
+    {
+        String title = (String) request.get("title");
+        Long categoryId = request.get("categoryId") != null
+                ? Long.valueOf(String.valueOf(request.get("categoryId"))) : null;
+        String description = (String) request.get("description");
+        String tags = (String) request.get("tags");
+        String difficulty = (String) request.get("difficulty");
+        String externalUri = (String) request.get("externalUri");
+        String linkKind = (String) request.get("linkKind");
+        return R.ok(publicLibraryService.uploadLink(title, categoryId, description, tags, difficulty,
+                externalUri, linkKind), "资源已发布");
+    }
+
+    @GetMapping("/public/versions/{versionId}/pages/{pageNo}")
+    public ResponseEntity<Resource> publicPage(
+            @PathVariable Long versionId,
+            @PathVariable int pageNo) throws Exception
+    {
+        java.nio.file.Path path = publicLibraryService.pagePath(versionId, pageNo);
+        return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .contentType(MediaType.IMAGE_PNG)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline().filename("page-" + pageNo + ".png",
+                                java.nio.charset.StandardCharsets.UTF_8).build().toString())
+                .body(new FileSystemResource(path));
+    }
+
+    @GetMapping("/public/versions/{versionId}/pages")
+    public R<List<Map<String, Object>>> publicPages(@PathVariable Long versionId)
+    {
+        return R.ok(publicLibraryService.pages(versionId));
+    }
+
+    @GetMapping("/public/versions/{versionId}/download")
+    public ResponseEntity<Resource> publicDownload(@PathVariable Long versionId)
+    {
+        Resource resource = publicLibraryService.loadVersionFile(versionId);
+        String fileName = publicLibraryService.fileName(versionId);
+        String contentType = publicLibraryService.contentType(versionId);
+        return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(fileName, java.nio.charset.StandardCharsets.UTF_8)
+                                .build().toString())
+                .body(resource);
+    }
+
+    @PostMapping("/public/resources/{id}/favorite")
+    public R<Map<String, Object>> togglePublicFavorite(@PathVariable Long id)
+    {
+        Map<String, Object> result = publicLibraryService.toggleFavorite(id);
+        return R.ok(result, (String) result.get("message"));
+    }
+
+    @GetMapping("/public/favorites")
+    public R<List<Map<String, Object>>> myPublicFavorites()
+    {
+        return R.ok(publicLibraryService.myFavorites());
+    }
+
+    @GetMapping("/public/my-resources")
+    public R<Map<String, Object>> myPublicResources(
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize)
+    {
+        return R.ok(publicLibraryService.myUploads(pageNum, pageSize));
+    }
+
+    @PostMapping("/public/resources/{id}/import")
+    public R<Map<String, Object>> importPublicResource(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body)
+    {
+        Long bindingId = body.get("bindingId") != null
+                ? Long.valueOf(String.valueOf(body.get("bindingId"))) : null;
+        Long folderId = body.get("folderId") != null
+                ? Long.valueOf(String.valueOf(body.get("folderId"))) : null;
+        Long unitId = body.get("unitId") != null
+                ? Long.valueOf(String.valueOf(body.get("unitId"))) : null;
+        Map<String, Object> result = publicLibraryService.importToCourse(id, bindingId, folderId, unitId);
+        return R.ok(result, "已添加到课程资料");
     }
 }

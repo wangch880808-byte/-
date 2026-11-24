@@ -4,7 +4,7 @@
 
 - **运行项目：先阅读 [运行说明.md](运行说明.md)**，包含新空库安装／已有库升级、配置、构建、启动与演示账号。
 - **恢复后录入数据**见 [数据库交接说明](sql/README.md#后录入数据交接)。
-- **本次对接范围与验证状态：** [docs/group12-integration.md](docs/group12-integration.md)。
+- **本次对接范围与验证状态：** [docs/group123-integration.md](docs/group123-integration.md)；仅第一、二组的对接细节见 [docs/group12-integration.md](docs/group12-integration.md)。
 - **第三组业务与数据边界**见 [三组对接说明](docs/group123-integration.md)。
 - **需求来源：** 见仓库中的架构方案与需求文档。
 

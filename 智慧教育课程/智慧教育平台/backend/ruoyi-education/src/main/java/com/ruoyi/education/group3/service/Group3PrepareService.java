@@ -61,6 +61,205 @@ public class Group3PrepareService implements PreviewTaskProvider
         return questions;
     }
 
+    /** 把本课程题目以当前版本快照发布到题目资源库。 */
+    @Transactional
+    public Map<String, Object> shareQuestions(Group3Requests.ShareQuestions request)
+    {
+        if (request == null || request.bindingId() == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        Map<String, Object> binding = accessService.requireTeacherBinding(request.bindingId());
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        List<Long> questionIds = distinct(request.questionIds());
+        if (questionIds.isEmpty())
+        {
+            throw new ServiceException("请选择要共享的题目", HttpStatus.BAD_REQUEST);
+        }
+        if (questionIds.size() > 100)
+        {
+            throw new ServiceException("单次最多共享 100 道题", HttpStatus.BAD_REQUEST);
+        }
+        Long userId = Group3Security.currentUserId();
+        List<Long> shareIds = new ArrayList<>();
+        int published = 0;
+        int reopened = 0;
+        int skipped = 0;
+        int missing = 0;
+        for (Long questionId : questionIds)
+        {
+            Map<String, Object> question = mapper.selectQuestionForShare(courseSpaceId, questionId);
+            if (question == null)
+            {
+                missing++;
+                continue;
+            }
+            if ("ARCHIVED".equals(String.valueOf(question.get("status"))))
+            {
+                skipped++;
+                continue;
+            }
+            Long existingShareId = Group3AccessService.asLong(question.get("shareId"));
+            if (existingShareId != null)
+            {
+                if ("PUBLISHED".equals(String.valueOf(question.get("shareStatus"))))
+                {
+                    skipped++;
+                }
+                else
+                {
+                    mapper.reopenQuestionShare(existingShareId, userId);
+                    reopened++;
+                }
+                shareIds.add(existingShareId);
+                continue;
+            }
+            Map<String, Object> share = new LinkedHashMap<>();
+            share.put("questionVersionId", Group3AccessService.asLong(question.get("versionId")));
+            share.put("courseSpaceId", courseSpaceId);
+            share.put("userId", userId);
+            mapper.insertQuestionShare(share);
+            shareIds.add(Group3AccessService.asLong(share.get("id")));
+            published++;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("published", published);
+        result.put("reopened", reopened);
+        result.put("skipped", skipped);
+        result.put("missing", missing);
+        result.put("shareIds", shareIds);
+        return result;
+    }
+
+    /** 撤回本课程已共享的题目，已引入的副本不受影响。 */
+    @Transactional
+    public Map<String, Object> withdrawSharedQuestions(Group3Requests.WithdrawShares request)
+    {
+        if (request == null || request.bindingId() == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        Map<String, Object> binding = accessService.requireTeacherBinding(request.bindingId());
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        List<Long> shareIds = distinct(request.shareIds());
+        if (shareIds.isEmpty())
+        {
+            throw new ServiceException("请选择要撤回的共享题目", HttpStatus.BAD_REQUEST);
+        }
+        int withdrawn = mapper.withdrawQuestionShares(courseSpaceId, shareIds);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("withdrawn", withdrawn);
+        return result;
+    }
+
+    /** 题目资源库列表，仅教师可访问。 */
+    public List<Map<String, Object>> questionLibrary(String keyword, String questionKind, String difficulty, Long collegeId)
+    {
+        Group3Security.requireTeacher();
+        String normalizedKeyword = keyword == null ? null : keyword.trim();
+        if (normalizedKeyword != null && normalizedKeyword.isEmpty())
+        {
+            normalizedKeyword = null;
+        }
+        String kind = questionKind == null || questionKind.isBlank() ? null : questionKind.trim().toUpperCase();
+        String level = difficulty == null || difficulty.isBlank() ? null : difficulty.trim().toUpperCase();
+        return mapper.selectQuestionShares(normalizedKeyword, kind, level, collegeId, 200);
+    }
+
+    /** 题目资源库可选学院及共享数量。 */
+    public List<Map<String, Object>> questionLibraryColleges()
+    {
+        Group3Security.requireTeacher();
+        return mapper.selectQuestionShareColleges();
+    }
+
+    /** 题目资源库详情，包含答案与解析，仅教师可访问。 */
+    public Map<String, Object> questionLibraryDetail(Long shareId)
+    {
+        Group3Security.requireTeacher();
+        Map<String, Object> share = mapper.selectQuestionShare(shareId, true);
+        if (share == null)
+        {
+            throw new ServiceException("共享题目不存在或已下架", HttpStatus.NOT_FOUND);
+        }
+        parseJsonField(share, "optionsJson", "options");
+        parseJsonField(share, "answerJson", "answer");
+        share.put("answerVisible", true);
+        return share;
+    }
+
+    /** 把资源库题目复制到当前课程题库，知识点不跨课程搬运。 */
+    @Transactional
+    public Map<String, Object> importSharedQuestions(Group3Requests.ImportSharedQuestions request)
+    {
+        if (request == null || request.bindingId() == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        Map<String, Object> binding = accessService.requireTeacherBinding(request.bindingId());
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        Long folderId = request.folderId();
+        if (folderId != null && mapper.countQuestionFolder(courseSpaceId, folderId) == 0)
+        {
+            throw new ServiceException("题库文件夹不存在", HttpStatus.BAD_REQUEST);
+        }
+        List<Long> shareIds = distinct(request.shareIds());
+        if (shareIds.isEmpty())
+        {
+            throw new ServiceException("请选择要引入的题目", HttpStatus.BAD_REQUEST);
+        }
+        if (shareIds.size() > 50)
+        {
+            throw new ServiceException("单次最多引入 50 道题", HttpStatus.BAD_REQUEST);
+        }
+        Long userId = Group3Security.currentUserId();
+        List<Long> importedQuestionIds = new ArrayList<>();
+        int skipped = 0;
+        for (Long shareId : shareIds)
+        {
+            Map<String, Object> share = mapper.selectQuestionShare(shareId, true);
+            if (share == null || mapper.countImportedShare(courseSpaceId, shareId) > 0)
+            {
+                skipped++;
+                continue;
+            }
+            String title = share.get("title") == null ? "共享题目" : share.get("title").toString();
+            if (title.length() > 200)
+            {
+                title = title.substring(0, 200);
+            }
+            Map<String, Object> question = new LinkedHashMap<>();
+            question.put("courseSpaceId", courseSpaceId);
+            question.put("folderId", folderId);
+            question.put("title", title);
+            question.put("userId", userId);
+            question.put("originShareId", shareId);
+            mapper.insertImportedQuestion(question);
+            Long questionId = Group3AccessService.asLong(question.get("id"));
+
+            List<String> options = jsonToStringList(share.get("optionsJson"));
+            JsonNode answer = parseJson(share.get("answerJson"));
+            String explanation = share.get("explanation") == null ? "" : share.get("explanation").toString();
+            String rubric = extractRubric(share.get("rubricJson"));
+            BigDecimal maxScore = share.get("maxScore") instanceof BigDecimal score
+                    ? score : new BigDecimal(String.valueOf(share.get("maxScore")));
+            insertQuestionVersion(
+                    questionId, courseSpaceId, 1,
+                    share.get("questionKind") == null ? null : share.get("questionKind").toString(),
+                    share.get("stem") == null ? "" : share.get("stem").toString(),
+                    options, answer, explanation, rubric, maxScore,
+                    share.get("difficulty") == null ? null : share.get("difficulty").toString(),
+                    share.get("tags") == null ? null : share.get("tags").toString());
+            mapper.incrementShareImportCount(shareId);
+            importedQuestionIds.add(questionId);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("imported", importedQuestionIds.size());
+        result.put("skipped", skipped);
+        result.put("questionIds", importedQuestionIds);
+        return result;
+    }
+
     @Transactional
     public Map<String, Object> createQuestion(Group3Requests.Question request)
     {
@@ -73,10 +272,15 @@ public class Group3PrepareService implements PreviewTaskProvider
         String title = requiredText(request.title(), "题目名称", 200);
         validateQuestion(request.questionKind(), request.stem(), request.options(), request.answer(),
                 request.maxScore(), courseSpaceId, request.knowledgePointIds());
+        Long folderId = request.folderId();
+        if (folderId != null && mapper.countQuestionFolder(courseSpaceId, folderId) == 0)
+        {
+            throw new ServiceException("题库文件夹不存在", HttpStatus.BAD_REQUEST);
+        }
 
         Map<String, Object> question = new LinkedHashMap<>();
         question.put("courseSpaceId", courseSpaceId);
-        question.put("folderId", null);
+        question.put("folderId", folderId);
         question.put("title", title);
         question.put("userId", Group3Security.currentUserId());
         mapper.insertQuestion(question);
@@ -297,15 +501,26 @@ public class Group3PrepareService implements PreviewTaskProvider
             resourceService.release(release);
         }
 
-        Map<String, Object> questionVersion = null;
-        if (request.questionVersionId() != null)
+        // 整卷发布：questionVersionIds 支持一次绑定多道题；questionVersionId 保留单题兼容。
+        List<Long> requestedQuestionVersionIds = distinct(request.questionVersionIds());
+        if (requestedQuestionVersionIds.isEmpty() && request.questionVersionId() != null)
         {
-            questionVersion = mapper.selectQuestionVersion(
-                    request.bindingId(), request.questionVersionId(), Group3Security.currentUserId());
+            requestedQuestionVersionIds = List.of(request.questionVersionId());
+        }
+        if (requestedQuestionVersionIds.size() > 100)
+        {
+            throw new ServiceException("单份试卷最多 100 道题", HttpStatus.BAD_REQUEST);
+        }
+        List<Map<String, Object>> questionVersions = new ArrayList<>();
+        for (Long versionId : requestedQuestionVersionIds)
+        {
+            Map<String, Object> questionVersion = mapper.selectQuestionVersion(
+                    request.bindingId(), versionId, Group3Security.currentUserId());
             if (questionVersion == null)
             {
                 throw new ServiceException("预习题目不属于当前课程", HttpStatus.BAD_REQUEST);
             }
+            questionVersions.add(questionVersion);
         }
 
         Map<String, Object> assignment = new LinkedHashMap<>();
@@ -321,18 +536,29 @@ public class Group3PrepareService implements PreviewTaskProvider
         assignment.put("userId", Group3Security.currentUserId());
         mapper.insertAssignment(assignment);
         Long assignmentId = Group3AccessService.asLong(assignment.get("id"));
-        if (questionVersion != null)
+        int sortOrder = 1;
+        BigDecimal totalScore = BigDecimal.ZERO;
+        for (Map<String, Object> questionVersion : questionVersions)
         {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("assignmentId", assignmentId);
             item.put("courseSpaceId", courseSpaceId);
-            item.put("sortOrder", 1);
+            item.put("sortOrder", sortOrder++);
             item.put("itemKind", "QUESTION");
             item.put("prompt", questionVersion.get("stem"));
             item.put("questionId", questionVersion.get("questionId"));
             item.put("questionVersionId", questionVersion.get("versionId"));
             item.put("maxScore", questionVersion.get("maxScore"));
             mapper.insertAssignmentItem(item);
+            Object score = questionVersion.get("maxScore");
+            if (score instanceof BigDecimal value)
+            {
+                totalScore = totalScore.add(value);
+            }
+            else if (score != null)
+            {
+                totalScore = totalScore.add(new BigDecimal(score.toString()));
+            }
         }
         Map<String, Object> target = new LinkedHashMap<>();
         target.put("assignmentId", assignmentId);
@@ -341,6 +567,8 @@ public class Group3PrepareService implements PreviewTaskProvider
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("assignmentId", assignmentId);
+        result.put("itemCount", questionVersions.size());
+        result.put("totalScore", totalScore);
         result.put("targetCount", mapper.selectTargetCount(assignmentId));
         result.put("status", "PUBLISHED");
         result.put("opensAt", opensAt + "Z");
@@ -778,6 +1006,27 @@ public class Group3PrepareService implements PreviewTaskProvider
     {
         row.put(target, parseJson(row.get(source)));
         row.remove(source);
+    }
+
+    private List<String> jsonToStringList(Object value)
+    {
+        JsonNode node = parseJson(value);
+        List<String> items = new ArrayList<>();
+        if (node != null && node.isArray())
+        {
+            node.forEach(item -> items.add(item.asText()));
+        }
+        return items;
+    }
+
+    private String extractRubric(Object value)
+    {
+        JsonNode node = parseJson(value);
+        if (node == null)
+        {
+            return "";
+        }
+        return node.isTextual() ? node.asText() : node.path("rubric").asText("");
     }
 
     private JsonNode parseJson(Object value)

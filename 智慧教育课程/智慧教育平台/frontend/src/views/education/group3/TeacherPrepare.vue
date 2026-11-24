@@ -848,7 +848,7 @@
         </div>
         <p class="edu-hint">
           {{ createKind === 'quiz'
-            ? '发布接口每条预习任务只绑定一道题：勾选多道题时按「每题一个独立环节」依次发布，共享同一开放窗口与导学说明；未勾选任何题目时为纯资料导学环节。'
+            ? '勾选多道题会作为一份整卷发布：学生在一张卷内统一作答、一次提交；未勾选任何题目时为纯资料导学环节。'
             : '随堂题从现有题库直接选用，不会重新录入；不选择则不预设活动。' }}
         </p>
       </div>
@@ -2343,20 +2343,15 @@ async function submitCreate() {
         resourceVersionIds: createForm.materialVersionIds.map(Number)
       }
       const questionIds = createForm.questionVersionIds.map(Number)
-      const tasks = questionIds.length ? questionIds : [null]
-      expected = tasks.length
-      for (let index = 0; index < tasks.length; index += 1) {
-        const body = {
-          ...base,
-          title: tasks.length > 1 ? `${base.title} · 第 ${index + 1} / ${tasks.length} 题` : base.title,
-          questionVersionId: tasks[index],
-          resourceVersionIds: index === 0 ? base.resourceVersionIds : []
-        }
-        await createPreviewTask(body)
-        published += 1
+      const body = {
+        ...base,
+        questionVersionIds: questionIds
       }
-      ElMessage.success(tasks.length > 1
-        ? `已从题库导入 ${questionIds.length} 道题，生成 ${tasks.length} 个独立预习环节`
+      const result = await createPreviewTask(body)
+      published += 1
+      const publishedCount = Number(result?.data?.itemCount ?? questionIds.length)
+      ElMessage.success(publishedCount > 1
+        ? `整卷已发布：${publishedCount} 道题统一作答，合计 ${result?.data?.totalScore ?? '—'} 分`
         : '预习习题环节已加入时间轴')
     } else {
       const body = {

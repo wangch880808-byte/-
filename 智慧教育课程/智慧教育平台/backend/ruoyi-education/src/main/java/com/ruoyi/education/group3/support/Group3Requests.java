@@ -32,6 +32,7 @@ public final class Group3Requests
 
     public record Question(
             Long bindingId,
+            Long folderId,
             String title,
             String questionKind,
             String stem,
@@ -58,6 +59,21 @@ public final class Group3Requests
             List<Long> knowledgePointIds,
             String difficulty,
             String tags)
+    {
+    }
+
+    /** 题目资源库：把本课程题目发布到资源库。 */
+    public record ShareQuestions(Long bindingId, List<Long> questionIds)
+    {
+    }
+
+    /** 题目资源库：撤回共享。 */
+    public record WithdrawShares(Long bindingId, List<Long> shareIds)
+    {
+    }
+
+    /** 题目资源库：把共享题目引入当前课程题库。 */
+    public record ImportSharedQuestions(Long bindingId, Long folderId, List<Long> shareIds)
     {
     }
 
@@ -116,6 +132,7 @@ public final class Group3Requests
             String closesAt,
             String answerOpensAt,
             Long questionVersionId,
+            List<Long> questionVersionIds,
             List<Long> resourceVersionIds)
     {
     }
@@ -196,6 +213,43 @@ public final class Group3Requests
             Long bindingId,
             String kind,
             Long id)
+    {
+    }
+
+    /**
+     * 创建外链资料请求。
+     * <p>
+     * linkKind: URL 表示普通外部链接，BOOK 表示在线图书链接。
+     * releaseSource: NONE 表示仅保存草稿，STUDIO/PREPARE 表示同时发布。
+     * </p>
+     */
+    public record CreateLinkResource(
+            Long bindingId,
+            String title,
+            Long unitId,
+            Long folderId,
+            String externalUri,
+            String linkKind,
+            String releaseSource,
+            String origin)
+    {
+        public CreateLinkResource
+        {
+            if (releaseSource == null || releaseSource.isBlank())
+            {
+                releaseSource = "NONE";
+            }
+            if (origin == null || origin.isBlank())
+            {
+                origin = "STUDIO";
+            }
+        }
+    }
+
+    /** 学生个人笔记保存请求。 */
+    public record StudentNote(
+            Long bindingId,
+            String content)
     {
     }
 }

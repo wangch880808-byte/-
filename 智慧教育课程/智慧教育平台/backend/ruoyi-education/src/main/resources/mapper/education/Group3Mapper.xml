@@ -9,7 +9,46 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                u.parent_unit_id AS parentUnitId,
                u.unit_kind AS unitKind,
                u.title,
-               u.sort_order AS sortOrder
+               u.sort_order AS sortOrder,
+               COALESCE(u.content_text, '') AS contentText
+        FROM edu_course_unit u
+        WHERE u.course_space_id = #{courseSpaceId}
+        ORDER BY u.sort_order, u.id
+    </select>
+
+    <select id="selectOutlineWithStats" resultType="java.util.LinkedHashMap">
+        SELECT u.id AS unitId,
+               u.parent_unit_id AS parentUnitId,
+               u.unit_kind AS unitKind,
+               u.title,
+               u.sort_order AS sortOrder,
+               COALESCE(u.content_text, '') AS contentText,
+               (SELECT COUNT(*) FROM edu_resource r
+                 WHERE r.course_space_id = u.course_space_id
+                   AND r.status &lt;&gt; 'ARCHIVED'
+                   AND r.unit_id IN (SELECT cu.id FROM edu_course_unit cu
+                                      WHERE cu.course_space_id = u.course_space_id
+                                        AND (cu.id = u.id OR cu.parent_unit_id = u.id))) AS materialCount,
+               (SELECT COUNT(*) FROM edu_knowledge_point kp
+                 WHERE kp.course_space_id = u.course_space_id
+                   AND kp.unit_id IN (SELECT cu.id FROM edu_course_unit cu
+                                       WHERE cu.course_space_id = u.course_space_id
+                                         AND (cu.id = u.id OR cu.parent_unit_id = u.id))) AS pointCount,
+               (SELECT COUNT(DISTINCT qkp.question_id)
+                  FROM edu_question_knowledge_point qkp
+                  JOIN edu_knowledge_point kp ON kp.id = qkp.knowledge_point_id
+                 WHERE kp.course_space_id = u.course_space_id
+                   AND kp.unit_id IN (SELECT cu.id FROM edu_course_unit cu
+                                       WHERE cu.course_space_id = u.course_space_id
+                                         AND (cu.id = u.id OR cu.parent_unit_id = u.id))) AS questionCount,
+               (SELECT ROUND(100 * SUM(rp.completed) / NULLIF(COUNT(*), 0))
+                  FROM edu_resource_progress rp
+                  JOIN edu_resource r ON r.id = rp.resource_id
+                 WHERE r.course_space_id = u.course_space_id
+                   AND rp.binding_id = #{bindingId}
+                   AND r.unit_id IN (SELECT cu.id FROM edu_course_unit cu
+                                      WHERE cu.course_space_id = u.course_space_id
+                                        AND (cu.id = u.id OR cu.parent_unit_id = u.id))) AS completionRate
         FROM edu_course_unit u
         WHERE u.course_space_id = #{courseSpaceId}
         ORDER BY u.sort_order, u.id
@@ -19,10 +58,63 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT kp.id AS knowledgePointId,
                kp.unit_id AS unitId,
                kp.code,
-               kp.name
+               kp.name,
+               COALESCE(kp.content_text, '') AS contentText,
+               (SELECT COUNT(DISTINCT qkp.question_id)
+                  FROM edu_question_knowledge_point qkp
+                 WHERE qkp.knowledge_point_id = kp.id) AS questionCount
         FROM edu_knowledge_point kp
         WHERE kp.course_space_id = #{courseSpaceId}
         ORDER BY kp.unit_id, kp.name
+    </select>
+
+    <select id="selectUnitQuestions" resultType="java.util.LinkedHashMap">
+        SELECT q.id AS questionId,
+               q.title,
+               qv.question_kind AS questionKind,
+               qv.difficulty,
+               qv.max_score AS maxScore,
+               (SELECT GROUP_CONCAT(kp2.name ORDER BY kp2.name SEPARATOR '、')
+                  FROM edu_question_knowledge_point qkp2
+                  JOIN edu_knowledge_point kp2 ON kp2.id = qkp2.knowledge_point_id
+                 WHERE qkp2.question_id = q.id) AS knowledgePoints
+        FROM edu_question q
+        JOIN edu_question_version qv
+          ON qv.question_id = q.id
+         AND qv.version_no = (SELECT MAX(v.version_no) FROM edu_question_version v WHERE v.question_id = q.id)
+        WHERE q.course_space_id = #{courseSpaceId}
+          AND q.status &lt;&gt; 'ARCHIVED'
+          AND EXISTS (SELECT 1
+                        FROM edu_question_knowledge_point qkp
+                        JOIN edu_knowledge_point kp ON kp.id = qkp.knowledge_point_id
+                       WHERE qkp.question_id = q.id
+                         AND kp.course_space_id = #{courseSpaceId}
+                         AND kp.unit_id IN (SELECT cu.id FROM edu_course_unit cu
+                                             WHERE cu.course_space_id = #{courseSpaceId}
+                                               AND (cu.id = #{unitId} OR cu.parent_unit_id = #{unitId})))
+        ORDER BY q.created_at DESC, q.id DESC
+    </select>
+
+    <select id="selectPointQuestions" resultType="java.util.LinkedHashMap">
+        SELECT q.id AS questionId,
+               q.title,
+               qv.question_kind AS questionKind,
+               qv.difficulty,
+               qv.max_score AS maxScore,
+               DATE_FORMAT(q.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+               (SELECT GROUP_CONCAT(kp2.name ORDER BY kp2.name SEPARATOR '、')
+                  FROM edu_question_knowledge_point qkp2
+                  JOIN edu_knowledge_point kp2 ON kp2.id = qkp2.knowledge_point_id
+                 WHERE qkp2.question_id = q.id) AS knowledgePoints
+        FROM edu_question q
+        JOIN edu_question_version qv
+          ON qv.question_id = q.id
+         AND qv.version_no = (SELECT MAX(v.version_no) FROM edu_question_version v WHERE v.question_id = q.id)
+        JOIN edu_question_knowledge_point qkp ON qkp.question_id = q.id
+        WHERE q.course_space_id = #{courseSpaceId}
+          AND q.status &lt;&gt; 'ARCHIVED'
+          AND qkp.knowledge_point_id = #{pointId}
+        ORDER BY q.created_at DESC, q.id DESC
     </select>
 
     <select id="selectTeacherResources" resultType="java.util.LinkedHashMap">
@@ -404,6 +496,23 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ORDER BY sv.submitted_at DESC, a.id DESC, ai.sort_order
     </select>
 
+    <!-- 学生个人笔记：按教学班与本人唯一。 -->
+    <select id="selectStudentNote" resultType="java.util.LinkedHashMap">
+        SELECT n.id,
+               n.binding_id AS bindingId,
+               n.content,
+               DATE_FORMAT(n.updated_at, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt
+        FROM edu_student_note n
+        WHERE n.binding_id = #{bindingId}
+          AND n.user_id = #{userId}
+    </select>
+
+    <insert id="upsertStudentNote">
+        INSERT INTO edu_student_note (binding_id, user_id, content, updated_at)
+        VALUES (#{bindingId}, #{userId}, #{content}, UTC_TIMESTAMP(3))
+        ON DUPLICATE KEY UPDATE content = VALUES(content), updated_at = VALUES(updated_at)
+    </insert>
+
     <!-- 学情契约：全班观看进度，按资料汇总；分母由服务层用有效在班人数补齐。 -->
     <select id="selectResourceProgressStats" resultType="java.util.LinkedHashMap">
         SELECT p.resource_id AS resourceId,
@@ -581,6 +690,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT r.id AS resourceId,
                r.title,
                r.unit_id AS unitId,
+               r.folder_id AS folderId,
+               f.name AS folderName,
                r.download_enabled AS downloadEnabled,
                r.watermark_text AS watermarkText,
                r.task_enabled AS taskEnabled,
@@ -603,6 +714,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         JOIN edu_resource_version rv ON rv.id = rel.resource_version_id
         JOIN edu_course_class_binding b ON b.id = rel.binding_id
         JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
+        LEFT JOIN edu_resource_folder f ON f.id = r.folder_id
         LEFT JOIN sys_user u ON u.user_id = rel.released_by_user_id
         WHERE rel.binding_id = #{bindingId}
           AND rel.ended_at IS NULL
@@ -631,6 +743,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                q.title,
                q.folder_id AS folderId,
                q.status,
+               COALESCE(u.nick_name, u.user_name) AS creatorName,
                qv.id AS versionId,
                qv.version_no AS versionNo,
                qv.question_kind AS questionKind,
@@ -642,6 +755,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                qv.tags,
                qv.max_score AS maxScore,
                DATE_FORMAT(qv.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+               s.id AS shareId,
+               s.status AS shareStatus,
                (SELECT GROUP_CONCAT(kp.name ORDER BY kp.name SEPARATOR '、')
                   FROM edu_question_knowledge_point qkp
                   JOIN edu_knowledge_point kp ON kp.id = qkp.knowledge_point_id
@@ -652,10 +767,183 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
          AND qv.version_no = (SELECT MAX(v.version_no)
                                 FROM edu_question_version v
                                WHERE v.question_id = q.id)
+        LEFT JOIN edu_question_share s ON s.question_version_id = qv.id
+        LEFT JOIN sys_user u ON u.user_id = q.created_by_user_id
         WHERE q.course_space_id = #{courseSpaceId}
           AND q.status &lt;&gt; 'ARCHIVED'
         ORDER BY q.created_at DESC, q.id DESC
     </select>
+
+    <select id="selectQuestionForShare" resultType="java.util.LinkedHashMap">
+        SELECT q.id AS questionId,
+               q.title,
+               q.status,
+               qv.id AS versionId,
+               s.id AS shareId,
+               s.status AS shareStatus
+        FROM edu_question q
+        JOIN edu_question_version qv
+          ON qv.question_id = q.id
+         AND qv.version_no = (SELECT MAX(v.version_no)
+                                FROM edu_question_version v
+                               WHERE v.question_id = q.id)
+        LEFT JOIN edu_question_share s ON s.question_version_id = qv.id
+        WHERE q.id = #{questionId}
+          AND q.course_space_id = #{courseSpaceId}
+    </select>
+
+    <insert id="insertQuestionShare" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_question_share
+            (question_version_id, source_course_space_id, shared_by_user_id, scope, status)
+        VALUES
+            (#{questionVersionId}, #{courseSpaceId}, #{userId}, 'SCHOOL', 'PUBLISHED')
+    </insert>
+
+    <update id="reopenQuestionShare">
+        UPDATE edu_question_share
+           SET status = 'PUBLISHED',
+               withdrawn_at = NULL,
+               shared_at = NOW(3),
+               shared_by_user_id = #{userId}
+         WHERE id = #{shareId}
+    </update>
+
+    <update id="withdrawQuestionShares">
+        UPDATE edu_question_share
+           SET status = 'WITHDRAWN',
+               withdrawn_at = NOW(3)
+         WHERE source_course_space_id = #{courseSpaceId}
+           AND status = 'PUBLISHED'
+           AND id IN
+           <foreach collection="shareIds" item="shareId" open="(" separator="," close=")">
+               #{shareId}
+           </foreach>
+    </update>
+
+    <select id="selectQuestionShares" resultType="java.util.LinkedHashMap">
+        SELECT s.id AS shareId,
+               q.title,
+               qv.id AS versionId,
+               qv.question_kind AS questionKind,
+               qv.stem,
+               qv.options_json AS optionsJson,
+               qv.answer_json AS answerJson,
+               qv.explanation,
+               qv.difficulty,
+               qv.tags,
+               qv.max_score AS maxScore,
+               s.import_count AS importCount,
+               DATE_FORMAT(s.shared_at, '%Y-%m-%dT%H:%i:%s.000Z') AS sharedAt,
+               cs.title AS sourceCourseTitle,
+               COALESCE(u.nick_name, u.user_name) AS sharedByName,
+               college.dept_id AS collegeId,
+               college.dept_name AS collegeName,
+               (SELECT GROUP_CONCAT(kp.name ORDER BY kp.name SEPARATOR '、')
+                  FROM edu_question_knowledge_point qkp
+                  JOIN edu_knowledge_point kp ON kp.id = qkp.knowledge_point_id
+                 WHERE qkp.question_id = q.id) AS knowledgePoints
+        FROM edu_question_share s
+        JOIN edu_question_version qv ON qv.id = s.question_version_id
+        JOIN edu_question q ON q.id = qv.question_id
+        LEFT JOIN edu_course_space cs ON cs.id = s.source_course_space_id
+        LEFT JOIN sys_user u ON u.user_id = s.shared_by_user_id
+        LEFT JOIN sys_dept d ON d.dept_id = u.dept_id
+        LEFT JOIN sys_dept college ON college.dept_id = COALESCE(
+            (SELECT cd.dept_id FROM sys_dept cd
+              WHERE cd.dept_type = 'COLLEGE'
+                AND (cd.dept_id = d.dept_id OR FIND_IN_SET(cd.dept_id, d.ancestors))
+              ORDER BY cd.dept_id LIMIT 1), d.dept_id)
+        WHERE s.status = 'PUBLISHED'
+        <if test="keyword != null and keyword != ''">
+          AND (q.title LIKE CONCAT('%', #{keyword}, '%')
+               OR qv.stem LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="questionKind != null and questionKind != ''">
+          AND qv.question_kind = #{questionKind}
+        </if>
+        <if test="difficulty != null and difficulty != ''">
+          AND qv.difficulty = #{difficulty}
+        </if>
+        <if test="collegeId != null">
+          AND college.dept_id = #{collegeId}
+        </if>
+        ORDER BY s.shared_at DESC, s.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectQuestionShareColleges" resultType="java.util.LinkedHashMap">
+        SELECT college.dept_id AS collegeId,
+               college.dept_name AS collegeName,
+               COUNT(*) AS shareCount
+        FROM edu_question_share s
+        JOIN edu_question_version qv ON qv.id = s.question_version_id
+        JOIN edu_question q ON q.id = qv.question_id
+        JOIN sys_user u ON u.user_id = s.shared_by_user_id
+        LEFT JOIN sys_dept d ON d.dept_id = u.dept_id
+        LEFT JOIN sys_dept college ON college.dept_id = COALESCE(
+            (SELECT cd.dept_id FROM sys_dept cd
+              WHERE cd.dept_type = 'COLLEGE'
+                AND (cd.dept_id = d.dept_id OR FIND_IN_SET(cd.dept_id, d.ancestors))
+              ORDER BY cd.dept_id LIMIT 1), d.dept_id)
+        WHERE s.status = 'PUBLISHED'
+          AND college.dept_id IS NOT NULL
+        GROUP BY college.dept_id, college.dept_name
+        ORDER BY college.dept_name
+    </select>
+
+    <select id="selectQuestionShare" resultType="java.util.LinkedHashMap">
+        SELECT s.id AS shareId,
+               s.status AS shareStatus,
+               s.source_course_space_id AS sourceCourseSpaceId,
+               q.title,
+               qv.id AS versionId,
+               qv.question_kind AS questionKind,
+               qv.stem,
+               qv.options_json AS optionsJson,
+               qv.answer_json AS answerJson,
+               qv.explanation,
+               qv.rubric_json AS rubricJson,
+               qv.difficulty,
+               qv.tags,
+               qv.max_score AS maxScore,
+               s.import_count AS importCount,
+               DATE_FORMAT(s.shared_at, '%Y-%m-%dT%H:%i:%s.000Z') AS sharedAt,
+               cs.title AS sourceCourseTitle,
+               COALESCE(u.nick_name, u.user_name) AS sharedByName,
+               (SELECT GROUP_CONCAT(kp.name ORDER BY kp.name SEPARATOR '、')
+                  FROM edu_question_knowledge_point qkp
+                  JOIN edu_knowledge_point kp ON kp.id = qkp.knowledge_point_id
+                 WHERE qkp.question_id = q.id) AS knowledgePoints
+        FROM edu_question_share s
+        JOIN edu_question_version qv ON qv.id = s.question_version_id
+        JOIN edu_question q ON q.id = qv.question_id
+        LEFT JOIN edu_course_space cs ON cs.id = s.source_course_space_id
+        LEFT JOIN sys_user u ON u.user_id = s.shared_by_user_id
+        WHERE s.id = #{shareId}
+        <if test="publishedOnly">
+          AND s.status = 'PUBLISHED'
+        </if>
+    </select>
+
+    <select id="countImportedShare" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_question
+        WHERE course_space_id = #{courseSpaceId}
+          AND origin_share_id = #{shareId}
+    </select>
+
+    <update id="incrementShareImportCount">
+        UPDATE edu_question_share
+           SET import_count = import_count + 1
+         WHERE id = #{shareId}
+    </update>
+
+    <insert id="insertImportedQuestion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_question
+            (course_space_id, folder_id, title, status, created_by_user_id, origin_share_id)
+        VALUES
+            (#{courseSpaceId}, #{folderId}, #{title}, 'ACTIVE', #{userId}, #{originShareId})
+    </insert>
 
     <select id="selectQuestionVersions" resultType="java.util.LinkedHashMap">
         SELECT q.id AS questionId,
@@ -1202,10 +1490,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT f.id,
                f.name,
                f.visibility,
-               DATE_FORMAT(f.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+               DATE_FORMAT(f.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+               DATE_FORMAT(f.archived_at, '%Y-%m-%dT%H:%i:%s.000Z') AS archivedAt
         FROM edu_question_folder f
         WHERE f.course_space_id = #{courseSpaceId}
         ORDER BY f.id
+    </select>
+
+    <select id="countQuestionFolder" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_question_folder
+        WHERE id = #{folderId}
+          AND course_space_id = #{courseSpaceId}
     </select>
 
     <insert id="insertResourceFolder" parameterType="map" useGeneratedKeys="true" keyProperty="id">
@@ -1234,6 +1530,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         UPDATE edu_question_folder
            SET name = #{name},
                visibility = #{visibility}
+         WHERE id = #{folderId}
+           AND course_space_id = #{courseSpaceId}
+    </update>
+
+    <update id="archiveQuestionFolder" parameterType="map">
+        UPDATE edu_question_folder
+           SET archived_at = <choose><when test="archived">NOW(3)</when><otherwise>NULL</otherwise></choose>
          WHERE id = #{folderId}
            AND course_space_id = #{courseSpaceId}
     </update>
@@ -1684,4 +1987,248 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           AND binding_id = #{bindingId}
           AND ended_at IS NULL
     </update>
+
+    <!-- ============ 公共资源库 ============ -->
+
+    <select id="selectPublicCategories" resultType="java.util.LinkedHashMap">
+        SELECT id,
+               parent_id AS parentId,
+               name,
+               kind,
+               sort_order AS sortOrder
+        FROM edu_public_resource_category
+        WHERE status = '0'
+          AND kind = #{kind}
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="selectPublicResources" resultType="java.util.LinkedHashMap">
+        SELECT r.id,
+               r.title,
+               r.category_id AS categoryId,
+               c.name AS categoryName,
+               r.resource_kind AS resourceKind,
+               r.description,
+               r.tags,
+               r.difficulty,
+               r.view_count AS viewCount,
+               r.download_count AS downloadCount,
+               r.rating_avg AS ratingAvg,
+               r.rating_count AS ratingCount,
+               r.status,
+               COALESCE(u.nick_name, u.user_name) AS submitterName,
+               r.submitted_at AS submittedAt,
+               rv.id AS versionId,
+               rv.version_no AS versionNo,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.external_uri AS externalUri,
+               rv.processing_status AS processingStatus
+        FROM edu_public_resource r
+        LEFT JOIN edu_public_resource_version rv
+          ON rv.resource_id = r.id
+         AND rv.version_no = (SELECT MAX(v.version_no)
+                                FROM edu_public_resource_version v
+                               WHERE v.resource_id = r.id)
+        LEFT JOIN edu_public_resource_category c ON c.id = r.category_id
+        LEFT JOIN sys_user u ON u.user_id = r.submitter_user_id
+        WHERE r.status = 'APPROVED'
+        <if test="keyword != null and keyword != ''">
+          AND (r.title LIKE CONCAT('%', #{keyword}, '%')
+               OR r.description LIKE CONCAT('%', #{keyword}, '%')
+               OR r.tags LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="categoryId != null">
+          AND r.category_id = #{categoryId}
+        </if>
+        <if test="resourceKind != null and resourceKind != ''">
+          AND r.resource_kind = #{resourceKind}
+        </if>
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countPublicResources" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_public_resource r
+        WHERE r.status = 'APPROVED'
+        <if test="keyword != null and keyword != ''">
+          AND (r.title LIKE CONCAT('%', #{keyword}, '%')
+               OR r.description LIKE CONCAT('%', #{keyword}, '%')
+               OR r.tags LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="categoryId != null">
+          AND r.category_id = #{categoryId}
+        </if>
+        <if test="resourceKind != null and resourceKind != ''">
+          AND r.resource_kind = #{resourceKind}
+        </if>
+    </select>
+
+    <select id="selectPublicResourceDetail" resultType="java.util.LinkedHashMap">
+        SELECT r.id,
+               r.title,
+               r.category_id AS categoryId,
+               c.name AS categoryName,
+               r.resource_kind AS resourceKind,
+               r.description,
+               r.tags,
+               r.difficulty,
+               r.view_count AS viewCount,
+               r.download_count AS downloadCount,
+               r.rating_avg AS ratingAvg,
+               r.rating_count AS ratingCount,
+               r.status,
+               r.submitter_user_id AS submitterUserId,
+               COALESCE(u.nick_name, u.user_name) AS submitterName,
+               r.submitted_at AS submittedAt,
+               rv.id AS versionId,
+               rv.version_no AS versionNo,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize,
+               rv.external_uri AS externalUri,
+               rv.processing_status AS processingStatus
+        FROM edu_public_resource r
+        LEFT JOIN edu_public_resource_version rv
+          ON rv.resource_id = r.id
+         AND rv.version_no = (SELECT MAX(v.version_no)
+                                FROM edu_public_resource_version v
+                               WHERE v.resource_id = r.id)
+        LEFT JOIN edu_public_resource_category c ON c.id = r.category_id
+        LEFT JOIN sys_user u ON u.user_id = r.submitter_user_id
+        WHERE r.id = #{id}
+          AND r.status = 'APPROVED'
+    </select>
+
+    <select id="selectPublicResourceVersion" resultType="java.util.LinkedHashMap">
+        SELECT id AS versionId,
+               resource_id AS resourceId,
+               resource_kind AS resourceKind,
+               version_no AS versionNo,
+               storage_key AS storageKey,
+               external_uri AS externalUri,
+               mime_type AS mimeType,
+               byte_size AS byteSize,
+               processing_status AS processingStatus,
+               created_at AS createdAt
+        FROM edu_public_resource_version
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectPublicResourcePages" resultType="java.util.LinkedHashMap">
+        SELECT id,
+               resource_version_id AS versionId,
+               page_no AS pageNo,
+               preview_storage_key AS previewStorageKey,
+               width_px AS widthPx,
+               height_px AS heightPx
+        FROM edu_public_resource_page
+        WHERE resource_version_id = #{versionId}
+        ORDER BY page_no ASC
+    </select>
+
+    <insert id="insertPublicResource" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_public_resource
+            (title, category_id, resource_kind, description, tags, difficulty,
+             status, submitter_user_id)
+        VALUES
+            (#{title}, #{categoryId}, #{resourceKind}, #{description}, #{tags}, #{difficulty},
+             'APPROVED', #{userId})
+    </insert>
+
+    <insert id="insertPublicResourceVersion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_public_resource_version
+            (resource_id, resource_kind, version_no, storage_key, external_uri,
+             sha256, mime_type, byte_size, processing_status, created_by_user_id)
+        VALUES
+            (#{resourceId}, #{resourceKind}, 1, #{storageKey}, #{externalUri},
+             #{sha256}, #{mimeType}, #{byteSize}, #{processingStatus}, #{userId})
+    </insert>
+
+    <insert id="insertPublicResourcePage" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_public_resource_page
+            (resource_version_id, page_no, preview_storage_key, width_px, height_px)
+        VALUES
+            (#{versionId}, #{pageNo}, #{previewStorageKey}, #{widthPx}, #{heightPx})
+    </insert>
+
+    <update id="increasePublicViewCount">
+        UPDATE edu_public_resource
+           SET view_count = view_count + 1
+         WHERE id = #{id}
+    </update>
+
+    <update id="increasePublicDownloadCount">
+        UPDATE edu_public_resource
+           SET download_count = download_count + 1
+         WHERE id = #{id}
+    </update>
+
+    <insert id="insertPublicFavorite" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT IGNORE INTO edu_public_resource_favorite
+            (resource_id, user_id)
+        VALUES
+            (#{resourceId}, #{userId})
+    </insert>
+
+    <delete id="deletePublicFavorite">
+        DELETE FROM edu_public_resource_favorite
+         WHERE resource_id = #{resourceId}
+           AND user_id = #{userId}
+    </delete>
+
+    <select id="checkPublicFavorite" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_public_resource_favorite
+        WHERE resource_id = #{resourceId}
+          AND user_id = #{userId}
+    </select>
+
+    <select id="selectMyPublicFavorites" resultType="java.util.LinkedHashMap">
+        SELECT r.id,
+               r.title,
+               r.resource_kind AS resourceKind,
+               r.download_count AS downloadCount,
+               f.created_at AS favoritedAt
+        FROM edu_public_resource_favorite f
+        JOIN edu_public_resource r ON r.id = f.resource_id
+        WHERE f.user_id = #{userId}
+          AND r.status = 'APPROVED'
+        ORDER BY f.created_at DESC
+    </select>
+
+    <select id="selectMyPublicResources" resultType="java.util.LinkedHashMap">
+        SELECT r.id,
+               r.title,
+               r.resource_kind AS resourceKind,
+               r.status,
+               r.view_count AS viewCount,
+               r.download_count AS downloadCount,
+               r.created_at AS createdAt,
+               rv.id AS versionId,
+               rv.mime_type AS mimeType,
+               rv.byte_size AS byteSize
+        FROM edu_public_resource r
+        LEFT JOIN edu_public_resource_version rv
+          ON rv.resource_id = r.id
+         AND rv.version_no = (SELECT MAX(v.version_no)
+                                FROM edu_public_resource_version v
+                               WHERE v.resource_id = r.id)
+        WHERE r.submitter_user_id = #{userId}
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countMyPublicResources" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_public_resource
+        WHERE submitter_user_id = #{userId}
+    </select>
+
+    <update id="updatePublicVersionStatus" parameterType="map">
+        UPDATE edu_public_resource_version
+           SET processing_status = #{processingStatus}
+         WHERE id = #{versionId}
+    </update>
+
 </mapper>
