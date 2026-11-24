@@ -5,8 +5,6 @@ import com.ruoyi.education.course.api.EduMembershipTimelineService;
 import com.ruoyi.education.course.api.EduStudentBindingAccess;
 import com.ruoyi.education.course.api.EduStudentMemberSegment;
 import com.ruoyi.education.mapper.EduMembershipTimelineMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -16,19 +14,23 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@link EduMembershipTimelineService} 的默认实现。
  *
  * <p>一次调用一到两条轻量查询；成员段/绑定的时点覆盖条件写在 SQL WHERE，
  * 状态位（bindingActive/classOpen/active）由本类按同一时点快照统一计算，避免口径分叉。</p>
+ *
+ * <p>异常数据不猜测：同一学生在同一教学班有多条覆盖 at 的入班记录（跨行重叠）、
+ * 或时点列返回无法识别的非空值，一律抛 {@link ServiceException} 失败关闭，
+ * 消费方按授权不可用处理；真正的数据库 NULL（如 left_at/ended_at 为空）仍按无上界处理。</p>
  */
 @Service
 public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineService {
-
-    private static final Logger log = LoggerFactory.getLogger(EduMembershipTimelineServiceImpl.class);
 
     @Autowired
     private EduMembershipTimelineMapper mapper;
@@ -37,9 +39,17 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
     public EduStudentBindingAccess studentInBinding(Long bindingId, Long userId, Instant at) {
         Date point = requireAt(at);
         Map<String, Object> binding = requireBinding(bindingId);
-        Map<String, Object> segment = userId == null ? null
-                : mapper.selectStudentSegmentInBinding(bindingId, userId, point);
-        boolean bindingActive = covers(instant(binding.get("published_at")), instant(binding.get("ended_at")), at);
+        boolean bindingActive = covers(instant(binding.get("published_at"), "published_at"),
+                instant(binding.get("ended_at"), "ended_at"), at);
+        Map<String, Object> segment = null;
+        if (userId != null) {
+            List<Map<String, Object>> segments = mapper.selectStudentSegmentsInBinding(bindingId, userId, point);
+            if (segments != null && segments.size() > 1) {
+                throw new ServiceException("学生在课程绑定下存在多条重叠入班记录，无法判定唯一授权"
+                        + "（bindingId=" + bindingId + ", userId=" + userId + "）");
+            }
+            segment = (segments == null || segments.isEmpty()) ? null : segments.get(0);
+        }
         boolean active = bindingActive && segment != null;
         return new EduStudentBindingAccess(
                 number(binding.get("binding_id")),
@@ -49,16 +59,19 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
                 bindingActive,
                 "ACTIVE".equals(binding.get("teaching_class_status")),
                 active,
-                active ? instant(segment.get("joined_at")) : null,
-                active ? instant(segment.get("left_at")) : null);
+                active ? instant(segment.get("joined_at"), "joined_at") : null,
+                active ? instant(segment.get("left_at"), "left_at") : null);
     }
 
     @Override
     public List<EduStudentBindingAccess> studentBindings(Long userId, Instant at) {
         if (userId == null) return List.of();
         Date point = requireAt(at);
+        List<Map<String, Object>> rows = mapper.selectStudentBindings(userId, point);
+        rejectDuplicateIds(rows, "binding_id",
+                "学生在同一课程绑定下存在多条重叠入班记录（userId=" + userId + "）");
         List<EduStudentBindingAccess> result = new ArrayList<>();
-        for (Map<String, Object> row : mapper.selectStudentBindings(userId, point)) {
+        for (Map<String, Object> row : rows) {
             result.add(new EduStudentBindingAccess(
                     number(row.get("binding_id")),
                     number(row.get("teaching_class_id")),
@@ -67,8 +80,8 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
                     true,
                     "ACTIVE".equals(row.get("teaching_class_status")),
                     true,
-                    instant(row.get("joined_at")),
-                    instant(row.get("left_at"))));
+                    instant(row.get("joined_at"), "joined_at"),
+                    instant(row.get("left_at"), "left_at")));
         }
         return result;
     }
@@ -77,16 +90,19 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
     public List<EduStudentMemberSegment> studentsInBinding(Long bindingId, Instant at) {
         Date point = requireAt(at);
         requireBinding(bindingId);
+        List<Map<String, Object>> rows = mapper.selectStudentsInBinding(bindingId, point);
+        rejectDuplicateIds(rows, "user_id",
+                "课程绑定下存在同一学生的多条重叠入班记录（bindingId=" + bindingId + "）");
         List<EduStudentMemberSegment> result = new ArrayList<>();
-        for (Map<String, Object> row : mapper.selectStudentsInBinding(bindingId, point)) {
+        for (Map<String, Object> row : rows) {
             result.add(new EduStudentMemberSegment(
                     number(row.get("member_id")),
                     number(row.get("teaching_class_id")),
                     number(row.get("user_id")),
                     text(row.get("user_name")),
                     text(row.get("nick_name")),
-                    instant(row.get("joined_at")),
-                    instant(row.get("left_at"))));
+                    instant(row.get("joined_at"), "joined_at"),
+                    instant(row.get("left_at"), "left_at")));
         }
         return result;
     }
@@ -107,13 +123,23 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
         return from != null && !from.isAfter(at) && (to == null || to.isAfter(at));
     }
 
-    private static Instant instant(Object value) {
+    /** 同一业务主键（binding_id / user_id）出现多行即跨行重叠，按授权歧义失败关闭。 */
+    private static void rejectDuplicateIds(List<Map<String, Object>> rows, String idKey, String message) {
+        if (rows == null || rows.size() < 2) return;
+        Set<Object> seen = new HashSet<>();
+        for (Map<String, Object> row : rows) {
+            if (!seen.add(row.get(idKey))) throw new ServiceException(message);
+        }
+    }
+
+    /** 真正的数据库 NULL 返回 null（无上界）；无法识别的非空值一律抛异常，不猜测成无结束时间。 */
+    private static Instant instant(Object value, String column) {
         if (value == null) return null;
         if (value instanceof Timestamp timestamp) return timestamp.toInstant();
         if (value instanceof Date date) return date.toInstant();
         if (value instanceof LocalDateTime local) return local.toInstant(ZoneOffset.UTC);
-        log.warn("成员时点列返回了无法识别的类型：{}", value.getClass().getName());
-        return null;
+        throw new ServiceException("成员时点列 " + column + " 返回了无法识别的值，类型："
+                + value.getClass().getName());
     }
 
     private static Long number(Object value) {

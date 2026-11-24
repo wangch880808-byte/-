@@ -40,6 +40,7 @@ HTTP 业务入口建议集中在 `/education` 命名空间，权限标识可按 
 - 教学班/课程空间 `status` 没有生效/失效时间列，按当前库值判断，不做历史回溯。
 - 生成列 `active_user_id`/`active_space_id` 只表达 NULL 判断，不检查入班/生效时间，不能当权限判定依据。
 - 全部时间为 UTC、`DATETIME(3)` 毫秒精度；绑定不存在抛异常，无成员段返回 active=false 快照或空列表。
+- 失败关闭：同一学生在同一教学班有多条覆盖 at 的入班记录（跨行重叠），三个查询一律抛异常，不猜测取一条；时点列返回无法识别的非空值（如非时间类型）抛异常，与真正的数据库 NULL（无上界）严格区分。
 - 追加式增补：`EduCourseAccessService` 现有方法与语义不变。定义见 `backend/ruoyi-education/src/main/java/com/ruoyi/education/course/api/EduMembershipTimelineService.java`。
 
 ## 身份、字段与时间

@@ -2,13 +2,17 @@ package com.ruoyi.education.mapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.education.course.api.impl.EduMembershipTimelineServiceImpl;
 import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -26,6 +30,7 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * 时点成员查询的 SQL 语义验证（H2 隔离）。
@@ -205,19 +210,49 @@ class EduMembershipTimelineMapperTest
     }
 
     @Test
-    void selectStudentSegmentInBindingReturnsCoveringSegmentOnly()
+    void selectStudentSegmentsInBindingReturnsCoveringSegmentOnly()
     {
         try (SqlSession session = sqlSessionFactory.openSession())
         {
             EduMembershipTimelineMapper mapper = session.getMapper(EduMembershipTimelineMapper.class);
 
-            Map<String, Object> atNine = mapper.selectStudentSegmentInBinding(100L, 9001L, ts(9, 0));
-            assertEquals(1L, atNine.get("member_id"));
-            assertEquals(ts(7, 0), atNine.get("joined_at"));
-            assertEquals(ts(10, 0), atNine.get("left_at"));
+            List<Map<String, Object>> atNine = mapper.selectStudentSegmentsInBinding(100L, 9001L, ts(9, 0));
+            assertEquals(1, atNine.size());
+            assertEquals(1L, atNine.get(0).get("member_id"));
+            assertEquals(ts(7, 0), atNine.get(0).get("joined_at"));
+            assertEquals(ts(10, 0), atNine.get(0).get("left_at"));
 
-            assertNull(mapper.selectStudentSegmentInBinding(100L, 9001L, ts(10, 0)));
-            assertNull(mapper.selectStudentSegmentInBinding(100L, 9001L, ts(11, 0)));
+            assertEquals(0, mapper.selectStudentSegmentsInBinding(100L, 9001L, ts(10, 0)).size());
+            assertEquals(0, mapper.selectStudentSegmentsInBinding(100L, 9001L, ts(11, 0)).size());
+        }
+    }
+
+    @Test
+    void selectStudentSegmentsInBindingReturnsAllOverlappingRows() throws Exception
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            insertStudent(session.getConnection(), 4L, 1L, 9001L, ts(8, 45), ts(12, 0));
+            EduMembershipTimelineMapper mapper = session.getMapper(EduMembershipTimelineMapper.class);
+
+            List<Map<String, Object>> segments = mapper.selectStudentSegmentsInBinding(100L, 9001L, ts(9, 0));
+            assertEquals(2, segments.size());
+        }
+    }
+
+    @Test
+    void serviceFailsClosedWhenMemberSegmentsOverlap() throws Exception
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            insertStudent(session.getConnection(), 4L, 1L, 9001L, ts(8, 45), ts(12, 0));
+            EduMembershipTimelineServiceImpl service = new EduMembershipTimelineServiceImpl();
+            ReflectionTestUtils.setField(service, "mapper", session.getMapper(EduMembershipTimelineMapper.class));
+            Instant at = Instant.parse("2026-11-20T09:00:00Z");
+
+            assertThrows(ServiceException.class, () -> service.studentInBinding(100L, 9001L, at));
+            assertThrows(ServiceException.class, () -> service.studentsInBinding(100L, at));
+            assertThrows(ServiceException.class, () -> service.studentBindings(9001L, at));
         }
     }
 

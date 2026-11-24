@@ -71,8 +71,8 @@ class EduMembershipTimelineServiceImplTest
     void studentInBindingActiveAtEventTimeButNotAfterLeave()
     {
         when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
-        when(mapper.selectStudentSegmentInBinding(eq(100L), eq(9001L), any()))
-                .thenReturn(segment(ts(7, 0), ts(10, 0)));
+        when(mapper.selectStudentSegmentsInBinding(eq(100L), eq(9001L), any()))
+                .thenReturn(List.of(segment(ts(7, 0), ts(10, 0))));
 
         EduStudentBindingAccess atNine = service.studentInBinding(100L, 9001L, EVENT_AT);
         assertTrue(atNine.bindingActive());
@@ -81,7 +81,7 @@ class EduMembershipTimelineServiceImplTest
         assertEquals(Instant.parse("2026-11-20T07:00:00Z"), atNine.joinedAt());
         assertEquals(Instant.parse("2026-11-20T10:00:00Z"), atNine.leftAt());
 
-        when(mapper.selectStudentSegmentInBinding(eq(100L), eq(9001L), any())).thenReturn(null);
+        when(mapper.selectStudentSegmentsInBinding(eq(100L), eq(9001L), any())).thenReturn(List.of());
         EduStudentBindingAccess atEleven = service.studentInBinding(100L, 9001L, DELIVERY_AT);
         assertTrue(atEleven.bindingActive());
         assertFalse(atEleven.active());
@@ -93,8 +93,8 @@ class EduMembershipTimelineServiceImplTest
     void studentInBindingInactiveWhenBindingNotCoveringAt()
     {
         when(mapper.selectBindingWithClass(101L)).thenReturn(binding(101L, "ACTIVE", ts(10, 0), null));
-        when(mapper.selectStudentSegmentInBinding(eq(101L), eq(9001L), any()))
-                .thenReturn(segment(ts(7, 0), null));
+        when(mapper.selectStudentSegmentsInBinding(eq(101L), eq(9001L), any()))
+                .thenReturn(List.of(segment(ts(7, 0), null)));
 
         EduStudentBindingAccess access = service.studentInBinding(101L, 9001L, EVENT_AT);
         assertFalse(access.bindingActive());
@@ -106,8 +106,8 @@ class EduMembershipTimelineServiceImplTest
     void studentInBindingReportsEndedBindingAndClosedClassIndependently()
     {
         when(mapper.selectBindingWithClass(102L)).thenReturn(binding(102L, "DRAFT", ts(8, 0), ts(9, 0)));
-        when(mapper.selectStudentSegmentInBinding(eq(102L), eq(9001L), any()))
-                .thenReturn(segment(ts(7, 0), null));
+        when(mapper.selectStudentSegmentsInBinding(eq(102L), eq(9001L), any()))
+                .thenReturn(List.of(segment(ts(7, 0), null)));
 
         EduStudentBindingAccess access = service.studentInBinding(102L, 9001L, EVENT_AT);
         assertFalse(access.bindingActive());
@@ -168,5 +168,73 @@ class EduMembershipTimelineServiceImplTest
         assertTrue(access.active());
 
         assertTrue(service.studentBindings(null, EVENT_AT).isEmpty());
+    }
+
+    @Test
+    void studentInBindingRejectsOverlappingMemberSegments()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        when(mapper.selectStudentSegmentsInBinding(eq(100L), eq(9001L), any()))
+                .thenReturn(List.of(segment(ts(7, 0), ts(12, 0)), segment(ts(8, 45), null)));
+
+        assertThrows(ServiceException.class, () -> service.studentInBinding(100L, 9001L, EVENT_AT));
+    }
+
+    @Test
+    void studentsInBindingRejectsDuplicateStudentRows()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        Map<String, Object> first = new HashMap<>();
+        first.put("member_id", 7L);
+        first.put("teaching_class_id", 1L);
+        first.put("user_id", 9001L);
+        first.put("user_name", "u9001");
+        first.put("nick_name", "学生一");
+        first.put("joined_at", ts(7, 0));
+        first.put("left_at", ts(12, 0));
+        Map<String, Object> second = new HashMap<>(first);
+        second.put("member_id", 8L);
+        second.put("joined_at", ts(8, 45));
+        second.put("left_at", null);
+        when(mapper.selectStudentsInBinding(eq(100L), any())).thenReturn(List.of(first, second));
+
+        assertThrows(ServiceException.class, () -> service.studentsInBinding(100L, EVENT_AT));
+    }
+
+    @Test
+    void studentBindingsRejectsDuplicateBindingRows()
+    {
+        Map<String, Object> row = new HashMap<>();
+        row.put("binding_id", 100L);
+        row.put("teaching_class_id", 1L);
+        row.put("course_space_id", 10L);
+        row.put("teaching_class_status", "ACTIVE");
+        row.put("member_id", 7L);
+        row.put("joined_at", ts(7, 0));
+        row.put("left_at", null);
+        when(mapper.selectStudentBindings(eq(9001L), any())).thenReturn(List.of(row, row));
+
+        assertThrows(ServiceException.class, () -> service.studentBindings(9001L, EVENT_AT));
+    }
+
+    @Test
+    void unknownNonNullBindingEndFailsClosed()
+    {
+        Map<String, Object> row = binding(100L, "ACTIVE", ts(8, 0), null);
+        row.put("ended_at", "2026-11-20T08:30:00Z");
+        when(mapper.selectBindingWithClass(100L)).thenReturn(row);
+
+        assertThrows(ServiceException.class, () -> service.studentInBinding(100L, 9001L, EVENT_AT));
+    }
+
+    @Test
+    void unknownNonNullMembershipEndFailsClosed()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        Map<String, Object> row = segment(ts(7, 0), null);
+        row.put("left_at", "2026-11-20T08:30:00Z");
+        when(mapper.selectStudentSegmentsInBinding(eq(100L), eq(9001L), any())).thenReturn(List.of(row));
+
+        assertThrows(ServiceException.class, () -> service.studentInBinding(100L, 9001L, EVENT_AT));
     }
 }

@@ -34,7 +34,10 @@ import java.util.List;
  *   <li>本契约是纯只读查询，不校验调用者身份，只按传入参数返回数据；
  *       调用方必须传入服务端可信身份（{@code SecurityUtils.getUserId()}）并自行执行角色/对象权限判定。</li>
  *   <li>每次调用现查库、不缓存；调用方在自身事务内调用可把结果固定到同一时点。</li>
- *   <li>多次入退班时返回覆盖 at 的那一段；正常至多一段，若遇跨行重叠的脏数据，取 joined_at 最早段并记 WARN。</li>
+ *   <li>多次入退班时返回覆盖 at 的那一段；正常至多一段。
+ *       同一学生在同一教学班有多条覆盖 at 的入班记录属于跨行重叠脏数据，
+ *       三个查询一律抛 {@link com.ruoyi.common.exception.ServiceException} 失败关闭，
+ *       不猜测取其中一条作为正常授权。</li>
  * </ul>
  *
  * <h2>异常语义</h2>
@@ -42,6 +45,9 @@ import java.util.List;
  *   <li>绑定不存在 → {@link com.ruoyi.common.exception.ServiceException}（沿用现有契约语义）；</li>
  *   <li>绑定存在但不满足条件、无成员段 → 不抛异常：
  *       {@link #studentInBinding} 返回 active=false 快照，其余方法返回空列表。</li>
+ *   <li>跨行重叠成员段（同一业务主键在多行覆盖 at）→ ServiceException，消费方按授权不可用处理；</li>
+ *   <li>时点列返回无法识别的非空值（区别于真正的数据库 NULL）→ ServiceException，消费方按授权不可用处理；
+ *       NULL 仍按「无上界」处理。</li>
  * </ul>
  *
  * <p>本端口为追加式增补，{@link EduCourseAccessService} 的现有方法与语义不变。</p>

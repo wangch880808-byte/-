@@ -13,16 +13,15 @@
         WHERE b.id = #{bindingId}
     </select>
 
-    <!-- 某学生在绑定对应教学班中覆盖 at 的成员段；正常至多一段，重叠脏数据取最早入班段 -->
-    <select id="selectStudentSegmentInBinding" resultType="java.util.Map">
+    <!-- 某学生在绑定对应教学班中覆盖 at 的全部成员段；正常 0 或 1 条，多条即重叠脏数据，由服务层报错 -->
+    <select id="selectStudentSegmentsInBinding" resultType="java.util.Map">
         SELECT cs.id AS member_id, cs.joined_at AS joined_at, cs.left_at AS left_at
         FROM edu_course_class_binding b
         JOIN edu_class_student cs ON cs.teaching_class_id = b.teaching_class_id
             AND cs.user_id = #{userId}
             AND cs.joined_at &lt;= #{at} AND (cs.left_at IS NULL OR cs.left_at &gt; #{at})
         WHERE b.id = #{bindingId}
-        ORDER BY cs.joined_at ASC
-        LIMIT 1
+        ORDER BY cs.joined_at ASC, cs.id ASC
     </select>
 
     <!-- 绑定下在 at 在班的学生（半开区间 [joined_at, left_at)，且绑定覆盖 at） -->
