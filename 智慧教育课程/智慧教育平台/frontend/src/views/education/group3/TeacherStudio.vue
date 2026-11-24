@@ -130,7 +130,7 @@
                 {{ formatTime(row.rowType === 'resource' ? row.resource.createdAt : row.folder.createdAt) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="230" fixed="right">
+            <el-table-column label="操作" width="270" fixed="right">
               <template #default="{ row }">
                 <div v-if="row.rowType === 'resource'" class="row-actions">
                   <el-button link type="primary" @click="openRenameResource(row.resource)">修改</el-button>
@@ -155,6 +155,16 @@
                     </template>
                   </el-dropdown>
                 </div>
+                <div v-else class="row-actions">
+                  <el-button link type="primary" @click="openRenameFolder(row.folder)">修改</el-button>
+                  <el-button link type="primary" @click="handleDownloadFolder(row.folder)">下载</el-button>
+                  <el-button link type="primary" @click="toggleFolderRelease(row.folder)">
+                    {{ folderReleased(row.folder) ? '下架' : '上架' }}
+                  </el-button>
+                  <el-button link type="danger" @click="deleteFolderWithConfirm(row.folder, 'RESOURCE')">
+                    删除
+                  </el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -168,7 +178,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="manual">手动创建</el-dropdown-item>
-                  <el-dropdown-item command="library">教学资源库</el-dropdown-item>
+                  <el-dropdown-item command="library">题目资源库</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -183,6 +193,14 @@
               </template>
             </el-dropdown>
             <el-button :disabled="questionReadonly" @click="createQuestionFolder">新建文件夹</el-button>
+            <el-button
+              :disabled="questionReadonly || questionSelection.length === 0"
+              type="success"
+              plain
+              @click="batchShareSelectedQuestions"
+            >
+              批量发布到资源库{{ questionSelection.length ? `（${questionSelection.length}）` : '' }}
+            </el-button>
             <el-button :disabled="questionReadonly" type="success" plain @click="openCompose">智能组卷</el-button>
             <el-checkbox v-model="showQuestionDetail">显示题目详情</el-checkbox>
             <el-button :disabled="!current?.canExport" @click="exportQuestions">导出全部</el-button>
@@ -232,13 +250,16 @@
           </div>
 
           <el-table
+            ref="questionTableRef"
             v-loading="externalQuestionsLoading"
             :data="questionTableRows"
             border
             row-key="key"
             empty-text="题库为空"
             @row-click="onQuestionRowClick"
+            @selection-change="handleQuestionSelectionChange"
           >
+            <el-table-column type="selection" width="46" :selectable="row => row.rowType === 'question'" />
             <el-table-column label="序号" width="70" align="center">
               <template #default="{ row }">{{ row.rowType === 'question' ? row.index + 1 : '-' }}</template>
             </el-table-column>
@@ -252,6 +273,7 @@
                   <el-tag v-if="folderVisibilityLabel(row.folder.visibility)" size="small" type="warning" class="ml6">
                     {{ folderVisibilityLabel(row.folder.visibility) }}
                   </el-tag>
+                  <el-tag v-if="row.folder.archivedAt" size="small" type="info" effect="plain" class="ml6">已归档</el-tag>
                   <div class="cell-meta">
                     共 {{ questionFolderCount(row.folder) }} 题 · {{ row.folder.visibility === 'PRIVATE' ? '私密' : '公开' }}
                   </div>
@@ -290,15 +312,33 @@
               <template #default>-</template>
             </el-table-column>
             <el-table-column label="创建者" width="110">
-              <template #default>-</template>
+              <template #default="{ row }">{{ row.rowType === 'question' ? (row.question.creatorName || '-') : '-' }}</template>
             </el-table-column>
             <el-table-column label="创建时间" width="150">
               <template #default="{ row }">
                 {{ formatTime(row.rowType === 'question' ? row.question.createdAt : row.folder.createdAt) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right">
+            <el-table-column label="操作" width="340" fixed="right">
               <template #default="{ row }">
+                <template v-if="row.rowType === 'folder'">
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="questionReadonly"
+                    @click.stop="toggleQuestionFolderArchive(row.folder)"
+                  >
+                    {{ row.folder.archivedAt ? '取消归档' : '归档' }}
+                  </el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    :disabled="questionReadonly"
+                    @click.stop="deleteFolderWithConfirm(row.folder, 'QUESTION')"
+                  >
+                    删除
+                  </el-button>
+                </template>
                 <template v-if="row.rowType === 'question'">
                   <el-button link type="primary" :disabled="questionReadonly" @click.stop="openQuestionVersion(row.question)">
                     新版本
@@ -311,6 +351,22 @@
                     @click.stop="archiveQuestion(row.question)"
                   >
                     归档
+                  </el-button>
+                  <el-button
+                    v-if="row.question.status !== 'ARCHIVED' && row.question.shareStatus !== 'PUBLISHED'"
+                    link
+                    type="success"
+                    @click.stop="shareQuestionToLibrary(row.question)"
+                  >
+                    发布到资源库
+                  </el-button>
+                  <el-button
+                    v-else-if="row.question.shareStatus === 'PUBLISHED'"
+                    link
+                    type="warning"
+                    @click.stop="withdrawQuestionFromLibrary(row.question)"
+                  >
+                    撤回共享
                   </el-button>
                 </template>
               </template>
@@ -329,9 +385,10 @@
           </div>
 
           <div class="outline-head">
+            <span></span>
             <span>目录</span>
-            <span>开放状态</span>
-            <span>章节进度</span>
+            <span>内容概览</span>
+            <span>学生进度</span>
             <span>操作</span>
           </div>
 
@@ -340,9 +397,16 @@
             <div v-for="row in outlineRows" :key="row.key" :class="['outline-row', row.rowType]">
             <template v-if="row.rowType === 'chapter'">
               <span class="outline-num">{{ row.number }}</span>
-              <span class="outline-title">{{ row.title }}</span>
-              <span>-</span>
-              <span>-</span>
+              <span class="outline-title outline-link" @click="openUnitDetail(row.unit)">{{ row.title }}</span>
+              <span class="outline-stats">{{ unitStats(row.unit) }}</span>
+              <span class="outline-progress" @click="openUnitDetail(row.unit)">
+                <el-progress
+                  v-if="row.unit.completionRate !== null && row.unit.completionRate !== undefined"
+                  :percentage="Number(row.unit.completionRate)"
+                  :stroke-width="6"
+                />
+                <span v-else class="outline-muted">—</span>
+              </span>
               <span class="outline-actions">
                 <el-button link type="primary" @click="openEditUnit(row.unit)">编辑</el-button>
                 <el-button link @click="moveUnit(row.unit, -1)">上移</el-button>
@@ -357,11 +421,18 @@
             </template>
             <template v-else-if="row.rowType === 'section'">
               <span class="outline-num">{{ row.number }}</span>
-              <span class="outline-title">
+              <span class="outline-title outline-link" @click="openUnitDetail(row.unit)">
                 {{ row.title }}
               </span>
-              <span>-</span>
-              <span>-</span>
+              <span class="outline-stats">{{ unitStats(row.unit) }}</span>
+              <span class="outline-progress" @click="openUnitDetail(row.unit)">
+                <el-progress
+                  v-if="row.unit.completionRate !== null && row.unit.completionRate !== undefined"
+                  :percentage="Number(row.unit.completionRate)"
+                  :stroke-width="6"
+                />
+                <span v-else class="outline-muted">—</span>
+              </span>
               <span class="outline-actions">
                 <el-button link type="primary" @click="openEditUnit(row.unit)">编辑</el-button>
                 <el-button link type="primary" @click="openCreateKnowledgePoint(row.unit.unitId)">+点</el-button>
@@ -370,11 +441,11 @@
             </template>
             <template v-else>
               <span class="outline-num"></span>
-              <span class="outline-title outline-point" @click="openPointDetail(row.point)">
+              <span class="outline-title outline-point outline-link" @click="openPointDetail(row.point)">
                 <span v-if="row.point.code" class="outline-code">{{ row.point.code }}</span>{{ row.point.name }}
               </span>
-              <span>-</span>
-              <span>-</span>
+              <span class="outline-stats">{{ pointStats(row.point) }}</span>
+              <span class="outline-muted">—</span>
               <span class="outline-actions">
                 <el-button v-if="canManageOutline" link type="primary" @click="openEditPoint(row.point)">编辑</el-button>
                 <el-button link type="danger" @click="confirmDeletePoint(row.point)">删除</el-button>
@@ -439,6 +510,41 @@
         <el-button type="primary" :loading="uploading" @click="submitUpload">开始上传</el-button>
       </template>
     </el-dialog>
+
+    <!-- ============ 添加外链（网址/在线图书） ============ -->
+    <el-dialog v-model="linkOpen" :title="linkKind === 'BOOK' ? '添加在线图书' : '添加网址'" width="520px" append-to-body>
+      <el-form label-width="90px">
+        <el-form-item :label="linkKind === 'BOOK' ? '图书名称' : '资料名称'">
+          <el-input v-model="linkForm.title" maxlength="200" :placeholder="linkKind === 'BOOK' ? '请输入图书名称' : '请输入资料名称'" show-word-limit />
+        </el-form-item>
+        <el-form-item :label="linkKind === 'BOOK' ? '阅读链接' : '链接地址'">
+          <el-input
+            v-model="linkForm.externalUri"
+            maxlength="1024"
+            type="textarea"
+            :rows="2"
+            :placeholder="linkKind === 'BOOK' ? '请输入图书在线阅读链接，以 http:// 或 https:// 开头' : '请输入链接地址，以 http:// 或 https:// 开头'"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="归档章节">
+          <el-select v-model="linkForm.unitId" placeholder="不归档章节" clearable style="width: 100%">
+            <el-option v-for="item in unitOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="linkOpen = false">取 消</el-button>
+        <el-button type="primary" :loading="linkLoading" @click="submitLink">确 定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ============ 公共资源库 ============ -->
+    <PublicLibrary
+      v-model="libraryVisible"
+      :binding-id="bindingId"
+      :folder-id="currentFolderId"
+    />
 
     <!-- ============ 新建文件夹 ============ -->
     <el-dialog v-model="folderDialogOpen" title="新建文件夹" width="460px" append-to-body>
@@ -765,8 +871,59 @@
       </el-table>
       <template #footer>
         <el-button @click="composeOpen = false">关 闭</el-button>
+        <el-button
+          type="primary"
+          :disabled="!composeResult || !composeResult.count"
+          @click="openPaperPublish"
+        >发布为整卷</el-button>
       </template>
     </el-dialog>
+
+    <!-- ============ 整卷发布 ============ -->
+    <el-dialog v-model="paperPublishOpen" title="发布整卷到课前学习" width="620px" top="8vh" append-to-body>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        class="paper-publish-tip"
+        :title="`共 ${paperPublishCount} 道题，将作为一份整卷发布到当前教学班，学生统一作答、一次提交。`"
+      />
+      <el-form label-width="110px" class="paper-publish-form">
+        <el-form-item label="试卷名称" required>
+          <el-input v-model="paperForm.title" maxlength="200" placeholder="例如：第 3 章课前自测卷" />
+        </el-form-item>
+        <el-form-item label="导学说明">
+          <el-input
+            v-model="paperForm.instructions"
+            type="textarea"
+            :rows="2"
+            maxlength="500"
+            placeholder="可填写作答要求、提示等（学生可见）"
+          />
+        </el-form-item>
+        <el-form-item label="开放时间" required>
+          <el-date-picker v-model="paperForm.opensAt" type="datetime" placeholder="选择开放时间" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="截止时间" required>
+          <el-date-picker v-model="paperForm.closesAt" type="datetime" placeholder="选择截止时间" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="解析公布" required>
+          <el-date-picker v-model="paperForm.answerOpensAt" type="datetime" placeholder="选择解析公布时间" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="paperPublishOpen = false">取 消</el-button>
+        <el-button type="primary" :loading="paperPublishing" @click="submitPaperPublish">确认发布</el-button>
+      </template>
+    </el-dialog>
+
+    <QuestionLibraryDialog
+      v-model="questionLibraryVisible"
+      :binding-id="bindingId"
+      :folder-id="currentQuestionFolderId"
+      :folder-name="activeQuestionFolder ? activeQuestionFolder.name : ''"
+      @imported="handleQuestionLibraryImported"
+    />
 
     <!-- ============ 资料增强设置 ============ -->
     <el-dialog v-model="enhanceOpen" :title="`资料设置 · ${enhanceTarget?.title || ''}`" width="560px" append-to-body>
@@ -842,6 +999,16 @@
         <el-form-item label="排序号">
           <el-input-number v-model="unitForm.sortOrder" :min="0" />
         </el-form-item>
+        <el-form-item label="章节说明">
+          <el-input
+            v-model="unitForm.contentText"
+            type="textarea"
+            :rows="5"
+            maxlength="4000"
+            show-word-limit
+            placeholder="学习目标、重点难点、课时安排等"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="unitDialogOpen = false">取 消</el-button>
@@ -863,6 +1030,16 @@
         <el-form-item label="名称">
           <el-input v-model="pointForm.name" maxlength="160" placeholder="请输入知识点名称" />
         </el-form-item>
+        <el-form-item label="学习目标">
+          <el-input
+            v-model="pointForm.contentText"
+            type="textarea"
+            :rows="5"
+            maxlength="4000"
+            show-word-limit
+            placeholder="该知识点的学习目标、重难点说明等"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="pointDialogOpen = false">取 消</el-button>
@@ -870,17 +1047,107 @@
       </template>
     </el-dialog>
 
-    <!-- ============ 知识点详情 ============ -->
-    <el-dialog v-model="pointDetailOpen" title="章节详情" width="760px" append-to-body>
-      <template v-if="detailPoint">
-        <h3 class="detail-title">
-          <span v-if="detailPoint.code" class="outline-code">{{ detailPoint.code }}</span>{{ detailPoint.name }}
-        </h3>
-        <p class="cell-meta">所属章节：{{ detailPointUnitTitle }}</p>
-        <div class="detail-body">
-          <p>该知识点下暂无学习目标内容，可在题库中关联此知识点组织练习。</p>
-        </div>
-      </template>
+    <!-- ============ 大纲详情（章节 / 知识点） ============ -->
+    <el-dialog
+      v-model="outlineDetailOpen"
+      :title="outlineDetailType === 'unit' ? '章节详情' : '知识点详情'"
+      width="900px"
+      append-to-body
+    >
+      <div v-loading="outlineDetailLoading" class="outline-detail">
+        <template v-if="outlineDetail">
+          <template v-if="outlineDetailType === 'unit'">
+            <h3 class="detail-title">{{ outlineDetail.unit.title }}</h3>
+            <p class="cell-meta">
+              {{ outlineDetail.unit.unitKind === 'CHAPTER' ? '章' : '节' }}
+              · 资料 {{ outlineDetail.unit.materialCount || 0 }}
+              · 题目 {{ outlineDetail.unit.questionCount || 0 }}
+              · 知识点 {{ outlineDetail.unit.pointCount || 0 }}
+              <span v-if="outlineDetail.unit.completionRate !== null && outlineDetail.unit.completionRate !== undefined">
+                · 班级完成率 {{ outlineDetail.unit.completionRate }}%
+              </span>
+            </p>
+          </template>
+          <template v-else>
+            <h3 class="detail-title">
+              <span v-if="outlineDetail.point.code" class="outline-code">{{ outlineDetail.point.code }}</span>
+              {{ outlineDetail.point.name }}
+            </h3>
+            <p class="cell-meta">
+              所属章节：{{ pointUnitTitle }} · 关联题目 {{ outlineDetail.point.questionCount || 0 }}
+            </p>
+          </template>
+
+          <el-tabs v-model="outlineDetailTab">
+            <el-tab-pane label="大纲内容" name="content">
+              <el-input
+                v-model="outlineDetailContent"
+                type="textarea"
+                :rows="8"
+                maxlength="4000"
+                show-word-limit
+                placeholder="填写学习目标、重难点、课时安排等说明，学生端大纲会展示这里的内容"
+              />
+              <div class="detail-content-actions">
+                <el-button type="primary" :loading="outlineContentSaving" @click="saveOutlineDetailContent">
+                  保存内容
+                </el-button>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane v-if="outlineDetailType === 'unit'" label="知识点" name="points">
+              <el-table :data="outlineDetail.points" size="small" empty-text="该章节暂无知识点">
+                <el-table-column prop="code" label="编码" width="140" />
+                <el-table-column prop="name" label="名称" min-width="220" />
+                <el-table-column prop="questionCount" label="关联题目" width="100" />
+              </el-table>
+            </el-tab-pane>
+            <el-tab-pane v-if="outlineDetailType === 'unit'" label="资料" name="materials">
+              <el-table :data="outlineDetail.materials" size="small" empty-text="该章节暂无归档资料">
+                <el-table-column prop="title" label="资料名称" min-width="240" show-overflow-tooltip />
+                <el-table-column label="类型" width="90">
+                  <template #default="{ row }">{{ resourceIcon(row) }}</template>
+                </el-table-column>
+                <el-table-column label="状态" width="110">
+                  <template #default="{ row }">{{ row.resourceStatus === 'ARCHIVED' ? '已归档' : '正常' }}</template>
+                </el-table-column>
+                <el-table-column label="创建时间" width="130">
+                  <template #default="{ row }">{{ fmtDate(row.createdAt) }}</template>
+                </el-table-column>
+              </el-table>
+            </el-tab-pane>
+            <el-tab-pane label="题目" name="questions">
+              <el-table :data="outlineDetail.questions" size="small" empty-text="暂无关联题目，可在题库中把题目关联到本章节知识点">
+                <el-table-column prop="title" label="题目" min-width="240" show-overflow-tooltip />
+                <el-table-column label="题型" width="100">
+                  <template #default="{ row }">{{ questionKindLabel(row.questionKind) }}</template>
+                </el-table-column>
+                <el-table-column label="难度" width="90">
+                  <template #default="{ row }">{{ difficultyLabel(row.difficulty) }}</template>
+                </el-table-column>
+                <el-table-column prop="maxScore" label="分值" width="80" />
+                <el-table-column prop="knowledgePoints" label="知识点" min-width="150" show-overflow-tooltip />
+              </el-table>
+            </el-tab-pane>
+            <el-tab-pane label="学习数据" name="stats">
+              <template v-if="outlineDetailType === 'unit'">
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="资料数">{{ outlineDetail.unit.materialCount || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="知识点数">{{ outlineDetail.unit.pointCount || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="关联题目">{{ outlineDetail.unit.questionCount || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="班级完成率">
+                    {{ outlineDetail.unit.completionRate !== null && outlineDetail.unit.completionRate !== undefined
+                      ? outlineDetail.unit.completionRate + '%' : '暂无数据' }}
+                  </el-descriptions-item>
+                </el-descriptions>
+                <p class="cell-meta outline-detail-tip">
+                  完成率按已归档资料任务点的学生完成情况统计；未发布或未开启任务点的资料不计入。
+                </p>
+              </template>
+              <p v-else class="cell-meta">该知识点暂无学习数据，掌握度统计将在后续版本提供。</p>
+            </el-tab-pane>
+          </el-tabs>
+        </template>
+      </div>
     </el-dialog>
 
     <!-- ============ 教学班设置 ============ -->
@@ -927,12 +1194,13 @@
 </template>
 
 <script setup name="TeacherStudio">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveAs } from 'file-saver'
 import {
   getOverview,
   createResource,
+  createLinkResource,
   createResourceVersion,
   listResourceVersions,
   getVersion,
@@ -951,9 +1219,11 @@ import {
   updateOutlineUnit,
   deleteOutlineUnit,
   reorderOutlineUnit,
+  getOutlineUnitDetail,
   createKnowledgePoint,
   updateKnowledgePoint,
   deleteKnowledgePoint,
+  getKnowledgePointDetail,
   listClassrooms,
   exportQuestionsExcel,
   previewQuestionImport,
@@ -962,13 +1232,23 @@ import {
   importResourcesZip,
   listFolders,
   createFolder,
+  updateFolder,
+  deleteFolder,
+  archiveQuestionFolder,
+  publishFolder,
+  revokeFolder,
+  downloadFolder,
   moveToFolder,
   composeQuestions,
+  shareQuestions,
+  withdrawSharedQuestions,
+  createPreviewTask,
   updateResourceEnhance
 } from '@/api/education/group3'
 import { useGroup3Binding } from './useGroup3Binding'
 import { PROCESSING_LABELS, PROCESSING_STATUS, RELEASE_SOURCE } from './constants'
 import Group3ContextBar from './Group3ContextBar.vue'
+import QuestionLibraryDialog from './QuestionLibraryDialog.vue'
 
 const props = defineProps({
   contextBindingId: { type: String, default: '' },
@@ -976,7 +1256,7 @@ const props = defineProps({
 })
 const { list, bindingId, current, loading, error, load, select } = useGroup3Binding(() => props.contextBindingId)
 
-const resourceSources = ['本地上传', '云盘', '添加网址', '在线图书', '笔记', '教学资源库', '跨课导入', '课程思政']
+const resourceSources = ['本地上传', '云盘', '添加网址', '在线图书', '教学资源库', '跨课导入', '课程思政']
 const questionImportLabels = ['模板导入', '智能导入', '跨课导入']
 const questionKindOptions = [
   { value: 'SINGLE', label: '单选题' },
@@ -1027,6 +1307,19 @@ const uploadRef = ref()
 const folderInputRef = ref()
 const uploadFiles = ref([])
 const uploadUnitId = ref(null)
+
+const linkOpen = ref(false)
+const linkLoading = ref(false)
+const linkKind = ref('URL') // URL 或 BOOK
+const linkForm = reactive({
+  title: '',
+  externalUri: '',
+  unitId: null
+})
+
+/* 公共资源库 */
+const PublicLibrary = defineAsyncComponent(() => import('./PublicLibrary.vue'))
+const libraryVisible = ref(false)
 
 const versionOpen = ref(false)
 const versionSaving = ref(false)
@@ -1093,6 +1386,9 @@ const questionPreviewOpen = ref(false)
 const questionPreviewList = ref([])
 const questionPreviewIndex = ref(0)
 
+const questionLibraryVisible = ref(false)
+const questionTableRef = ref(null)
+const questionSelection = ref([])
 const composeOpen = ref(false)
 const composeLoading = ref(false)
 const composeResult = ref(null)
@@ -1103,6 +1399,20 @@ const composeForm = reactive({
   tag: '',
   count: 10,
   mode: 'RANDOM'
+})
+
+const paperPublishOpen = ref(false)
+const paperPublishing = ref(false)
+const paperForm = reactive({
+  title: '',
+  instructions: '',
+  opensAt: null,
+  closesAt: null,
+  answerOpensAt: null
+})
+const paperPublishCount = computed(() => {
+  const questions = composeResult.value?.questions
+  return Array.isArray(questions) ? questions.length : 0
 })
 
 const enhanceOpen = ref(false)
@@ -1118,18 +1428,24 @@ const enhanceForm = reactive({
 const outlineSearch = ref('')
 const collapsedChapters = ref([])
 const editorOpen = ref(false)
-const pointDetailOpen = ref(false)
 const detailPoint = ref(null)
+const outlineDetailOpen = ref(false)
+const outlineDetailType = ref('unit')
+const outlineDetailLoading = ref(false)
+const outlineDetail = ref(null)
+const outlineDetailTab = ref('content')
+const outlineDetailContent = ref('')
+const outlineContentSaving = ref(false)
 
 const unitDialogOpen = ref(false)
 const unitDialogMode = ref('create')
 const unitDialogKind = ref('CHAPTER')
 const unitSaving = ref(false)
-const unitForm = reactive({ unitId: null, title: '', sortOrder: 0, parentUnitId: null })
+const unitForm = reactive({ unitId: null, title: '', sortOrder: 0, parentUnitId: null, contentText: '' })
 
 const pointDialogOpen = ref(false)
 const pointSaving = ref(false)
-const pointForm = reactive({ knowledgePointId: null, unitId: null, code: '', name: '' })
+const pointForm = reactive({ knowledgePointId: null, unitId: null, code: '', name: '', contentText: '' })
 
 const classroomOpen = ref(false)
 const classroomLoading = ref(false)
@@ -1169,6 +1485,9 @@ const visibleResources = computed(() => {
   let rows = resourceList.value
   if (activeFolder.value) {
     rows = rows.filter(item => String(item.folderId || '') === String(activeFolder.value.id))
+  } else {
+    // 根目录只展示未归档资料，已移入文件夹的不再重复出现
+    rows = rows.filter(item => !item.folderId)
   }
   if (keyword) rows = rows.filter(item => String(item.title || '').toLowerCase().includes(keyword))
   return rows
@@ -1219,6 +1538,9 @@ const filteredQuestions = computed(() => {
   let rows = questionList.value
   if (activeQuestionFolder.value) {
     rows = rows.filter(question => String(question.folderId || '') === String(activeQuestionFolder.value.id))
+  } else {
+    // 根目录只展示未归档题目，已放入文件夹的题目不再重复出现
+    rows = rows.filter(question => !question.folderId)
   }
   if (questionKind.value) rows = rows.filter(question => question.questionKind === questionKind.value)
   if (questionDifficulty.value) rows = rows.filter(question => question.difficulty === questionDifficulty.value)
@@ -1575,7 +1897,8 @@ function normalizeFolder(folder) {
     id: String(folder.id),
     name: folder.name,
     visibility: folder.visibility || 'PUBLIC',
-    createdAt: folder.createdAt
+    createdAt: folder.createdAt,
+    archivedAt: folder.archivedAt || ''
   }
 }
 
@@ -1769,7 +2092,62 @@ function handleSourceCommand(label) {
     uploadOpen.value = true
     return
   }
-  ElMessage.info(`“${label}”来源暂未接入，当前请使用本地上传`)
+  if (label === '添加网址') {
+    linkKind.value = 'URL'
+    linkForm.title = ''
+    linkForm.externalUri = ''
+    linkForm.unitId = null
+    linkOpen.value = true
+    return
+  }
+  if (label === '在线图书') {
+    linkKind.value = 'BOOK'
+    linkForm.title = ''
+    linkForm.externalUri = ''
+    linkForm.unitId = null
+    linkOpen.value = true
+    return
+  }
+  if (label === '教学资源库') {
+    libraryVisible.value = true
+    return
+  }
+  ElMessage.info(`“${label}”来源暂未接入，当前请使用本地上传、添加网址或在线图书`)
+}
+
+async function submitLink() {
+  if (!linkForm.title.trim()) {
+    ElMessage.warning(linkKind.value === 'BOOK' ? '请输入图书名称' : '请输入资料名称')
+    return
+  }
+  if (!linkForm.externalUri.trim()) {
+    ElMessage.warning('请输入链接地址')
+    return
+  }
+  if (!/^https?:\/\/.*/.test(linkForm.externalUri.trim())) {
+    ElMessage.warning('链接地址必须以 http:// 或 https:// 开头')
+    return
+  }
+  linkLoading.value = true
+  try {
+    await createLinkResource({
+      bindingId: bindingId.value,
+      title: linkForm.title.trim(),
+      externalUri: linkForm.externalUri.trim(),
+      unitId: linkForm.unitId,
+      folderId: currentFolderId.value || null,
+      linkKind: linkKind.value,
+      releaseSource: 'NONE',
+      origin: 'STUDIO'
+    })
+    ElMessage.success(linkKind.value === 'BOOK' ? '在线图书已添加' : '网址已添加')
+    linkOpen.value = false
+    await loadOverview()
+  } catch (e) {
+    // 错误信息已由拦截器处理
+  } finally {
+    linkLoading.value = false
+  }
 }
 
 function removeUploadFile(index) {
@@ -1807,6 +2185,7 @@ async function submitUpload() {
       formData.append('releaseSource', RELEASE_SOURCE.STUDIO)
       formData.append('title', file.name.replace(/\.[^.]+$/, ''))
       if (uploadUnitId.value) formData.append('unitId', uploadUnitId.value)
+      if (currentFolderId.value) formData.append('folderId', currentFolderId.value)
       formData.append('file', file)
       await createResource(formData)
       done += 1
@@ -1881,6 +2260,60 @@ function openRenameResource(resource) {
       loadOverview()
     })
     .catch(e => handleActionError(e))
+}
+
+function openRenameFolder(folder) {
+  ElMessageBox.prompt('请输入新的文件夹名称', '修改文件夹', {
+    inputValue: folder.name || '',
+    inputPattern: /\S+/,
+    inputErrorMessage: '文件夹名称不能为空',
+    confirmButtonText: '确定',
+    cancelButtonText: '取消'
+  })
+    .then(({ value }) =>
+      updateFolder(folder.id, {
+        bindingId: Number(bindingId.value),
+        kind: 'RESOURCE',
+        name: value.trim(),
+        visibility: folder.visibility || 'PUBLIC'
+      })
+    )
+    .then(() => {
+      ElMessage.success('文件夹已更新')
+      loadOverview()
+    })
+    .catch(e => handleActionError(e))
+}
+
+function folderReleased(folder) {
+  return resourceList.value.some(
+    item => String(item.folderId || '') === String(folder.id) && item.studioReleaseId
+  )
+}
+
+async function handleDownloadFolder(folder) {
+  try {
+    const blob = await downloadFolder(folder.id, bindingId.value)
+    saveAs(blob, `${folder.name || '文件夹资料'}.zip`)
+  } catch (e) {
+    ElMessage.error(e?.message || '下载失败')
+  }
+}
+
+async function toggleFolderRelease(folder) {
+  const released = folderReleased(folder)
+  try {
+    if (released) {
+      await revokeFolder(folder.id, bindingId.value)
+      ElMessage.success('文件夹已下架，学生端不再可见')
+    } else {
+      await publishFolder(folder.id, bindingId.value)
+      ElMessage.success('文件夹已上架，学生端可见')
+    }
+    await loadOverview()
+  } catch (e) {
+    handleActionError(e)
+  }
 }
 
 function confirmArchive(resource, targetStatus) {
@@ -2163,7 +2596,80 @@ function handleQuestionCreateCommand(command) {
     openCreateQuestion()
     return
   }
-  ElMessage.info('当前资源库暂无可添加的资源')
+  if (command === 'library') {
+    questionLibraryVisible.value = true
+  }
+}
+
+async function shareQuestionToLibrary(question) {
+  try {
+    const response = await shareQuestions({
+      bindingId: Number(bindingId.value),
+      questionIds: [Number(question.questionId)]
+    })
+    const result = response.data || {}
+    if (result.published || result.reopened) {
+      ElMessage.success('已发布到题目资源库')
+    } else {
+      ElMessage.info(result.skipped ? '该题目已在资源库中' : '发布失败，请刷新后重试')
+    }
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '发布到资源库失败')
+  }
+}
+
+function handleQuestionSelectionChange(selection) {
+  questionSelection.value = selection
+}
+
+async function batchShareSelectedQuestions() {
+  if (questionSelection.value.length === 0) return
+  try {
+    const response = await shareQuestions({
+      bindingId: Number(bindingId.value),
+      questionIds: questionSelection.value.map(row => Number(row.question.questionId))
+    })
+    const result = response.data || {}
+    const parts = []
+    if (result.published) parts.push(`新发布 ${result.published} 道`)
+    if (result.reopened) parts.push(`重新发布 ${result.reopened} 道`)
+    if (result.skipped) parts.push(`跳过 ${result.skipped} 道（已共享或已归档）`)
+    ElMessage.success(parts.length ? parts.join('，') : '没有需要发布的题目')
+    questionSelection.value = []
+    questionTableRef.value?.clearSelection()
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '批量发布失败')
+  }
+}
+
+async function withdrawQuestionFromLibrary(question) {
+  if (!question.shareId) return
+  try {
+    await ElMessageBox.confirm(
+      `确认撤回「${question.title}」的共享？已引入到其他课程的副本不受影响。`,
+      '撤回共享',
+      { type: 'warning', confirmButtonText: '撤回', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await withdrawSharedQuestions({
+      bindingId: Number(bindingId.value),
+      shareIds: [Number(question.shareId)]
+    })
+    ElMessage.success('已撤回共享')
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '撤回失败')
+  }
+}
+
+async function handleQuestionLibraryImported() {
+  await loadOverview()
+  await loadQuestionFolders()
 }
 
 function openCompose() {
@@ -2190,6 +2696,63 @@ async function submitCompose() {
     ElMessage.error(e?.message || '组卷失败')
   } finally {
     composeLoading.value = false
+  }
+}
+
+function openPaperPublish() {
+  if (!composeResult.value || !composeResult.value.count) return
+  const now = Date.now()
+  paperForm.title = `智能组卷 · ${composeResult.value.count} 题`
+  paperForm.instructions = ''
+  paperForm.opensAt = new Date(now)
+  paperForm.closesAt = new Date(now + 7 * 24 * 3600 * 1000)
+  paperForm.answerOpensAt = new Date(now + 7 * 24 * 3600 * 1000 + 60 * 60 * 1000)
+  paperPublishOpen.value = true
+}
+
+async function submitPaperPublish() {
+  if (!paperForm.title.trim()) {
+    ElMessage.warning('请填写试卷名称')
+    return
+  }
+  if (!paperForm.opensAt || !paperForm.closesAt || !paperForm.answerOpensAt) {
+    ElMessage.warning('请完整设置开放、截止与解析公布时间')
+    return
+  }
+  if (paperForm.closesAt.getTime() <= paperForm.opensAt.getTime()) {
+    ElMessage.warning('截止时间必须晚于开放时间')
+    return
+  }
+  if (paperForm.answerOpensAt.getTime() < paperForm.closesAt.getTime()) {
+    ElMessage.warning('解析公布时间不能早于截止时间')
+    return
+  }
+  const questionVersionIds = (composeResult.value?.questions || []).map(item => Number(item.versionId))
+  if (!questionVersionIds.length) {
+    ElMessage.warning('当前试卷没有题目')
+    return
+  }
+  paperPublishing.value = true
+  try {
+    const res = await createPreviewTask({
+      bindingId: Number(bindingId.value),
+      lessonId: null,
+      title: paperForm.title.trim(),
+      instructions: paperForm.instructions.trim(),
+      opensAt: paperForm.opensAt.toISOString(),
+      closesAt: paperForm.closesAt.toISOString(),
+      answerOpensAt: paperForm.answerOpensAt.toISOString(),
+      questionVersionIds,
+      resourceVersionIds: []
+    })
+    const count = Number(res?.data?.itemCount ?? questionVersionIds.length)
+    ElMessage.success(`整卷已发布：${count} 道题，合计 ${res?.data?.totalScore ?? '—'} 分，学生端「课前学习」可见`)
+    paperPublishOpen.value = false
+    composeOpen.value = false
+  } catch (e) {
+    ElMessage.error(e?.message || '发布整卷失败')
+  } finally {
+    paperPublishing.value = false
   }
 }
 
@@ -2340,6 +2903,7 @@ async function submitQuestion() {
     .filter(Boolean)
   const payload = {
     bindingId: Number(bindingId.value),
+    folderId: currentQuestionFolderId.value ? Number(currentQuestionFolderId.value) : null,
     questionKind: kind,
     stem: questionForm.stem.trim(),
     options: kind === 'TRUE_FALSE' ? ['正确', '错误'] : kind === 'SHORT_TEXT' ? [] : optionValues,
@@ -2369,6 +2933,61 @@ async function submitQuestion() {
   }
 }
 
+function deleteFolderWithConfirm(folder, kind) {
+  const isQuestion = kind === 'QUESTION'
+  const count = isQuestion ? questionFolderCount(folder) : folderCount(folder)
+  const unit = isQuestion ? '道题' : '个资料'
+  const tip = count > 0 ? `文件夹内 ${count} ${unit}将移回根目录，不会被删除。` : '该文件夹为空。'
+  ElMessageBox.confirm(`确认删除文件夹「${folder.name}」？${tip}`, '删除文件夹', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消'
+  })
+    .then(async () => {
+      try {
+        await deleteFolder(folder.id, bindingId.value, kind)
+        ElMessage.success('文件夹已删除')
+        if (isQuestion) {
+          if (String(currentQuestionFolderId.value || '') === String(folder.id)) currentQuestionFolderId.value = null
+          await loadQuestionFolders()
+        } else {
+          if (String(currentFolderId.value || '') === String(folder.id)) currentFolderId.value = null
+          await loadResourceFolders()
+        }
+        await loadOverview()
+      } catch (e) {
+        handleActionError(e, '文件夹删除失败')
+      }
+    })
+    .catch(() => {})
+}
+
+function toggleQuestionFolderArchive(folder) {
+  const archived = !folder.archivedAt
+  const run = () =>
+    archiveQuestionFolder(folder.id, {
+      bindingId: Number(bindingId.value),
+      kind: 'QUESTION',
+      archived
+    })
+      .then(() => {
+        ElMessage.success(archived ? '文件夹已归档' : '文件夹已取消归档')
+        loadQuestionFolders()
+      })
+      .catch(e => handleActionError(e))
+  if (!archived) {
+    run()
+    return
+  }
+  ElMessageBox.confirm(`确认归档文件夹「${folder.name}」？归档后仍可查看和取消归档。`, '归档文件夹', {
+    type: 'warning',
+    confirmButtonText: '归档',
+    cancelButtonText: '取消'
+  })
+    .then(run)
+    .catch(() => {})
+}
+
 function archiveQuestion(question) {
   ElMessageBox.confirm('确认归档该题目？', '归档题目', {
     type: 'warning',
@@ -2383,7 +3002,8 @@ function archiveQuestion(question) {
     .catch(e => handleActionError(e))
 }
 
-function onQuestionRowClick(row) {
+function onQuestionRowClick(row, column) {
+  if (column?.type === 'selection') return
   if (row.rowType !== 'question') return
   questionPreviewList.value = filteredQuestions.value.slice()
   questionPreviewIndex.value = row.index
@@ -2421,6 +3041,7 @@ async function submitQuestionImport() {
       bindingId: Number(bindingId.value),
       questions: rows.map(row => ({
         rowNo: row.rowNo,
+        folderId: currentQuestionFolderId.value ? Number(currentQuestionFolderId.value) : null,
         title: row.title,
         questionKind: row.questionKind,
         stem: row.stem,
@@ -2474,7 +3095,8 @@ function openCreateUnit(unitKind, parentUnitId) {
     unitId: null,
     title: '',
     sortOrder: maxSort + 1,
-    parentUnitId: parent
+    parentUnitId: parent,
+    contentText: ''
   })
   unitDialogOpen.value = true
 }
@@ -2487,7 +3109,8 @@ function openEditUnit(unit) {
     unitId: unit.unitId,
     title: unit.title || '',
     sortOrder: Number(unit.sortOrder ?? 0),
-    parentUnitId: unit.parentUnitId ?? null
+    parentUnitId: unit.parentUnitId ?? null,
+    contentText: unit.contentText || ''
   })
   unitDialogOpen.value = true
 }
@@ -2506,14 +3129,16 @@ async function submitUnit() {
         unitKind: unitDialogKind.value,
         title,
         parentUnitId: unitForm.parentUnitId,
-        sortOrder: Number(unitForm.sortOrder) || 0
+        sortOrder: Number(unitForm.sortOrder) || 0,
+        contentText: unitForm.contentText
       })
       ElMessage.success(unitDialogKind.value === 'CHAPTER' ? '章节已创建' : '小节已创建')
     } else {
       await updateOutlineUnit(unitForm.unitId, {
         bindingId: Number(bindingId.value),
         title,
-        sortOrder: Number(unitForm.sortOrder) || 0
+        sortOrder: Number(unitForm.sortOrder) || 0,
+        contentText: unitForm.contentText
       })
       ElMessage.success('章节已更新')
     }
@@ -2560,7 +3185,8 @@ function openCreateKnowledgePoint(unitId) {
     knowledgePointId: null,
     unitId: unitId ? Number(unitId) : null,
     code: '',
-    name: ''
+    name: '',
+    contentText: ''
   })
   pointDialogOpen.value = true
 }
@@ -2570,7 +3196,8 @@ function openEditPoint(point) {
     knowledgePointId: point?.knowledgePointId || point?.pointId || null,
     unitId: point?.unitId ?? null,
     code: point?.code || '',
-    name: point?.name || ''
+    name: point?.name || '',
+    contentText: point?.contentText || ''
   })
   pointDialogOpen.value = true
 }
@@ -2592,7 +3219,8 @@ async function submitPoint() {
       await updateKnowledgePoint(pointForm.knowledgePointId, {
         bindingId: Number(bindingId.value),
         code,
-        name
+        name,
+        contentText: pointForm.contentText
       })
       ElMessage.success('知识点已更新')
     } else {
@@ -2600,7 +3228,8 @@ async function submitPoint() {
         bindingId: Number(bindingId.value),
         code,
         name,
-        unitId: pointForm.unitId
+        unitId: pointForm.unitId,
+        contentText: pointForm.contentText
       })
       ElMessage.success('知识点已创建')
     }
@@ -2629,9 +3258,81 @@ function confirmDeletePoint(point) {
     .catch(e => handleActionError(e))
 }
 
-function openPointDetail(point) {
+function unitStats(unit) {
+  if (!unit) return ''
+  return `资料 ${Number(unit.materialCount || 0)} · 题目 ${Number(unit.questionCount || 0)} · 知识点 ${Number(unit.pointCount || 0)}`
+}
+
+function pointStats(point) {
+  return `题目 ${Number(point?.questionCount || 0)}`
+}
+
+async function openUnitDetail(unit) {
+  if (!unit?.unitId) return
+  outlineDetailType.value = 'unit'
+  outlineDetail.value = null
+  outlineDetailTab.value = 'content'
+  outlineDetailContent.value = unit.contentText || ''
+  outlineDetailOpen.value = true
+  outlineDetailLoading.value = true
+  try {
+    const response = await getOutlineUnitDetail(unit.unitId, bindingId.value)
+    outlineDetail.value = response.data
+    outlineDetailContent.value = response.data?.unit?.contentText || unit.contentText || ''
+  } catch (e) {
+    ElMessage.error(e?.message || '章节详情加载失败')
+    outlineDetailOpen.value = false
+  } finally {
+    outlineDetailLoading.value = false
+  }
+}
+
+async function openPointDetail(point) {
+  if (!point) return
   detailPoint.value = point
-  pointDetailOpen.value = true
+  outlineDetailType.value = 'point'
+  outlineDetail.value = null
+  outlineDetailTab.value = 'content'
+  outlineDetailContent.value = point.contentText || ''
+  outlineDetailOpen.value = true
+  outlineDetailLoading.value = true
+  try {
+    const pointId = point.knowledgePointId || point.pointId
+    const response = await getKnowledgePointDetail(pointId, bindingId.value)
+    outlineDetail.value = response.data
+    outlineDetailContent.value = response.data?.point?.contentText || ''
+  } catch (e) {
+    ElMessage.error(e?.message || '知识点详情加载失败')
+    outlineDetailOpen.value = false
+  } finally {
+    outlineDetailLoading.value = false
+  }
+}
+
+async function saveOutlineDetailContent() {
+  if (!outlineDetail.value) return
+  outlineContentSaving.value = true
+  try {
+    if (outlineDetailType.value === 'unit') {
+      await updateOutlineUnit(outlineDetail.value.unit.unitId, {
+        bindingId: Number(bindingId.value),
+        contentText: outlineDetailContent.value
+      })
+      outlineDetail.value.unit.contentText = outlineDetailContent.value
+    } else {
+      await updateKnowledgePoint(outlineDetail.value.point.knowledgePointId, {
+        bindingId: Number(bindingId.value),
+        contentText: outlineDetailContent.value
+      })
+      outlineDetail.value.point.contentText = outlineDetailContent.value
+    }
+    ElMessage.success('大纲内容已保存')
+    await loadOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    outlineContentSaving.value = false
+  }
 }
 
 /* ---------- 教学班设置 ---------- */
@@ -2825,7 +3526,7 @@ onBeforeUnmount(() => {
 }
 .outline-head {
   display: grid;
-  grid-template-columns: 56px 1fr 90px 90px 340px;
+  grid-template-columns: 56px 1fr 210px 120px 340px;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid #ebeef5;
@@ -2834,7 +3535,7 @@ onBeforeUnmount(() => {
 }
 .outline-row {
   display: grid;
-  grid-template-columns: 56px 1fr 90px 90px 340px;
+  grid-template-columns: 56px 1fr 210px 120px 340px;
   gap: 8px;
   align-items: center;
   padding: 6px 12px;
@@ -2857,6 +3558,30 @@ onBeforeUnmount(() => {
 .outline-num {
   font-size: 12px;
   color: #909399;
+}
+.outline-stats {
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.outline-progress {
+  cursor: pointer;
+}
+.outline-link {
+  cursor: pointer;
+}
+.outline-link:hover {
+  color: var(--el-color-primary);
+}
+.outline-muted {
+  font-size: 12px;
+  color: #c0c4cc;
+}
+.detail-content-actions {
+  margin-top: 12px;
+  text-align: right;
 }
 .outline-code {
   margin-right: 6px;
@@ -2928,5 +3653,8 @@ onBeforeUnmount(() => {
   font-size: 13px;
   color: #67c23a;
   font-weight: 600;
+}
+.paper-publish-tip {
+  margin-bottom: 14px;
 }
 </style>

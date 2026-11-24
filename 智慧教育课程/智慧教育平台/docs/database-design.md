@@ -1,8 +1,8 @@
 # MySQL V3.0 M0 教学业务数据库
 
-> 2026-10-22 · 状态：DDL 已在 MySQL 8.0.43 实测；MySQL 8.0.46 未验证，待 8.0.46 环境复核；尚未部署到项目数据库
+> 2026-10-22 · 状态：DDL 已在 MySQL 8.0.43 实测；MySQL 8.0.46 未验证，待 8.0.46 环境复核；已按 `sql/install-fresh.sql` 部署到项目数据库 `smart_edu_g12`
 
-本设计以 [原始需求分析](../../智慧教育课程需求分析.docx)、[功能架构优化方案 V3.0](../../功能架构优化方案.md)和[教学业务架构](architecture.md)为输入。两段按顺序执行的 [核心表脚本](../sql/mysql-v3-m0-core-schema.sql)与 [教学闭环脚本](../sql/mysql-v3-m0-teaching-schema.sql)覆盖 V3.0 M0 教学业务，共 44 张表。它们不包含 `CREATE DATABASE`、若依系统表、真实人员数据和演示数据。项目数据库的部署仍需确认若依版本、身份/组织 ID 映射、备份、迁移执行人及回退方案。
+本设计以 [原始需求分析](../../智慧教育课程需求分析.docx)、[功能架构优化方案 V3.0](../../功能架构优化方案.md)和[教学业务架构](architecture.md)为输入。两段按顺序执行的 [核心表脚本](../sql/mysql-v3-m0-core-schema.sql)与 [教学闭环脚本](../sql/mysql-v3-m0-teaching-schema.sql)覆盖 V3.0 M0 教学业务，共 44 张表。它们不包含 `CREATE DATABASE`、若依系统表、真实人员数据和演示数据。本文件描述的是 44 张 M0 基线表；项目实际使用 [install-fresh.sql](../sql/install-fresh.sql)（92 张表，含第三组扩展）部署，第三组新增表的说明见 [sql/README.md](../sql/README.md)。若依版本、身份/组织 ID 映射、备份与回退方案在部署时确认。
 
 ## 1. 设计范围
 

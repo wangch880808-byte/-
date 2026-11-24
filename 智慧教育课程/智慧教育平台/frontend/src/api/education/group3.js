@@ -17,6 +17,11 @@ export function createResource(data) {
   return request({ url: '/education/group3/resources', method: 'post', data })
 }
 
+/** 创建外链资料（添加网址 / 在线图书） */
+export function createLinkResource(data) {
+  return request({ url: '/education/group3/resources/link', method: 'post', data })
+}
+
 /** 为已有资料上传新版本（multipart：bindingId、file） */
 export function createResourceVersion(resourceId, data) {
   return request({ url: `/education/group3/resources/${resourceId}/versions`, method: 'post', data })
@@ -114,6 +119,36 @@ export function composeQuestions(data) {
   return request({ url: '/education/group3/questions/compose', method: 'post', data })
 }
 
+/** 题目资源库：发布题目（body：bindingId、questionIds） */
+export function shareQuestions(data) {
+  return request({ url: '/education/group3/questions/library/share', method: 'post', data })
+}
+
+/** 题目资源库：撤回共享（body：bindingId、shareIds） */
+export function withdrawSharedQuestions(data) {
+  return request({ url: '/education/group3/questions/library/withdraw', method: 'post', data })
+}
+
+/** 题目资源库：检索共享题目 */
+export function listQuestionLibrary(params) {
+  return request({ url: '/education/group3/questions/library', method: 'get', params })
+}
+
+/** 题目资源库：可选学院列表 */
+export function listQuestionLibraryColleges() {
+  return request({ url: '/education/group3/questions/library/colleges', method: 'get' })
+}
+
+/** 题目资源库：共享题目详情 */
+export function getQuestionLibraryDetail(shareId) {
+  return request({ url: `/education/group3/questions/library/${shareId}`, method: 'get' })
+}
+
+/** 题目资源库：引入当前课程题库（body：bindingId、folderId、shareIds） */
+export function importQuestionLibrary(data) {
+  return request({ url: '/education/group3/questions/library/import', method: 'post', data })
+}
+
 /** 修改资料增强设置：下载开关、水印、任务点（body：bindingId 等） */
 export function updateResourceEnhance(resourceId, data) {
   return request({ url: `/education/group3/resources/${resourceId}/enhance`, method: 'patch', data })
@@ -137,6 +172,16 @@ export function getStudentDashboard(bindingId) {
 /** 查询作答回看与错题本（仅解析已公布的提交） */
 export function getStudentAnswerReview(bindingId) {
   return request({ url: '/education/group3/student/answer-review', method: 'get', params: { bindingId } })
+}
+
+/** 查询本人个人笔记 */
+export function getStudentNote(bindingId) {
+  return request({ url: '/education/group3/student/note', method: 'get', params: { bindingId } })
+}
+
+/** 保存本人个人笔记 */
+export function saveStudentNote(data) {
+  return request({ url: '/education/group3/student/note', method: 'put', data })
 }
 
 /* ---------- 备课方案 ---------- */
@@ -293,6 +338,16 @@ export function deleteKnowledgePoint(pointId, bindingId) {
   return request({ url: `/education/group3/outline/knowledge-points/${pointId}`, method: 'delete', params: { bindingId } })
 }
 
+/** 章节详情：内容、知识点、资料、题目与学习进度 */
+export function getOutlineUnitDetail(unitId, bindingId) {
+  return request({ url: `/education/group3/outline/units/${unitId}/detail`, method: 'get', params: { bindingId } })
+}
+
+/** 知识点详情：学习目标说明与关联题目 */
+export function getKnowledgePointDetail(pointId, bindingId) {
+  return request({ url: `/education/group3/outline/knowledge-points/${pointId}/detail`, method: 'get', params: { bindingId } })
+}
+
 /* ---------- 教学班详情 ---------- */
 
 /** 查询教学班详情（学生数、任课教师、开放范围） */
@@ -371,6 +426,11 @@ export function updateFolder(folderId, data) {
   return request({ url: `/education/group3/folders/${folderId}`, method: 'patch', data })
 }
 
+/** 题库文件夹归档 / 取消归档（body：bindingId、kind=QUESTION、archived） */
+export function archiveQuestionFolder(folderId, data) {
+  return request({ url: `/education/group3/folders/${folderId}/archive`, method: 'post', data })
+}
+
 /** 删除文件夹，kind 取 RESOURCE / QUESTION */
 export function deleteFolder(folderId, bindingId, kind) {
   return request({
@@ -380,7 +440,84 @@ export function deleteFolder(folderId, bindingId, kind) {
   })
 }
 
+/** 文件夹整体上架 */
+export function publishFolder(folderId, bindingId) {
+  return request({ url: `/education/group3/folders/${folderId}/release`, method: 'post', params: { bindingId } })
+}
+
+/** 文件夹整体下架 */
+export function revokeFolder(folderId, bindingId) {
+  return request({ url: `/education/group3/folders/${folderId}/revoke`, method: 'post', params: { bindingId } })
+}
+
+/** 打包下载文件夹 */
+export function downloadFolder(folderId, bindingId) {
+  return request({
+    url: `/education/group3/folders/${folderId}/download`,
+    method: 'get',
+    params: { bindingId },
+    responseType: 'blob'
+  })
+}
+
 /** 批量移动到文件夹（body：bindingId、kind、folderId、ids） */
 export function moveToFolder(data) {
   return request({ url: '/education/group3/folders/move', method: 'post', data })
+}
+
+/* ---------- 公共资源库 ---------- */
+
+/** 获取公共资源分类 */
+export function listPublicCategories(kind = 'RESOURCE') {
+  return request({ url: '/education/group3/public/categories', method: 'get', params: { kind } })
+}
+
+/** 获取公共资源列表 */
+export function listPublicResources(params) {
+  return request({ url: '/education/group3/public/resources', method: 'get', params })
+}
+
+/** 获取公共资源详情 */
+export function getPublicResource(id) {
+  return request({ url: `/education/group3/public/resources/${id}`, method: 'get' })
+}
+
+/** 上传文件到公共资源库 */
+export function uploadPublicResource(data) {
+  return request({ url: '/education/group3/public/resources/upload', method: 'post', data, headers: { 'Content-Type': 'multipart/form-data' } })
+}
+
+/** 上传外链到公共资源库 */
+export function uploadPublicLink(data) {
+  return request({ url: '/education/group3/public/resources/link', method: 'post', data })
+}
+
+/** 获取公共资源预览页列表 */
+export function getPublicVersionPages(versionId) {
+  return request({ url: `/education/group3/public/versions/${versionId}/pages`, method: 'get' })
+}
+
+/** 下载公共资源 */
+export function downloadPublicResource(versionId) {
+  return request({ url: `/education/group3/public/versions/${versionId}/download`, method: 'get', responseType: 'blob' })
+}
+
+/** 收藏/取消收藏公共资源 */
+export function togglePublicFavorite(id) {
+  return request({ url: `/education/group3/public/resources/${id}/favorite`, method: 'post' })
+}
+
+/** 我的收藏 */
+export function listMyPublicFavorites() {
+  return request({ url: '/education/group3/public/favorites', method: 'get' })
+}
+
+/** 我的上传 */
+export function listMyPublicResources(params) {
+  return request({ url: '/education/group3/public/my-resources', method: 'get', params })
+}
+
+/** 引用公共资源到课程资料 */
+export function importPublicResource(id, data) {
+  return request({ url: `/education/group3/public/resources/${id}/import`, method: 'post', data })
 }

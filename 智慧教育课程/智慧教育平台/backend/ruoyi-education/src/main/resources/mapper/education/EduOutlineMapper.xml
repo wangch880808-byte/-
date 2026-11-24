@@ -42,19 +42,23 @@
     DELETE FROM edu_outline_attachment WHERE <include refid="attachmentScope" /> AND id = #{fileId}
   </delete>
   <insert id="insertUnit" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO edu_course_unit(course_space_id,parent_unit_id,unit_kind,title,sort_order)
-    VALUES(#{courseId},#{parentUnitId},#{unitKind},#{title},#{sortOrder})
+    INSERT INTO edu_course_unit(course_space_id,parent_unit_id,unit_kind,title,sort_order,content_text)
+    VALUES(#{courseId},#{parentUnitId},#{unitKind},#{title},#{sortOrder},#{contentText,jdbcType=VARCHAR})
   </insert>
   <update id="updateUnit">
-    UPDATE edu_course_unit SET parent_unit_id=#{parentUnitId},unit_kind=#{unitKind},title=#{title},sort_order=#{sortOrder}
+    UPDATE edu_course_unit SET parent_unit_id=#{parentUnitId},unit_kind=#{unitKind},title=#{title},sort_order=#{sortOrder},
+      content_text=#{contentText,jdbcType=VARCHAR}
     WHERE course_space_id=#{courseId} AND id=#{id}
   </update>
   <delete id="deleteUnit">DELETE FROM edu_course_unit WHERE course_space_id=#{courseId} AND id=#{id}</delete>
   <insert id="insertPoint" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO edu_knowledge_point(course_space_id,unit_id,code,name) VALUES(#{courseId},#{unitId},#{code},#{name})
+    INSERT INTO edu_knowledge_point(course_space_id,unit_id,code,name,content_text)
+    VALUES(#{courseId},#{unitId},#{code},#{name},#{contentText,jdbcType=VARCHAR})
   </insert>
   <update id="updatePoint">
-    UPDATE edu_knowledge_point SET unit_id=#{unitId},code=#{code},name=#{name} WHERE course_space_id=#{courseId} AND id=#{id}
+    UPDATE edu_knowledge_point SET unit_id=#{unitId},code=#{code},name=#{name},
+      content_text=#{contentText,jdbcType=VARCHAR}
+    WHERE course_space_id=#{courseId} AND id=#{id}
   </update>
   <delete id="deletePoint">DELETE FROM edu_knowledge_point WHERE course_space_id=#{courseId} AND id=#{id}</delete>
 </mapper>

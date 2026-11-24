@@ -16,8 +16,13 @@
       <div class="g3-file-toolbar">
         <div class="g3-crumb">
           <el-icon class="g3-crumb-icon"><Folder /></el-icon>
-          <span class="g3-crumb-current">全部文件</span>
-          <span class="g3-file-count">当前页共 {{ filteredMaterials.length }} 个</span>
+          <template v-if="activeFolder">
+            <span class="g3-crumb-link" @click="leaveFolder">全部文件</span>
+            <span class="g3-crumb-sep">›</span>
+            <span class="g3-crumb-current">{{ activeFolder.name }}</span>
+          </template>
+          <span v-else class="g3-crumb-current">全部文件</span>
+          <span class="g3-file-count">当前页共 {{ viewMaterials.length }} 个</span>
         </div>
         <div class="g3-file-actions">
           <el-input
@@ -45,52 +50,78 @@
       <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" class="g3-gap" />
 
       <el-table
+        ref="tableRef"
         v-loading="loadingList"
-        :data="filteredMaterials"
+        :data="tableRows"
+        row-key="rowKey"
         class="g3-file-table"
         empty-text="暂无课程资料，教师发布后会显示在这里"
       >
         <el-table-column type="selection" width="46" />
         <el-table-column label="文件名" min-width="360">
           <template #default="{ row }">
-            <div class="g3-file-name" @click="openPreview(row)">
-              <el-icon class="g3-file-icon" :class="`is-${fileKind(row)}`">
+            <div
+              class="g3-file-name"
+              :class="{ 'is-folder': row.rowType === 'folder' }"
+              @click="row.rowType === 'folder' ? enterFolder(row) : openPreview(row)"
+            >
+              <el-icon v-if="row.rowType === 'folder'" class="g3-file-icon is-folder">
+                <Folder />
+              </el-icon>
+              <el-icon v-else class="g3-file-icon" :class="`is-${fileKind(row)}`">
                 <component :is="fileIcon(row)" />
               </el-icon>
-              <span class="g3-file-title">{{ row.title || '课程资料' }}</span>
-              <span v-if="fileExtension(row)" class="g3-file-ext">{{ fileExtension(row) }}</span>
-              <el-tag v-if="row.taskEnabled" size="small" type="warning" effect="plain">任务点</el-tag>
+              <span class="g3-file-title">{{ row.rowType === 'folder' ? row.folderName : (row.title || '课程资料') }}</span>
+              <span v-if="row.rowType === 'folder'" class="g3-file-ext">{{ row.fileCount }} 个文件</span>
+              <template v-else>
+                <span v-if="fileExtension(row)" class="g3-file-ext">{{ fileExtension(row) }}</span>
+                <el-tag v-if="row.taskEnabled" size="small" type="warning" effect="plain">任务点</el-tag>
+              </template>
             </div>
           </template>
         </el-table-column>
         <el-table-column label="学习进度" width="120">
           <template #default="{ row }">
-            <el-tag v-if="row.taskEnabled && isCompleted(row)" size="small" type="success">已完成</el-tag>
-            <el-tag v-else-if="row.taskEnabled" size="small" type="info">未完成</el-tag>
-            <span v-else>-</span>
+            <span v-if="row.rowType === 'folder'">—</span>
+            <template v-else>
+              <el-tag v-if="row.taskEnabled && isCompleted(row)" size="small" type="success">已完成</el-tag>
+              <el-tag v-else-if="row.taskEnabled" size="small" type="info">未完成</el-tag>
+              <span v-else>-</span>
+            </template>
           </template>
         </el-table-column>
         <el-table-column label="大小" width="110">
-          <template #default="{ row }">{{ formatSize(row.byteSize) }}</template>
+          <template #default="{ row }">
+            <span v-if="row.rowType === 'folder'">—</span>
+            <span v-else>{{ formatSize(row.byteSize) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="创建者" width="150">
-          <template #default="{ row }">{{ row.creatorName || '授课教师' }}</template>
+          <template #default="{ row }">
+            <span v-if="row.rowType === 'folder'">—</span>
+            <span v-else>{{ row.creatorName || '授课教师' }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="创建日期" width="160">
-          <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+          <template #default="{ row }">
+            <span v-if="row.rowType === 'folder'">—</span>
+            <span v-else>{{ formatDate(row.createdAt) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="操作" width="150" align="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click.stop="openPreview(row)">预览</el-button>
-            <el-button
-              v-if="row.downloadEnabled !== 0"
-              link
-              type="primary"
-              :loading="downloadingId === row.versionId"
-              @click.stop="handleDownload(row)"
-            >
-              下载
-            </el-button>
+            <template v-if="row.rowType !== 'folder'">
+              <el-button link type="primary" @click.stop="openPreview(row)">预览</el-button>
+              <el-button
+                v-if="row.downloadEnabled !== 0"
+                link
+                type="primary"
+                :loading="downloadingId === row.versionId"
+                @click.stop="handleDownload(row)"
+              >
+                下载
+              </el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -223,11 +254,63 @@ const reportedSeconds = ref({})
 let listToken = 0
 let readerToken = 0
 
-const filteredMaterials = computed(() => {
-  const text = keyword.value.trim().toLowerCase()
-  if (!text) return materials.value
-  return materials.value.filter(item => String(item.title || '').toLowerCase().includes(text))
+const tableRef = ref(null)
+const activeFolder = ref(null)
+
+// 按文件夹分组统计，供根目录展示
+const folders = computed(() => {
+  const map = new Map()
+  materials.value.forEach(item => {
+    const key = item.folderId === null || item.folderId === undefined || item.folderId === ''
+      ? ''
+      : String(item.folderId)
+    if (!key) return
+    if (!map.has(key)) {
+      map.set(key, { id: key, name: item.folderName || '未命名文件夹', count: 0 })
+    }
+    map.get(key).count += 1
+  })
+  return [...map.values()]
 })
+
+// 当前层级下的文件（根目录只看未归档文件，进入文件夹后只看该文件夹内文件）
+const viewMaterials = computed(() => {
+  const scoped = activeFolder.value
+    ? materials.value.filter(item => String(item.folderId || '') === String(activeFolder.value.id))
+    : materials.value.filter(item => !item.folderId)
+  const text = keyword.value.trim().toLowerCase()
+  if (!text) return scoped
+  return scoped.filter(item => String(item.title || '').toLowerCase().includes(text))
+})
+
+// 根目录展示文件夹行 + 未归档文件行；文件夹内只展示文件行
+const tableRows = computed(() => {
+  const text = keyword.value.trim().toLowerCase()
+  const folderRows = activeFolder.value
+    ? []
+    : folders.value
+        .filter(folder => !text || folder.name.toLowerCase().includes(text))
+        .map(folder => ({
+          rowKey: `f-${folder.id}`,
+          rowType: 'folder',
+          folderId: folder.id,
+          folderName: folder.name,
+          fileCount: folder.count
+        }))
+  const fileRows = viewMaterials.value.map(item => ({ ...item, rowKey: `r-${item.resourceId}` }))
+  return [...folderRows, ...fileRows]
+})
+
+function enterFolder(row) {
+  if (row?.rowType !== 'folder') return
+  activeFolder.value = { id: row.folderId, name: row.folderName }
+  keyword.value = ''
+}
+
+function leaveFolder() {
+  activeFolder.value = null
+  keyword.value = ''
+}
 
 function downloadAllowed(row) {
   return !!row && row.downloadEnabled !== 0
@@ -509,6 +592,9 @@ onBeforeUnmount(() => {
 .g3-crumb { display: flex; align-items: center; gap: 8px; color: #303133; font-size: 15px; }
 .g3-crumb-icon { color: #67c23a; font-size: 18px; }
 .g3-crumb-current { font-weight: 600; }
+.g3-crumb-link { color: #409eff; cursor: pointer; }
+.g3-crumb-link:hover { text-decoration: underline; }
+.g3-crumb-sep { color: #c0c4cc; }
 .g3-file-count { font-size: 12px; color: #909399; }
 .g3-file-actions { display: flex; align-items: center; gap: 8px; }
 .g3-file-subtitle { margin: 0 0 12px; font-size: 12px; color: #909399; }
@@ -521,6 +607,7 @@ onBeforeUnmount(() => {
 .g3-file-table :deep(.el-table__row:hover > td.el-table__cell) { background: #f5f9ff; }
 .g3-file-name { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 0; }
 .g3-file-icon { font-size: 18px; color: #909399; flex-shrink: 0; }
+.g3-file-icon.is-folder { color: #e6a23c; }
 .g3-file-icon.is-pdf { color: #f56c6c; }
 .g3-file-icon.is-word { color: #409eff; }
 .g3-file-icon.is-ppt { color: #e6a23c; }

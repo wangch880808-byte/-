@@ -114,6 +114,44 @@ public class Group3StudentDashboardService
         return result;
     }
 
+    /** 学生个人笔记：读取本人在该教学班的笔记。 */
+    public Map<String, Object> note(Long bindingId)
+    {
+        if (bindingId == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        accessService.requireStudentBinding(bindingId);
+        Long userId = Group3Security.currentUserId();
+        Map<String, Object> row = mapper.selectStudentNote(bindingId, userId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("bindingId", bindingId);
+        result.put("content", row == null || row.get("content") == null ? "" : row.get("content"));
+        result.put("updatedAt", row == null ? null : row.get("updatedAt"));
+        return result;
+    }
+
+    /** 学生个人笔记：保存本人笔记，长度上限 20000 字。 */
+    public Map<String, Object> saveNote(Long bindingId, String content)
+    {
+        if (bindingId == null)
+        {
+            throw new ServiceException("教学班不能为空", HttpStatus.BAD_REQUEST);
+        }
+        accessService.requireStudentBinding(bindingId);
+        String text = content == null ? "" : content.trim();
+        if (text.length() > 20000)
+        {
+            throw new ServiceException("笔记内容不能超过 20000 字", HttpStatus.BAD_REQUEST);
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("bindingId", bindingId);
+        row.put("userId", Group3Security.currentUserId());
+        row.put("content", text);
+        mapper.upsertStudentNote(row);
+        return note(bindingId);
+    }
+
     /** 作答回看 / 错题本：只返回解析已公布且本人已提交的题目。 */
     public Map<String, Object> answerReview(Long bindingId)
     {

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getStudentAnswerReview, getStudentDashboard } from '@/api/education/group3'
+import { getStudentAnswerReview, getStudentDashboard, getStudentNote, saveStudentNote } from '@/api/education/group3'
 
 const props = defineProps({
   bindingId: { type: [String, Number], default: '' },
@@ -20,6 +20,11 @@ const reviewVisible = ref(false)
 const reviewLoading = ref(false)
 const review = ref(null)
 const reviewFilter = ref('wrong')
+const noteVisible = ref(false)
+const noteLoading = ref(false)
+const noteSaving = ref(false)
+const noteContent = ref('')
+const noteUpdatedAt = ref('')
 
 const summary = computed(() => dashboard.value?.summary || {
   total: 0, completed: 0, pending: 0, upcoming: 0, open: 0, closed: 0, percent: 0
@@ -126,6 +131,39 @@ function openReview() {
   if (!review.value) loadReview()
 }
 
+async function loadNote() {
+  if (!props.bindingId) return
+  noteLoading.value = true
+  try {
+    const res = await getStudentNote(props.bindingId)
+    noteContent.value = res.data?.content || ''
+    noteUpdatedAt.value = res.data?.updatedAt || ''
+  } catch (err) {
+    if (!err?.cancelled) ElMessage.error(actionableMessage(err))
+  } finally {
+    noteLoading.value = false
+  }
+}
+
+function openNote() {
+  noteVisible.value = true
+  loadNote()
+}
+
+async function saveNote() {
+  if (!props.bindingId) return
+  noteSaving.value = true
+  try {
+    const res = await saveStudentNote({ bindingId: props.bindingId, content: noteContent.value })
+    noteUpdatedAt.value = res.data?.updatedAt || ''
+    ElMessage.success('笔记已保存')
+  } catch (err) {
+    if (!err?.cancelled) ElMessage.error(actionableMessage(err))
+  } finally {
+    noteSaving.value = false
+  }
+}
+
 function openItem(item) {
   emit('navigate', item)
   if (!item || !props.bindingId || route.name !== 'course-detail' || !route.params.courseId) return
@@ -196,6 +234,14 @@ defineExpose({ refresh: load })
             @click="openReview"
           >
             作答回看 / 错题本
+          </el-button>
+          <el-button
+            v-if="!compact"
+            size="small"
+            plain
+            @click="openNote"
+          >
+            笔记
           </el-button>
         </div>
       </template>
@@ -331,6 +377,33 @@ defineExpose({ refresh: load })
         <el-button type="primary" :loading="reviewLoading" @click="loadReview">刷新</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-if="!compact"
+      v-model="noteVisible"
+      title="我的笔记"
+      width="640px"
+      append-to-body
+      class="g3-note-dialog"
+    >
+      <div v-loading="noteLoading">
+        <el-input
+          v-model="noteContent"
+          type="textarea"
+          :rows="14"
+          maxlength="20000"
+          show-word-limit
+          placeholder="记录本节课的重点、疑问或心得，保存后仅自己可见"
+        />
+        <p class="g3-board-empty">
+          笔记仅本人可见{{ noteUpdatedAt ? ' · 上次保存 ' + formatTime(noteUpdatedAt) : '' }}
+        </p>
+      </div>
+      <template #footer>
+        <el-button @click="noteVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="noteSaving" @click="saveNote">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -339,7 +412,8 @@ defineExpose({ refresh: load })
 .g3-board-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .g3-board-title { font-size: 15px; font-weight: 600; color: #303133; }
 .g3-board-time { font-size: 12px; color: #909399; }
-.g3-board-head .el-button { margin-left: auto; }
+.g3-board-head .el-button { margin-left: 0; }
+.g3-board-head .el-button:first-of-type { margin-left: auto; }
 .g3-board-gap { margin-bottom: 12px; }
 .g3-board-summary {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;

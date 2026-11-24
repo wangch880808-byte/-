@@ -1,3 +1,8 @@
+【历史文件，内容已过期】
+本文件记录早期联调环境的账号，库名（zhijiao_m0）、登录入口（/login.html）和密码（admin123/teacher123/student123）均已失效。
+当前账号与密码以项目根目录《运行说明.md》为准：admin、teacher、student，统一密码 Edu@123456；student2、student3、student4 在当前联调库已停用。
+保留此文件仅作历史记录，请勿据此登录。
+
 智慧教育平台三端联调账号
 环境：本机 zhijiao_m0
 登录页面：http://127.0.0.1:8080/login.html

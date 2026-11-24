@@ -176,8 +176,10 @@ public class Group3TransferService
                 Map<String, Object> row = rows.get(index);
                 try
                 {
+                    String folderText = text(row.get("folderId"));
                     Group3Requests.Question request = new Group3Requests.Question(
                             bindingId,
+                            folderText.isBlank() ? null : Long.valueOf(folderText),
                             text(row.get("title")),
                             text(row.get("questionKind")),
                             text(row.get("stem")),

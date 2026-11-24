@@ -15,7 +15,19 @@ public interface Group3Mapper
 {
     List<Map<String, Object>> selectCourseOutline(@Param("courseSpaceId") Long courseSpaceId);
 
+    List<Map<String, Object>> selectOutlineWithStats(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("bindingId") Long bindingId);
+
     List<Map<String, Object>> selectKnowledgePoints(@Param("courseSpaceId") Long courseSpaceId);
+
+    List<Map<String, Object>> selectUnitQuestions(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("unitId") Long unitId);
+
+    List<Map<String, Object>> selectPointQuestions(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("pointId") Long pointId);
 
     List<Map<String, Object>> selectTeacherResources(
             @Param("bindingId") Long bindingId,
@@ -105,6 +117,14 @@ public interface Group3Mapper
             @Param("bindingId") Long bindingId,
             @Param("userId") Long userId);
 
+    /** 查询学生在指定教学班的个人笔记。 */
+    Map<String, Object> selectStudentNote(
+            @Param("bindingId") Long bindingId,
+            @Param("userId") Long userId);
+
+    /** 新增或更新学生个人笔记。 */
+    int upsertStudentNote(Map<String, Object> row);
+
     /** 学情契约：按资料汇总全班观看进度。 */
     List<Map<String, Object>> selectResourceProgressStats(@Param("bindingId") Long bindingId);
 
@@ -134,6 +154,41 @@ public interface Group3Mapper
     List<Map<String, Object>> selectQuestions(
             @Param("bindingId") Long bindingId,
             @Param("courseSpaceId") Long courseSpaceId);
+
+    Map<String, Object> selectQuestionForShare(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("questionId") Long questionId);
+
+    int insertQuestionShare(Map<String, Object> row);
+
+    int reopenQuestionShare(
+            @Param("shareId") Long shareId,
+            @Param("userId") Long userId);
+
+    int withdrawQuestionShares(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("shareIds") List<Long> shareIds);
+
+    List<Map<String, Object>> selectQuestionShares(
+            @Param("keyword") String keyword,
+            @Param("questionKind") String questionKind,
+            @Param("difficulty") String difficulty,
+            @Param("collegeId") Long collegeId,
+            @Param("limit") int limit);
+
+    List<Map<String, Object>> selectQuestionShareColleges();
+
+    Map<String, Object> selectQuestionShare(
+            @Param("shareId") Long shareId,
+            @Param("publishedOnly") boolean publishedOnly);
+
+    int countImportedShare(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("shareId") Long shareId);
+
+    int incrementShareImportCount(@Param("shareId") Long shareId);
+
+    int insertImportedQuestion(Map<String, Object> row);
 
     List<Map<String, Object>> selectQuestionVersions(
             @Param("bindingId") Long bindingId,
@@ -253,6 +308,15 @@ public interface Group3Mapper
     List<Map<String, Object>> selectResourceFolders(@Param("courseSpaceId") Long courseSpaceId);
 
     List<Map<String, Object>> selectQuestionFolders(@Param("courseSpaceId") Long courseSpaceId);
+
+    int countQuestionFolder(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("folderId") Long folderId);
+
+    int archiveQuestionFolder(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("folderId") Long folderId,
+            @Param("archived") boolean archived);
 
     int insertResourceFolder(Map<String, Object> row);
 
@@ -402,4 +466,57 @@ public interface Group3Mapper
     int updatePlanTemplateDuration(Map<String, Object> row);
 
     int updateActiveReleaseTimes(Map<String, Object> row);
+
+    /* ---------- 公共资源库 ---------- */
+
+    List<Map<String, Object>> selectPublicCategories(@Param("kind") String kind);
+
+    List<Map<String, Object>> selectPublicResources(
+            @Param("keyword") String keyword,
+            @Param("categoryId") Long categoryId,
+            @Param("resourceKind") String resourceKind,
+            @Param("offset") int offset,
+            @Param("limit") int limit);
+
+    int countPublicResources(
+            @Param("keyword") String keyword,
+            @Param("categoryId") Long categoryId,
+            @Param("resourceKind") String resourceKind);
+
+    Map<String, Object> selectPublicResourceDetail(@Param("id") Long id);
+
+    Map<String, Object> selectPublicResourceVersion(@Param("id") Long id);
+
+    List<Map<String, Object>> selectPublicResourcePages(@Param("versionId") Long versionId);
+
+    int insertPublicResource(Map<String, Object> row);
+
+    int insertPublicResourceVersion(Map<String, Object> row);
+
+    int insertPublicResourcePage(Map<String, Object> row);
+
+    int increasePublicViewCount(@Param("id") Long id);
+
+    int increasePublicDownloadCount(@Param("id") Long id);
+
+    int insertPublicFavorite(Map<String, Object> row);
+
+    int deletePublicFavorite(
+            @Param("resourceId") Long resourceId,
+            @Param("userId") Long userId);
+
+    int checkPublicFavorite(
+            @Param("resourceId") Long resourceId,
+            @Param("userId") Long userId);
+
+    List<Map<String, Object>> selectMyPublicFavorites(@Param("userId") Long userId);
+
+    List<Map<String, Object>> selectMyPublicResources(
+            @Param("userId") Long userId,
+            @Param("offset") int offset,
+            @Param("limit") int limit);
+
+    int countMyPublicResources(@Param("userId") Long userId);
+
+    int updatePublicVersionStatus(Map<String, Object> row);
 }

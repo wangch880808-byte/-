@@ -28,6 +28,12 @@ public class EduOutlineService {
         if(value.isEmpty()||value.length()>max) throw new ServiceException("名称或编码不能为空，且不能超过规定长度");
         return value;
     }
+    private String optionalContent(Map<String,Object> body,String key) {
+        if(body.get(key)==null) return "";
+        String value=String.valueOf(body.get(key)).trim();
+        if(value.length()>4000) throw new ServiceException("大纲内容不能超过 4000 字");
+        return value;
+    }
     private Long id(Object value) {
         if(value==null||"".equals(value)) return null;
         try {long result=Long.parseLong(String.valueOf(value));if(result>0)return result;}
@@ -59,6 +65,7 @@ public class EduOutlineService {
         Map<String,Object> body=new LinkedHashMap<>();
         body.put("courseId",courseId);body.put("id",unitId);body.put("parentUnitId",parent);
         body.put("unitKind",kind);body.put("title",text(input,"title",160));body.put("sortOrder",order);
+        body.put("contentText",optionalContent(input,"contentText"));
         if(unitId==null)mapper.insertUnit(body);else mapper.updateUnit(body);
         return ((Number) body.get("id")).longValue();
     }
@@ -71,6 +78,7 @@ public class EduOutlineService {
         Map<String,Object> body=new LinkedHashMap<>();
         body.put("courseId",courseId);body.put("id",pointId);body.put("unitId",unitId);
         body.put("code",text(input,"code",60));body.put("name",text(input,"name",160));
+        body.put("contentText",optionalContent(input,"contentText"));
         try{if(pointId==null)mapper.insertPoint(body);else mapper.updatePoint(body);}
         catch(DataIntegrityViolationException e){throw new ServiceException("知识点编码重复或关联章节已变化，请刷新后重试");}
         return ((Number) body.get("id")).longValue();
