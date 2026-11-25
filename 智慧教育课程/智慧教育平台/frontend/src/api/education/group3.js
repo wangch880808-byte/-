@@ -208,6 +208,15 @@ export function createPreviewTask(data) {
   return request({ url: '/education/group3/preview-tasks', method: 'post', data })
 }
 
+/** 删除预习任务（仅在该任务尚无学生提交时可用） */
+export function deletePreviewTask(assignmentId, bindingId) {
+  return request({
+    url: `/education/group3/preview-tasks/${assignmentId}`,
+    method: 'delete',
+    params: { bindingId }
+  })
+}
+
 /* ---------- 课堂讨论 ---------- */
 
 /** 查询教学班讨论话题列表（params：view、keyword、folderId、sort、scope） */
@@ -358,6 +367,16 @@ export function listClassrooms(bindingId) {
 /** 软删除环节（归档）。kind 取 QUIZ（预习）、PLAN（备课包）、MATERIAL / DRAFT（资料） */
 export function removeStage(data) {
   return request({ url: '/education/group3/stages/remove', method: 'post', data })
+}
+
+/** 查询课前准备已删除环节（资料 / 预习任务 / 讨论 / 备课方案） */
+export function listRemovedStages(bindingId) {
+  return request({ url: '/education/group3/stages/removed', method: 'get', params: { bindingId } })
+}
+
+/** 恢复已删除环节（body：bindingId、kind、id） */
+export function restoreStage(data) {
+  return request({ url: '/education/group3/stages/restore', method: 'post', data })
 }
 
 /* ---------- 题库批量导入导出 ---------- */

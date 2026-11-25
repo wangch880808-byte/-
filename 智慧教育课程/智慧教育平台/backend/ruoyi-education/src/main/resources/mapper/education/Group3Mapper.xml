@@ -145,7 +145,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                srel.resource_version_id AS studioVersionId,
                DATE_FORMAT(rel.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
                DATE_FORMAT(rel.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
-               rel.ended_at AS endedAt
+               rel.ended_at AS endedAt,
+               EXISTS (SELECT 1
+                         FROM edu_resource_class_release drel
+                        WHERE drel.binding_id = #{bindingId}
+                          AND drel.resource_id = r.id
+                          AND drel.release_source = 'PREPARE'
+                          AND drel.ended_at IS NOT NULL
+                          AND drel.end_reason = '课前准备删除资料环节') AS removedBefore
         FROM edu_resource r
         LEFT JOIN edu_resource_version rv
           ON rv.resource_id = r.id
@@ -332,6 +339,30 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
            AND release_source = #{source}
            AND ended_at IS NULL
     </update>
+
+    <update id="restorePrepareRelease" parameterType="map">
+        UPDATE edu_resource_class_release
+           SET ended_at = NULL,
+               end_kind = NULL,
+               ended_by_user_id = NULL,
+               end_reason = NULL
+         WHERE binding_id = #{bindingId}
+           AND resource_id = #{resourceId}
+           AND release_source = 'PREPARE'
+           AND ended_at IS NOT NULL
+           AND end_reason = '课前准备删除资料环节'
+         ORDER BY id DESC
+         LIMIT 1
+    </update>
+
+    <select id="countActivePrepareRelease" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_resource_class_release
+        WHERE binding_id = #{bindingId}
+          AND resource_id = #{resourceId}
+          AND release_source = 'PREPARE'
+          AND ended_at IS NULL
+    </select>
 
     <select id="lockBinding" resultType="java.lang.Long">
         SELECT id FROM edu_course_class_binding WHERE id = #{bindingId} FOR UPDATE
@@ -1215,6 +1246,100 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ORDER BY a.opens_at DESC, a.id DESC
     </select>
 
+    <select id="selectRemovedPrepareStages" resultType="java.util.LinkedHashMap">
+        SELECT x.kind,
+               x.stageId,
+               x.title,
+               x.subtitle,
+               x.opensAt,
+               x.closesAt,
+               x.removedAt,
+               x.reason
+        FROM (
+            SELECT 'QUIZ' AS kind,
+                   a.id AS stageId,
+                   a.title,
+                   NULL AS subtitle,
+                   DATE_FORMAT(a.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+                   DATE_FORMAT(a.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+                   NULL AS removedAt,
+                   '撤回预习任务' AS reason
+            FROM edu_assignment a
+            WHERE a.binding_id = #{bindingId}
+              AND a.assignment_kind = 'PREVIEW'
+              AND a.status = 'ARCHIVED'
+            UNION ALL
+            SELECT 'PLAN' AS kind,
+                   p.id AS stageId,
+                   p.title,
+                   l.title AS subtitle,
+                   NULL AS opensAt,
+                   NULL AS closesAt,
+                   DATE_FORMAT(p.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS removedAt,
+                   '删除备课方案' AS reason
+            FROM edu_lesson_plan p
+            LEFT JOIN edu_lesson l ON l.id = p.lesson_id AND l.binding_id = p.binding_id
+            WHERE p.binding_id = #{bindingId}
+              AND p.status = 'ARCHIVED'
+            UNION ALL
+            SELECT 'DISCUSSION' AS kind,
+                   t.id AS stageId,
+                   t.title,
+                   NULL AS subtitle,
+                   DATE_FORMAT(t.opens_at, '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+                   DATE_FORMAT(t.closes_at, '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+                   DATE_FORMAT(t.updated_at, '%Y-%m-%dT%H:%i:%s.000Z') AS removedAt,
+                   '删除讨论话题' AS reason
+            FROM edu_discussion_topic t
+            WHERE t.binding_id = #{bindingId}
+              AND t.status = 'ARCHIVED'
+              AND t.deleted_at IS NULL
+            UNION ALL
+            SELECT 'MATERIAL' AS kind,
+                   r.id AS stageId,
+                   r.title,
+                   NULL AS subtitle,
+                   DATE_FORMAT(MAX(rel.opens_at), '%Y-%m-%dT%H:%i:%s.000Z') AS opensAt,
+                   DATE_FORMAT(MAX(rel.closes_at), '%Y-%m-%dT%H:%i:%s.000Z') AS closesAt,
+                   DATE_FORMAT(MAX(rel.ended_at), '%Y-%m-%dT%H:%i:%s.000Z') AS removedAt,
+                   COALESCE(MAX(rel.end_reason), '删除资料环节') AS reason
+            FROM edu_resource_class_release rel
+            JOIN edu_resource r ON r.id = rel.resource_id
+            WHERE rel.binding_id = #{bindingId}
+              AND rel.release_source = 'PREPARE'
+              AND rel.ended_at IS NOT NULL
+              AND rel.end_reason = '课前准备删除资料环节'
+              AND NOT EXISTS (SELECT 1
+                                FROM edu_resource_class_release alive
+                               WHERE alive.binding_id = rel.binding_id
+                                 AND alive.resource_id = rel.resource_id
+                                 AND alive.release_source = 'PREPARE'
+                                 AND alive.ended_at IS NULL)
+            GROUP BY r.id, r.title
+            UNION ALL
+            SELECT 'DRAFT' AS kind,
+                   r.id AS stageId,
+                   r.title,
+                   '待编排资料' AS subtitle,
+                   NULL AS opensAt,
+                   NULL AS closesAt,
+                   DATE_FORMAT(r.updated_at, '%Y-%m-%dT%H:%i:%s.000Z') AS removedAt,
+                   '删除资料草稿' AS reason
+            FROM edu_resource r
+            JOIN edu_course_class_binding b
+              ON b.id = #{bindingId} AND b.course_space_id = r.course_space_id
+            WHERE r.origin = 'PREPARE'
+              AND r.status = 'ARCHIVED'
+              AND NOT EXISTS (SELECT 1
+                                FROM edu_resource_class_release rel
+                               WHERE rel.binding_id = #{bindingId}
+                                 AND rel.resource_id = r.id
+                                 AND rel.release_source = 'PREPARE'
+                                 AND rel.end_reason = '课前准备删除资料环节')
+        ) x
+        ORDER BY x.removedAt IS NULL, x.removedAt DESC, x.stageId DESC
+    </select>
+
     <select id="selectStudentPreviewTasks" resultType="java.util.LinkedHashMap">
         SELECT a.id AS assignmentId,
                a.binding_id AS bindingId,
@@ -1231,6 +1356,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                qv.question_kind AS questionKind,
                qv.options_json AS optionsJson,
                qv.max_score AS maxScore,
+               CASE WHEN a.opens_at &lt;= UTC_TIMESTAMP(3) THEN qv.options_json ELSE NULL END AS optionsJson,
                s.id AS submissionId,
                sv.version_no AS submittedVersion,
                DATE_FORMAT(sv.submitted_at, '%Y-%m-%dT%H:%i:%s.000Z') AS submittedAt
@@ -1245,6 +1371,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         JOIN edu_class_student st ON st.teaching_class_id = b.teaching_class_id
         WHERE a.binding_id = #{bindingId}
           AND a.assignment_kind = 'PREVIEW'
+          AND a.status = 'PUBLISHED'
           AND t.student_user_id = #{userId}
           AND t.target_status = 'REQUIRED'
           AND b.ended_at IS NULL
@@ -1274,6 +1401,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         WHERE a.id = #{assignmentId}
           AND a.binding_id = #{bindingId}
           AND a.assignment_kind = 'PREVIEW'
+          AND a.status = 'PUBLISHED'
           AND t.student_user_id = #{userId}
           AND t.target_status = 'REQUIRED'
           AND b.ended_at IS NULL
@@ -1445,6 +1573,65 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         JOIN edu_assignment_target t ON t.id = s.target_id
         WHERE t.assignment_id = #{assignmentId}
     </select>
+
+    <!-- === 预习任务：发布去重 / 摘要 / 新入班补发 / 硬删除 === -->
+
+    <select id="selectDuplicatePreview" resultType="java.lang.Long">
+        SELECT a.id
+        FROM edu_assignment a
+        WHERE a.binding_id = #{bindingId}
+          AND a.assignment_kind = 'PREVIEW'
+          AND a.status = 'PUBLISHED'
+          <choose>
+              <when test="lessonId != null">AND a.lesson_id = #{lessonId}</when>
+              <otherwise>AND a.lesson_id IS NULL</otherwise>
+          </choose>
+          AND a.title = #{title}
+          AND a.opens_at = #{opensAt}
+          AND a.closes_at = #{closesAt}
+          AND (SELECT COUNT(*) FROM edu_assignment_item i WHERE i.assignment_id = a.id) = #{itemCount}
+        ORDER BY a.id DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectPreviewSummary" resultType="java.util.LinkedHashMap">
+        SELECT (SELECT COUNT(*) FROM edu_assignment_item i
+                 WHERE i.assignment_id = #{assignmentId}) AS itemCount,
+               (SELECT COALESCE(SUM(i.max_score), 0) FROM edu_assignment_item i
+                 WHERE i.assignment_id = #{assignmentId}) AS totalScore,
+               (SELECT COUNT(*) FROM edu_assignment_target t
+                 WHERE t.assignment_id = #{assignmentId} AND t.target_status = 'REQUIRED') AS targetCount
+    </select>
+
+    <select id="selectPublishedPreviewAssignments" resultType="java.util.LinkedHashMap">
+        SELECT a.id AS assignmentId, a.teaching_class_id AS teachingClassId
+        FROM edu_assignment a
+        WHERE a.binding_id = #{bindingId}
+          AND a.assignment_kind = 'PREVIEW'
+          AND a.status = 'PUBLISHED'
+    </select>
+
+    <insert id="insertAssignmentTargetIfAbsent">
+        INSERT IGNORE INTO edu_assignment_target
+            (assignment_id, teaching_class_id, student_user_id, enrollment_id, target_status, captured_at)
+        VALUES
+            (#{assignmentId}, #{teachingClassId}, #{userId}, #{enrollmentId}, 'REQUIRED', UTC_TIMESTAMP(3))
+    </insert>
+
+    <delete id="deleteAssignmentItems">
+        DELETE FROM edu_assignment_item WHERE assignment_id = #{assignmentId}
+    </delete>
+
+    <delete id="deleteAssignmentTargets">
+        DELETE FROM edu_assignment_target WHERE assignment_id = #{assignmentId}
+    </delete>
+
+    <delete id="deletePreviewAssignment">
+        DELETE FROM edu_assignment
+        WHERE id = #{assignmentId}
+          AND binding_id = #{bindingId}
+          AND assignment_kind = 'PREVIEW'
+    </delete>
 
     <!-- === 章节/知识点 CRUD（第三组补充） === -->
 

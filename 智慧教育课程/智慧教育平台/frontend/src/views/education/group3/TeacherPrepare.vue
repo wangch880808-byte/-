@@ -29,6 +29,7 @@
           </p>
         </div>
         <div class="prepare-actions">
+          <el-button @click="openPlanPackages">备课包</el-button>
           <el-button @click="openCreate('plan')">保存备课方案</el-button>
           <el-button @click="openMaterialCreate">发布资料阅读</el-button>
           <el-button @click="openDiscussionCreate">发布讨论</el-button>
@@ -46,7 +47,7 @@
       </el-row>
 
       <el-row :gutter="16">
-        <el-col :xs="24" :md="10">
+        <el-col :xs="24" :md="24">
           <el-card shadow="never" class="panel">
             <template #header>
               <div class="panel-head">
@@ -65,6 +66,7 @@
                     <el-radio-button value="timeline">时间轴</el-radio-button>
                     <el-radio-button value="list">列表</el-radio-button>
                   </el-radio-group>
+                  <el-button size="small" @click="openRemovedStages">已删除</el-button>
                 </div>
               </div>
             </template>
@@ -271,8 +273,17 @@
           </el-card>
         </el-col>
 
-        <el-col :xs="24" :md="14">
-          <el-card shadow="never" class="panel detail-card">
+      </el-row>
+    </div>
+
+    <el-dialog
+      v-model="detailVisible"
+      width="min(1040px, 94vw)"
+      top="5vh"
+      append-to-body
+      class="stage-detail-dialog"
+    >
+      <el-card shadow="never" class="panel detail-card">
             <template #header>
               <div class="panel-head">
                 <span class="panel-title">环节详情</span>
@@ -284,7 +295,6 @@
                 </template>
               </div>
             </template>
-
             <div class="stage-track">
               <div class="stage-track-label">
                 <strong>{{ stageTrackTitle }}</strong>
@@ -557,6 +567,18 @@
               <div class="detail-actions">
                 <template v-if="selectedNode.kind === 'QUIZ'">
                   <el-button type="primary" @click="openCreate('quiz')">继续发布预习</el-button>
+                  <template v-if="selectedNode.state !== 'ARCHIVED'">
+                    <el-button @click="openQuizEdit(selectedNode)">修改设置</el-button>
+                    <el-button type="warning" plain @click="handleRemove(selectedNode)">撤回发布</el-button>
+                  </template>
+                  <el-button
+                    v-if="!Number(selectedNode.meta?.submissionCount || 0)"
+                    type="danger"
+                    plain
+                    @click="deleteQuizTask(selectedNode)"
+                  >
+                    删除任务
+                  </el-button>
                 </template>
                 <template v-else-if="selectedNode.kind === 'PLAN'">
                   <el-button type="primary" @click="openCreate('plan')">新建备课包</el-button>
@@ -617,10 +639,187 @@
                 发布范围由页面顶部「课程 / 教学班」决定；开放、截止与解析公布均以服务端时间为准。
               </p>
             </template>
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
+      </el-card>
+    </el-dialog>
+
+    <!-- 已删除环节 -->
+    <el-dialog
+      v-model="removedVisible"
+      title="已删除环节"
+      width="min(880px, 94vw)"
+      top="8vh"
+      append-to-body
+      class="stage-detail-dialog"
+    >
+      <div v-loading="removedLoading">
+        <p class="edu-hint removed-hint">
+          已删除或撤回的环节不会重新出现在时间轴上，学生端同样不可见。
+        </p>
+        <el-table :data="removedRows" border size="small" empty-text="暂无已删除环节">
+          <el-table-column label="类型 / 标题" min-width="220">
+            <template #default="{ row }">
+              <el-tag size="small" effect="plain">{{ removedKindLabel(row.kind) }}</el-tag>
+              <span class="removed-title">{{ row.title || '未命名环节' }}</span>
+              <div v-if="row.subtitle" class="removed-sub">{{ row.subtitle }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="原开放时间" width="160">
+            <template #default="{ row }">{{ row.opensAt ? formatTime(row.opensAt) : '—' }}</template>
+          </el-table-column>
+          <el-table-column label="删除时间" width="160">
+            <template #default="{ row }">{{ row.removedAt ? formatTime(row.removedAt) : '—' }}</template>
+          </el-table-column>
+          <el-table-column label="原因" min-width="140" prop="reason" />
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openRemovedDetail(row)">详情</el-button>
+              <el-button link type="success" @click="restoreRemovedStage(row)">恢复</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="removedVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="removedLoading" @click="loadRemovedStages">刷新</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 已删除环节详情 -->
+    <el-dialog
+      v-model="removedDetailVisible"
+      title="已删除环节详情"
+      width="min(720px, 94vw)"
+      top="8vh"
+      append-to-body
+      class="stage-detail-dialog"
+    >
+      <div v-if="removedDetail" v-loading="removedDetailLoading">
+        <div class="removed-detail-head">
+          <el-tag size="small" effect="plain">{{ removedKindLabel(removedDetail.kind) }}</el-tag>
+          <strong>{{ removedDetail.title || '未命名环节' }}</strong>
+        </div>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="原开放时间">
+            {{ removedDetail.opensAt ? formatTime(removedDetail.opensAt) : '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="原截止时间">
+            {{ removedDetail.closesAt ? formatTime(removedDetail.closesAt) : '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="删除时间">
+            {{ removedDetail.removedAt ? formatTime(removedDetail.removedAt) : '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="删除原因">{{ removedDetail.reason || '—' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <template v-if="removedDetail.kind === 'QUIZ'">
+          <p class="removed-detail-label">任务说明</p>
+          <p class="removed-detail-text">{{ removedDetail.instructions || '（无）' }}</p>
+          <p class="removed-detail-label">题目（{{ removedDetail.itemCount || 0 }} 道）</p>
+          <ol v-if="removedDetail.stems && removedDetail.stems.length" class="removed-stems">
+            <li v-for="(stem, index) in removedDetail.stems" :key="index">{{ stem }}</li>
+          </ol>
+          <p v-else class="removed-detail-text">（暂无题目）</p>
+        </template>
+        <template v-else-if="removedDetail.kind === 'DISCUSSION'">
+          <p class="removed-detail-label">话题内容</p>
+          <p class="removed-detail-text">{{ removedDetail.content || '（无）' }}</p>
+          <p class="removed-detail-label">互动数据</p>
+          <p class="removed-detail-text">
+            {{ removedDetail.replyCount || 0 }} 条回复 · {{ removedDetail.likeCount || 0 }} 个赞
+          </p>
+        </template>
+        <template v-else-if="removedDetail.kind === 'PLAN'">
+          <p class="removed-detail-label">备课信息</p>
+          <p class="removed-detail-text">
+            关联课次：{{ removedDetail.lessonTitle || '未关联' }} · 版本 V{{ removedDetail.versionNo || 1 }} ·
+            材料 {{ removedDetail.materialCount || 0 }} 份
+          </p>
+          <p class="removed-detail-label">私有备注</p>
+          <p class="removed-detail-text">{{ removedDetail.privateNotes || '（无）' }}</p>
+        </template>
+        <p v-else class="removed-detail-tip">
+          资料文件仍保留在课程空间中，恢复后将按原开放时间重新出现在时间轴并恢复学生可见性。
+        </p>
+      </div>
+      <template #footer>
+        <el-button @click="removedDetailVisible = false">关闭</el-button>
+        <el-button type="success" :loading="restoring" @click="restoreRemovedStage(removedDetail)">
+          恢复该环节
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 备课包 -->
+    <el-dialog
+      v-model="planPackagesVisible"
+      title="备课包"
+      width="min(960px, 94vw)"
+      top="8vh"
+      append-to-body
+      class="stage-detail-dialog"
+    >
+      <p class="edu-hint plan-packages-hint">
+        备课包仅教师可见，不进入学生时间轴；学生端只看到资料、练习和讨论。
+      </p>
+      <el-table :data="activePlans" border size="small" empty-text="暂无备课包">
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="plan-detail">
+              <p class="removed-detail-label">私有备注</p>
+              <p class="removed-detail-text">{{ row.privateNotes || '（无）' }}</p>
+              <p class="removed-detail-label">纳入材料（{{ (row.materials || []).length }}）</p>
+              <div v-if="row.materials && row.materials.length" class="plan-list">
+                <div v-for="item in row.materials" :key="item.resourceVersionId" class="plan-row">
+                  <span>{{ item.title || '未命名材料' }} · V{{ item.versionNo || 1 }}</span>
+                  <el-button link type="primary" @click="openPreview(item.resourceVersionId, item.title)">
+                    预览
+                  </el-button>
+                </div>
+              </div>
+              <p v-else class="removed-detail-text">（无）</p>
+              <p class="removed-detail-label">课堂活动（{{ (row.templates || []).length }}）</p>
+              <div v-if="row.templates && row.templates.length" class="plan-list">
+                <div v-for="item in row.templates" :key="item.templateId" class="plan-row">
+                  <span>{{ item.title || '课堂活动' }} · {{ item.durationSeconds || 0 }} 秒</span>
+                </div>
+              </div>
+              <p v-else class="removed-detail-text">（无）</p>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="备课包" min-width="180">
+          <template #default="{ row }">
+            <div class="list-title-cell">
+              <strong class="plan-title">{{ row.title || '备课包' }}</strong>
+              <el-tag size="small" :type="planStatusTag(row.status)">{{ planStatusLabel(row.status) }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="关联课次" min-width="150">
+          <template #default="{ row }">{{ row.lessonTitle || '未关联' }}</template>
+        </el-table-column>
+        <el-table-column label="版本" width="70">
+          <template #default="{ row }">V{{ row.versionNo || 1 }}</template>
+        </el-table-column>
+        <el-table-column label="材料 / 活动" width="100">
+          <template #default="{ row }">
+            {{ (row.materials || []).length }} / {{ (row.templates || []).length }}
+          </template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="130">
+          <template #default="{ row }">{{ row.createdAt ? formatTime(row.createdAt) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="danger" @click="removePlanPackage(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="planPackagesVisible = false">关闭</el-button>
+        <el-button type="primary" @click="createPlanFromPackages">新建备课包</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 资料版本记录 -->
     <el-dialog v-model="versionsVisible" title="资料版本记录" width="760px" append-to-body>
@@ -902,7 +1101,7 @@
           </el-form-item>
         </el-form>
         <p v-if="createKind === 'plan'" class="edu-hint">
-          备课包是时间轴上「仅教师可见」的节点，不设开放时间，也不会进入学生端。
+          备课包仅教师可见，保存在「备课包」入口中，不进入时间轴，也不会进入学生端。
         </p>
       </div>
 
@@ -926,7 +1125,14 @@
           </ul>
         </div>
         <el-alert
-          v-if="createKind === 'quiz' && !createForm.questionVersionIds.length"
+          v-if="createKind === 'quiz' && !createForm.questionVersionIds.length && !createForm.materialVersionIds.length"
+          title="请至少选择一份资料或一道题目后再发布"
+          type="warning"
+          show-icon
+          :closable="false"
+        />
+        <el-alert
+          v-else-if="createKind === 'quiz' && !createForm.questionVersionIds.length"
           title="未勾选题目，将生成一个纯资料导学环节"
           type="info"
           show-icon
@@ -934,7 +1140,7 @@
         />
         <el-alert
           v-if="createKind === 'plan'"
-          title="学生时间轴不会收到私有备注与未公布答案；备课包环节不计入学生环节序号"
+          title="学生端不会收到私有备注与未公布答案；备课包不出现在时间轴，也不计入学生环节序号"
           type="info"
           show-icon
           :closable="false"
@@ -950,6 +1156,59 @@
         <el-button v-else type="primary" :loading="submitting" @click="submitCreate">
           {{ createKind === 'quiz' ? '确认发布' : '保存备课包' }}
         </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 修改预习任务设置 -->
+    <el-dialog
+      v-model="quizEdit.visible"
+      title="修改预习任务"
+      width="560px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="96px">
+        <el-form-item label="任务名称" required>
+          <el-input v-model="quizEdit.form.title" maxlength="200" show-word-limit />
+        </el-form-item>
+        <el-form-item label="导学说明">
+          <el-input
+            v-model="quizEdit.form.instructions"
+            type="textarea"
+            :rows="3"
+            maxlength="1000"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="开放时间" required>
+          <el-date-picker
+            v-model="quizEdit.form.opensAt"
+            type="datetime"
+            placeholder="请选择开放时间"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="截止时间" required>
+          <el-date-picker
+            v-model="quizEdit.form.closesAt"
+            type="datetime"
+            placeholder="请选择截止时间"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="解析公布">
+          <el-date-picker
+            v-model="quizEdit.form.answerOpensAt"
+            type="datetime"
+            placeholder="选填，不早于截止时间"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <p class="edu-hint">题目内容发布后不可修改，如需换题请撤回后重新发布；时间窗修改会立即影响学生端。</p>
+      <template #footer>
+        <el-button @click="quizEdit.visible = false">取消</el-button>
+        <el-button type="primary" :loading="quizEdit.saving" @click="submitQuizEdit">保存</el-button>
       </template>
     </el-dialog>
 
@@ -1184,6 +1443,7 @@ import {
   createRelease,
   createResource,
   createResourceVersion,
+  deletePreviewTask,
   discussionAction,
   downloadVersion,
   getDiscussion,
@@ -1194,8 +1454,10 @@ import {
   listDiscussions,
   listPlans,
   listPreviewTasks,
+  listRemovedStages,
   listResourceVersions,
   removeStage,
+  restoreStage,
   revokeRelease,
   updateStage
 } from '@/api/education/group3'
@@ -1230,9 +1492,7 @@ const FILTER_OPTIONS = [
   { value: 'DRAFT', label: '待编排' },
   { value: 'UPCOMING', label: '未开放' },
   { value: 'OPEN', label: '进行中' },
-  { value: 'CLOSED', label: '已截止' },
-  { value: 'ARCHIVED', label: '已归档' },
-  { value: 'PRIVATE', label: '仅教师可见' }
+  { value: 'CLOSED', label: '已截止' }
 ]
 
 const filterOptions = FILTER_OPTIONS
@@ -1248,6 +1508,15 @@ const discussionFolders = ref([])
 const nodes = ref([])
 const serverNow = ref('')
 const selectedKey = ref('')
+const detailVisible = ref(false)
+const removedVisible = ref(false)
+const removedLoading = ref(false)
+const removedRows = ref([])
+const removedDetailVisible = ref(false)
+const removedDetail = ref(null)
+const removedDetailLoading = ref(false)
+const restoring = ref(false)
+const planPackagesVisible = ref(false)
 const filter = ref('all')
 const viewMode = ref('timeline')
 const pageLoading = ref(false)
@@ -1279,6 +1548,7 @@ async function refresh() {
 
 async function loadData() {
   selectedKey.value = ''
+  detailVisible.value = false
   clearPreviewUrls()
   if (!bindingId.value) {
     overview.value = {}
@@ -1308,7 +1578,7 @@ async function loadData() {
     discussionFolders.value = listRows(folderRes.data)
     serverNow.value = overview.value.serverTime || ''
     nodes.value = numberStages(
-      collectTeacherNodes(overview.value, taskRows.value, planRows.value, discussionRows.value),
+      collectTeacherNodes(overview.value, taskRows.value, discussionRows.value),
       current.value
     )
   } catch (e) {
@@ -1329,6 +1599,155 @@ async function loadData() {
 function listRows(data) {
   if (Array.isArray(data)) return data
   return data && Array.isArray(data.rows) ? data.rows : []
+}
+
+/* ---------- 已删除环节 ---------- */
+
+const REMOVED_KIND_LABELS = {
+  MATERIAL: '资料阅读',
+  DRAFT: '资料草稿',
+  QUIZ: '预习任务',
+  DISCUSSION: '讨论',
+  PLAN: '备课方案'
+}
+
+function removedKindLabel(kind) {
+  return REMOVED_KIND_LABELS[String(kind || '').toUpperCase()] || '环节'
+}
+
+async function openRemovedStages() {
+  removedVisible.value = true
+  await loadRemovedStages()
+}
+
+async function loadRemovedStages() {
+  if (!bindingId.value) {
+    removedRows.value = []
+    return
+  }
+  const requested = String(bindingId.value)
+  removedLoading.value = true
+  try {
+    const res = await listRemovedStages(bindingId.value)
+    if (String(bindingId.value) !== requested) return
+    removedRows.value = Array.isArray(res.data) ? res.data : []
+  } catch (e) {
+    removedRows.value = []
+    ElMessage.error(e?.message || '已删除环节加载失败')
+  } finally {
+    removedLoading.value = false
+  }
+}
+
+async function openRemovedDetail(row) {
+  if (!row) return
+  removedDetail.value = {
+    ...row,
+    kind: String(row.kind || '').toUpperCase(),
+    stems: []
+  }
+  removedDetailVisible.value = true
+  const kind = removedDetail.value.kind
+  if (kind === 'QUIZ') {
+    const items = taskRows.value.filter(item => String(item.assignmentId) === String(row.stageId))
+    removedDetail.value.itemCount = items.length
+    removedDetail.value.instructions = items.length ? items[0].instructions || '' : ''
+    removedDetail.value.stems = items.map(item => item.stem).filter(Boolean)
+  } else if (kind === 'PLAN') {
+    const plan = planRows.value.find(item => String(item.planId) === String(row.stageId))
+    if (plan) {
+      removedDetail.value.lessonTitle = plan.lessonTitle
+      removedDetail.value.versionNo = plan.versionNo
+      removedDetail.value.privateNotes = plan.privateNotes
+      removedDetail.value.materialCount = (plan.materials || []).length
+    }
+  } else if (kind === 'DISCUSSION') {
+    removedDetailLoading.value = true
+    try {
+      const res = await getDiscussion(row.stageId, bindingId.value)
+      const topic = res.data || {}
+      removedDetail.value.content = topic.content
+      removedDetail.value.replyCount = topic.replyCount
+      removedDetail.value.likeCount = topic.likeCount
+    } catch (e) {
+      ElMessage.error(e?.message || '话题详情加载失败')
+    } finally {
+      removedDetailLoading.value = false
+    }
+  }
+}
+
+async function restoreRemovedStage(row) {
+  if (!row || !row.stageId) {
+    ElMessage.warning('无法确定该环节')
+    return
+  }
+  const kind = String(row.kind || '').toUpperCase()
+  try {
+    await ElMessageBox.confirm(
+      `确认恢复“${row.title || '该环节'}”？\n\n恢复后会重新出现在时间轴上，学生按原开放/截止时间可见。`,
+      '恢复环节',
+      { confirmButtonText: '确认恢复', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch (_) {
+    return
+  }
+  restoring.value = true
+  try {
+    await restoreStage({ bindingId: Number(bindingId.value), kind, id: row.stageId })
+    ElMessage.success('环节已恢复')
+    removedDetailVisible.value = false
+    await loadRemovedStages()
+    await loadData()
+  } catch (e) {
+    ElMessage.error(e?.message || '恢复失败，请稍后重试')
+  } finally {
+    restoring.value = false
+  }
+}
+
+/* ---------- 备课包 ---------- */
+
+const activePlans = computed(() =>
+  planRows.value.filter(plan => String(plan.status || '').toUpperCase() !== 'ARCHIVED')
+)
+
+function openPlanPackages() {
+  planPackagesVisible.value = true
+}
+
+function planStatusLabel(status) {
+  return String(status || '').toUpperCase() === 'DRAFT' ? '草稿' : '已保存'
+}
+
+function planStatusTag(status) {
+  return String(status || '').toUpperCase() === 'DRAFT' ? 'info' : 'success'
+}
+
+function createPlanFromPackages() {
+  planPackagesVisible.value = false
+  openCreate('plan')
+}
+
+async function removePlanPackage(row) {
+  if (!row || !row.planId) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除备课包“${row.title || '备课包'}”？删除后可在「已删除」中查看并恢复。`,
+      '删除备课包',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (_) {
+    return
+  }
+  try {
+    await removeStage({ bindingId: Number(bindingId.value), kind: 'PLAN', id: row.planId })
+    ElMessage.success('备课包已删除')
+    await loadData()
+    if (removedVisible.value) await loadRemovedStages()
+  } catch (e) {
+    ElMessage.error(e?.message || '删除失败，请稍后重试')
+  }
 }
 
 /* ---------- 时间与文案 ---------- */
@@ -1435,10 +1854,8 @@ function makeNode(fields) {
   )
 }
 
-function collectTeacherNodes(ov, taskList, planList, discussionList) {
+function collectTeacherNodes(ov, taskList, discussionList) {
   const now = ov.serverTime
-  const lessons = ov.lessons || []
-  const lessonTime = new Map(lessons.map(lesson => [String(lesson.lessonId), lesson.scheduledAt]))
   const result = []
 
   ;(ov.resources || []).forEach(item => {
@@ -1477,6 +1894,9 @@ function collectTeacherNodes(ov, taskList, planList, discussionList) {
         key: `material-${item.resourceId}`,
         state: timeState(item.opensAt, item.closesAt, now)
       }))
+    } else if (item.removedBefore) {
+      // 已删除的课前准备资料环节，只在“已删除”入口查看。
+      return
     } else {
       const reason = status === 'PENDING' ? '资料处理中，暂不能发布' : '尚未设置开放时间，学生看不到'
       result.push(makeNode({
@@ -1493,6 +1913,7 @@ function collectTeacherNodes(ov, taskList, planList, discussionList) {
 
   const quizMap = new Map()
   ;(taskList || []).forEach(row => {
+    if (String(row.status || '').toUpperCase() === 'ARCHIVED') return
     const key = String(row.assignmentId)
     if (!quizMap.has(key)) quizMap.set(key, { row, items: [] })
     if (row.assignmentItemId) quizMap.get(key).items.push(row)
@@ -1524,29 +1945,10 @@ function collectTeacherNodes(ov, taskList, planList, discussionList) {
     }))
   })
 
-  ;(planList || []).forEach(plan => {
-    const scheduled = lessonTime.get(String(plan.lessonId)) || null
-    result.push(makeNode({
-      key: `plan-${plan.planId}`,
-      kind: 'PLAN',
-      id: plan.planId,
-      title: plan.title || '备课方案',
-      subtitle: plan.privateNotes || '教师私有备注不进入学生端',
-      time: scheduled || plan.createdAt || null,
-      state: 'PRIVATE',
-      private: true,
-      tags: [
-        plan.lessonTitle || '未关联课次',
-        `V${plan.versionNo || 1}`,
-        `${(plan.materials || []).length} 份材料`
-      ],
-      meta: plan
-    }))
-  })
-
   ;(discussionList || []).forEach(row => {
     const status = String(row.status || '').toUpperCase()
-    const state = status === 'ARCHIVED' || status === 'DRAFT'
+    if (status === 'ARCHIVED') return
+    const state = status === 'DRAFT'
       ? status
       : (String(row.state || '').toUpperCase() || timeState(row.opensAt, row.closesAt, now))
     const tags = []
@@ -1801,6 +2203,7 @@ function stepHint(node) {
 
 function selectNode(node) {
   selectedKey.value = node.key
+  detailVisible.value = true
 }
 
 function canPreview(node) {
@@ -1839,6 +2242,100 @@ function stageRemoveTarget(node) {
   return null
 }
 
+const quizEdit = reactive({
+  visible: false,
+  saving: false,
+  assignmentId: null,
+  form: {
+    title: '',
+    instructions: '',
+    opensAt: null,
+    closesAt: null,
+    answerOpensAt: null
+  }
+})
+
+function openQuizEdit(node) {
+  const meta = node.meta || {}
+  quizEdit.assignmentId = node.id
+  quizEdit.form.title = meta.title || node.title || ''
+  quizEdit.form.instructions = meta.instructions || ''
+  quizEdit.form.opensAt = node.opensAt ? new Date(node.opensAt) : null
+  quizEdit.form.closesAt = node.closesAt ? new Date(node.closesAt) : null
+  quizEdit.form.answerOpensAt = meta.answerOpensAt ? new Date(meta.answerOpensAt) : null
+  quizEdit.visible = true
+}
+
+async function submitQuizEdit() {
+  const form = quizEdit.form
+  if (!form.title.trim()) {
+    ElMessage.warning('请填写任务名称')
+    return
+  }
+  if (!form.opensAt || !form.closesAt) {
+    ElMessage.warning('请选择开放与截止时间')
+    return
+  }
+  if (new Date(form.closesAt) <= new Date(form.opensAt)) {
+    ElMessage.warning('截止时间必须晚于开放时间')
+    return
+  }
+  if (form.answerOpensAt && new Date(form.answerOpensAt) < new Date(form.closesAt)) {
+    ElMessage.warning('解析公布时间不能早于截止时间')
+    return
+  }
+  quizEdit.saving = true
+  try {
+    await updateStage({
+      bindingId: Number(bindingId.value),
+      kind: 'QUIZ',
+      id: quizEdit.assignmentId,
+      title: form.title.trim(),
+      instructions: form.instructions.trim(),
+      opensAt: form.opensAt.toISOString(),
+      closesAt: form.closesAt.toISOString(),
+      answerOpensAt: form.answerOpensAt ? form.answerOpensAt.toISOString() : null
+    })
+    quizEdit.visible = false
+    ElMessage.success('任务设置已更新')
+    await loadData()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败，请稍后重试')
+  } finally {
+    quizEdit.saving = false
+  }
+}
+
+async function deleteQuizTask(node) {
+  if (Number(node.meta?.submissionCount || 0) > 0) {
+    ElMessage.warning('已有学生提交，不能删除；请使用撤回')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认删除“${node.title || '预习任务'}”？\n\n删除后不可恢复，学生端立即不可见。`,
+      '删除预习任务',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+  } catch (_) {
+    return
+  }
+  try {
+    await deletePreviewTask(node.id, Number(bindingId.value))
+    ElMessage.success('预习任务已删除')
+    detailVisible.value = false
+    selectedKey.value = ''
+    await loadData()
+  } catch (e) {
+    ElMessage.error(e?.message || '删除失败，请稍后重试')
+  }
+}
+
 const removing = ref(false)
 async function handleRemove(node) {
   const target = stageRemoveTarget(node)
@@ -1846,16 +2343,22 @@ async function handleRemove(node) {
     ElMessage.warning('无法确定该环节的目标 ID')
     return
   }
+  const isQuiz = target.kind === 'QUIZ'
   try {
     await ElMessageBox.confirm(
-      `确认删除“${node.title || '环节'}”？\n\n`
-      + `· 仅删除当前课前准备环节，不影响课程建设中的同名资料\n`
-      + `· 学生端课前学习立即不可见，课程资料保持不变\n`
-      + `· 已提交的预习答案、成绩等历史数据完整保留\n`
-      + `· 本堂课其他环节的序号会重新编排`,
-      '删除环节',
+      isQuiz
+        ? `确认撤回“${node.title || '预习任务'}”？\n\n`
+          + `· 撤回后学生端立即不可见，已有提交与答案保留\n`
+          + `· 撤回后该任务不能再修改或继续作答\n`
+          + `· 无学生提交时可在撤回后直接删除任务`
+        : `确认删除“${node.title || '环节'}”？\n\n`
+          + `· 仅删除当前课前准备环节，不影响课程建设中的同名资料\n`
+          + `· 学生端课前学习立即不可见，课程资料保持不变\n`
+          + `· 已提交的预习答案、成绩等历史数据完整保留\n`
+          + `· 本堂课其他环节的序号会重新编排`,
+      isQuiz ? '撤回预习任务' : '删除环节',
       {
-        confirmButtonText: '确认删除',
+        confirmButtonText: isQuiz ? '确认撤回' : '确认删除',
         cancelButtonText: '取消',
         type: 'warning',
         confirmButtonClass: 'el-button--danger'
@@ -1867,7 +2370,8 @@ async function handleRemove(node) {
   removing.value = true
   try {
     await removeStage({ bindingId: bindingId.value, kind: target.kind, id: target.id })
-    ElMessage.success('环节已删除')
+    ElMessage.success(isQuiz ? '预习任务已撤回' : '环节已删除')
+    detailVisible.value = false
     selectedKey.value = ''
     await loadData()
   } catch (e) {
@@ -2224,7 +2728,7 @@ const confirmRows = computed(() => {
     const count = createForm.questionVersionIds.length
     return [
       ['环节名称', createForm.title || '未填写'],
-      ['生成环节', `${count || 1} 个${count > 1 ? '（每题一个独立环节）' : ''}`],
+      ['提交方式', count ? `整卷 ${count} 道题统一作答` : '纯资料导学（无题目）'],
       ['同步资料', `${createForm.materialVersionIds.length} 份`],
       ['导入题目', `${count} 道`],
       ['开放', formatTime(createForm.opensAt)],
@@ -2327,6 +2831,15 @@ function validateAllSteps() {
 
 async function submitCreate() {
   if (!validateAllSteps()) return
+  if (
+    createKind.value === 'quiz'
+    && !createForm.materialVersionIds.length
+    && !createForm.questionVersionIds.length
+  ) {
+    createStep.value = 0
+    ElMessage.warning('请至少选择一份资料或一道题目')
+    return
+  }
   submitting.value = true
   let published = 0
   let expected = 1
@@ -2350,9 +2863,13 @@ async function submitCreate() {
       const result = await createPreviewTask(body)
       published += 1
       const publishedCount = Number(result?.data?.itemCount ?? questionIds.length)
-      ElMessage.success(publishedCount > 1
-        ? `整卷已发布：${publishedCount} 道题统一作答，合计 ${result?.data?.totalScore ?? '—'} 分`
-        : '预习习题环节已加入时间轴')
+      if (result?.data?.idempotent) {
+        ElMessage.info('相同的预习任务已存在，未重复创建')
+      } else {
+        ElMessage.success(publishedCount > 1
+          ? `整卷已发布：${publishedCount} 道题统一作答，合计 ${result?.data?.totalScore ?? '—'} 分`
+          : '预习习题环节已加入时间轴')
+      }
     } else {
       const body = {
         bindingId: Number(bindingId.value),
@@ -2366,7 +2883,7 @@ async function submitCreate() {
         markReady: createForm.markReady
       }
       await createPlan(body)
-      ElMessage.success('备课包已加入时间轴（仅教师可见）')
+      ElMessage.success('备课包已保存，可在「备课包」中查看')
     }
     createVisible.value = false
     selectedKey.value = ''
@@ -2432,10 +2949,14 @@ function selectNodeByVersionId(versionId) {
   const hit = nodes.value.find(node => node.key === key || String(node.id) === String(versionId))
   if (hit) {
     selectedKey.value = hit.key
+    detailVisible.value = true
     return
   }
   const byMeta = nodes.value.find(node => node.meta && String(node.meta.versionId) === String(versionId))
-  if (byMeta) selectedKey.value = byMeta.key
+  if (byMeta) {
+    selectedKey.value = byMeta.key
+    detailVisible.value = true
+  }
 }
 
 async function submitMaterialCreate() {
@@ -3007,6 +3528,62 @@ function submitPostScore(post) {
 .edu-hint {
   font-size: 12px;
   color: #909399;
+}
+.removed-hint {
+  margin: 0 0 10px;
+}
+.removed-title {
+  margin-left: 8px;
+  font-weight: 600;
+  color: #303133;
+}
+.removed-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #909399;
+}
+.removed-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #303133;
+}
+.removed-detail-label {
+  margin: 14px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+}
+.removed-detail-text {
+  margin: 0;
+  font-size: 13px;
+  color: #303133;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.removed-detail-tip {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: #909399;
+}
+.removed-stems {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: #303133;
+}
+.removed-stems li + li {
+  margin-top: 4px;
+}
+.plan-packages-hint {
+  margin: 0 0 10px;
+}
+.plan-title {
+  color: #303133;
+}
+.plan-detail {
+  padding: 4px 12px 8px;
 }
 .timeline {
   max-height: 760px;

@@ -556,6 +556,42 @@ public class Group3ResourceService implements PublishedResourceProvider
         mapper.updateResourceStatus(row);
     }
 
+    /**
+     * 恢复课前准备已删除的资料环节：MATERIAL 重新激活原发布，DRAFT 恢复草稿资源。
+     */
+    @Transactional
+    public void restorePrepareStage(Long bindingId, Long resourceId, boolean draft)
+    {
+        Map<String, Object> binding = accessService.requireTeacherBinding(bindingId);
+        Long courseSpaceId = Group3AccessService.asLong(binding.get("courseSpaceId"));
+        String origin = mapper.selectResourceOrigin(resourceId, courseSpaceId);
+        if (origin == null)
+        {
+            throw new ServiceException("资料不存在", HttpStatus.NOT_FOUND);
+        }
+        if (!Group3Constants.RELEASE_PREPARE.equals(origin))
+        {
+            throw new ServiceException("课程建设资料请在课程建设中管理，此处仅恢复课前准备环节", HttpStatus.FORBIDDEN);
+        }
+        if (draft)
+        {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("resourceId", resourceId);
+            row.put("courseSpaceId", courseSpaceId);
+            row.put("status", "ACTIVE");
+            mapper.updateResourceStatus(row);
+            return;
+        }
+        if (mapper.countActivePrepareRelease(bindingId, resourceId) > 0)
+        {
+            throw new ServiceException("该资料已在时间轴上，无需恢复", HttpStatus.CONFLICT);
+        }
+        if (mapper.restorePrepareRelease(bindingId, resourceId) == 0)
+        {
+            throw new ServiceException("未找到可恢复的资料发布记录", HttpStatus.NOT_FOUND);
+        }
+    }
+
     @Transactional
     public Map<String, Object> revoke(Long releaseId, Long bindingId, String reason)
     {

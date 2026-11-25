@@ -471,10 +471,20 @@ public class Group3DiscussionService
         return result;
     }
 
+    /** 恢复已删除的讨论环节：与原「恢复」操作一致，回到已发布状态。 */
+    public Map<String, Object> restoreArchivedStage(Long bindingId, Long topicId)
+    {
+        return updateStatus(bindingId, topicId, STATUS_PUBLISHED);
+    }
+
     private Map<String, Object> updateStatus(Long bindingId, Long topicId, String status)
     {
         requireTopic(bindingId, topicId, Group3Security.currentUserId());
-        mapper.updateDiscussionTopicStatus(bindingId, topicId, status);
+        int changed = mapper.updateDiscussionTopicStatus(bindingId, topicId, status);
+        if (changed == 0)
+        {
+            throw new ServiceException("话题不存在或不属于当前教学班", HttpStatus.NOT_FOUND);
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("topicId", topicId);
         result.put("status", status);
@@ -767,6 +777,10 @@ public class Group3DiscussionService
         if (existing == null)
         {
             throw new ServiceException("作业/测验不存在或不属于当前教学班", HttpStatus.NOT_FOUND);
+        }
+        if ("ARCHIVED".equalsIgnoreCase(String.valueOf(existing.get("status"))))
+        {
+            throw new ServiceException("已撤回的预习任务不能修改", HttpStatus.CONFLICT);
         }
         LocalDateTime opensAt = Group3Time.parseUtc(request.opensAt(), "开放时间");
         LocalDateTime closesAt = Group3Time.parseUtc(request.closesAt(), "截止时间");

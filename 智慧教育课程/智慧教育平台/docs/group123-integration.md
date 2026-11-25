@@ -14,7 +14,7 @@
 | 领域 | 主要入口 | 说明 |
 |---|---|---|
 | 课程建设 | `TeacherStudio.vue`、`/education/group3` | 资料多版本、分页预览、发布/撤回、资料文件夹（新建/改名/上架/下架/打包下载/批量移动）、章节与知识点（内容概览、学生进度、详情、正文）、ZIP 导入导出、题库 Excel 导入导出、题库文件夹（含归档）、题目资源库 |
-| 课前准备 | `TeacherPrepare.vue`、`/education/group3` | 时间轴编排、备课方案、资料阅读、预习任务（支持整卷多题一次发布）、课堂讨论环节 |
+| 课前准备 | `TeacherPrepare.vue`、`/education/group3` | 时间轴编排、备课包管理（查看/删除）、资料阅读、预习任务（整卷多题一次发布、编辑设置、无提交时永久删除）、课堂讨论环节与详情、已删除环节的查看与恢复 |
 | 学生端 | `StudentMaterials.vue`、`StudentPrestudy.vue`、`StudentDiscussion.vue` | 课程资料（文件夹层级导航）、课前学习/整卷作答、课堂讨论；均通过服务端按班级、时间窗和角色过滤 |
 | 学生学习看板 | `StudentProgressBoard.vue`、`/education/group3/student/dashboard`、`/education/group3/student/answer-review` | 汇总视频任务点、预习提交与计分讨论的完成状态；提示新发布/即将截止/逾期任务；解析公布后提供作答回看、错题本与知识点归集；支持个人笔记读取与保存 |
 | 公共教学资源库 | 教师端课程建设中的 `PublicLibrary.vue`、`/education/group3/public/*` | 分类浏览、文件或外链详情、分页预览、收藏、我的提交，并可把公共资源加入当前课程资料；使用独立的 `edu_public_resource_*` 表，不复用课程私有资源表 |
@@ -43,6 +43,11 @@
 | 章节详情 | `GET /outline/units/{unitId}/detail` | 返回章节信息、该章及子节的知识点、未归档资料与题目 |
 | 知识点详情 | `GET /outline/knowledge-points/{pointId}/detail` | 返回知识点信息与关联题目 |
 | 整卷发布 | `POST /preview-tasks` | 请求体在原有字段上增加 `questionVersionIds`；多题一次发布为同一份预习任务，学生统一作答、统一提交 |
+| 环节设置更新 | `POST /stages/update` | 请求体 `{bindingId, kind, id, title?, instructions?, opensAt?, closesAt?, answerOpensAt?}`；`kind` 取 `DISCUSSION/MATERIAL/QUIZ/PLAN`，用于时间轴环节改名、改文案与调整时间；已撤回的预习任务需先恢复才能修改 |
+| 环节归档 | `POST /stages/remove` | 请求体 `{bindingId, kind, id}`，`kind` 取 `DISCUSSION/QUIZ/PLAN/MATERIAL/DRAFT`；仅对课前准备环节做软归档，课程建设资料不在此处理 |
+| 已删除环节 | `GET /stages/removed` | 参数 `bindingId`；返回 `kind`、`stageId`、`title`、`subtitle`、`opensAt`、`closesAt`、`removedAt`、`reason`，按删除时间倒序 |
+| 恢复环节 | `POST /stages/restore` | 请求体 `{bindingId, kind, id}`，`kind` 取 `DISCUSSION/QUIZ/PLAN/MATERIAL/DRAFT`；按类型还原归属与状态，不改变原开放/截止时间 |
+| 删除预习任务 | `DELETE /preview-tasks/{assignmentId}` | 参数 `bindingId`；仅在没有学生提交时永久删除，否则返回 409 并提示改用撤回 |
 | 学生笔记 | `GET/PUT /student/note` | 按 `bindingId` 读写本人笔记，请求体 `{bindingId, content}` |
 | 公共资源库 | `GET /public/categories`、`GET /public/resources`、`GET /public/resources/{id}`、`POST /public/resources/{id}/import` 等 | 分类、列表、详情、上传、外链、预览页、下载、收藏、我的提交与加入课程资料 |
 
@@ -52,6 +57,10 @@
 
 - 资料归属：`edu_resource.origin` 区分 `STUDIO`（课程建设）与 `PREPARE`（课前准备）。
 - 发布来源：`edu_resource_class_release.release_source` 按来源独立生效，课程建设与课前准备的发布、撤回互不影响。
+- 课前准备环节的删除是软归档：`QUIZ` 置 `edu_assignment.status=ARCHIVED`（撤回预习任务）；`PLAN` 置 `edu_lesson_plan.status=ARCHIVED`；`DISCUSSION` 置 `edu_discussion_topic.status=ARCHIVED`，`deleted_at` 保持 NULL 以保留回复与评分；`MATERIAL` 结束课前准备发布（`end_kind=REVOKED`、`end_reason='课前准备删除资料环节'`）；`DRAFT` 置 `edu_resource.status=ARCHIVED`。
+- 恢复 `POST /stages/restore` 按类型还原：`QUIZ→PUBLISHED`、`PLAN→READY`、`DISCUSSION→PUBLISHED`、`MATERIAL` 清空对应发布记录的 `ended_*` 字段（该资料须没有其他有效发布）、`DRAFT→ACTIVE`。恢复只还原状态与归属，学生端仍按原开放/截止时间判定可见性。
+- 已删除列表：`GET /stages/removed` 汇总上述归档记录；`QUIZ` 无删除时间，`removedAt` 为空，`DISCUSSION` 取 `updated_at`，`MATERIAL` 取最近一次结束发布的 `ended_at`，`PLAN/DRAFT` 取记录时间。
+- 预习任务永久删除：`DELETE /preview-tasks/{assignmentId}` 直接删除 `edu_assignment` 及其题目、目标记录，仅允许在没有学生提交时执行；已有提交请改用 `POST /stages/remove`（`kind=QUIZ`）撤回，撤回可恢复。
 - 章节归属：`edu_resource.unit_id` 关联 `edu_course_unit(id, course_space_id)`，上传时传入的 `unitId` 会落库。
 - 章节与知识点正文：`edu_course_unit.content_text`、`edu_knowledge_point.content_text` 由第二组大纲服务统一保存，单条上限 4000 字；教师端详情接口按章节聚合子节、知识点、未归档资料、题目与学习进度。
 - 题目资源库：`edu_question_share` 以题目版本（`question_version_id`）为单位保存共享快照，`status` 为 `PUBLISHED/WITHDRAWN`，同一版本最多一条共享记录；引入时在当前课程生成题目副本，`edu_question.origin_share_id` 指向来源共享记录，不复制原课程的知识点关联。

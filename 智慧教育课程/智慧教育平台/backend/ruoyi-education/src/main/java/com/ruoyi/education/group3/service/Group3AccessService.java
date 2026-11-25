@@ -13,6 +13,7 @@ import com.ruoyi.education.course.api.EduClassBindingRef;
 import com.ruoyi.education.course.api.EduClassMembership;
 import com.ruoyi.education.course.api.EduClassRef;
 import com.ruoyi.education.course.api.EduCourseAccessService;
+import com.ruoyi.education.course.api.EduMemberRef;
 import com.ruoyi.education.domain.EduTerm;
 import com.ruoyi.education.exception.EduForbiddenException;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
@@ -173,6 +174,16 @@ public class Group3AccessService
         Map<String, Object> binding = requireTeacherBinding(bindingId);
         Long classId = asLong(binding.get("teachingClassId"));
         return access.activeMembers(classId).stream().map(member -> member.userId()).toList();
+    }
+
+    /**
+     * 取教学班当前有效在班成员（含入班记录 ID），用于补齐后入班学生的任务目标。
+     */
+    public List<EduMemberRef> activeMembers(Long bindingId)
+    {
+        Map<String, Object> binding = requireAnyBinding(bindingId);
+        Long classId = asLong(binding.get("teachingClassId"));
+        return access.activeMembers(classId);
     }
 
     public Map<String, Object> teacherVersion(Long bindingId, Long versionId)

@@ -43,8 +43,15 @@
             @select="handleNodeSelect"
           />
         </div>
+      </div>
 
-        <div class="g3-tl-detail">
+    <el-dialog
+      v-model="detailVisible"
+      width="min(920px, 94vw)"
+      top="6vh"
+      append-to-body
+      class="g3-detail-dialog"
+    >
           <el-card v-if="selectedNode && selectedNode.kind === 'QUIZ'" shadow="never" class="g3-detail">
             <template #header>
               <div class="g3-detail-head">
@@ -250,8 +257,7 @@
               <p class="g3-hint">预习任务可逐题作答、提交并查看允许公开的反馈；资料与讨论可直接查看。</p>
             </el-empty>
           </el-card>
-        </div>
-      </div>
+    </el-dialog>
     </template>
 
     <el-dialog
@@ -536,6 +542,7 @@ const materials = ref([])
 const discussions = ref([])
 const stateFilter = ref('all')
 const selectedKey = ref('')
+const detailVisible = ref(false)
 const loadingList = ref(false)
 const loadError = ref('')
 
@@ -1044,11 +1051,15 @@ function handleNodeSelect(node) {
     openMaterial(node)
     return
   }
-  if (node.key === selectedKey.value) return
+  if (node.key === selectedKey.value) {
+    detailVisible.value = true
+    return
+  }
   captureDraft()
   selectedKey.value = node.key
   indepCurrentNode.value = node
   loadDetail(node)
+  detailVisible.value = true
 }
 
 function openTargetFromQuery() {
@@ -1062,6 +1073,7 @@ async function handleSelect(value) {
   captureDraft()
   select(value)
   selectedKey.value = ''
+  detailVisible.value = false
   detail.value = null
   detailToken += 1
   await loadTasks()
@@ -1098,7 +1110,7 @@ onBeforeUnmount(() => {
 .g3-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .g3-progress-bar { flex: 1; max-width: 420px; }
 .g3-gap { margin-bottom: 12px; }
-.g3-layout { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(340px, 7fr); gap: 16px; align-items: start; }
+.g3-layout { display: block; }
 .g3-tl-main,
 .g3-tl-detail { min-width: 0; }
 .g3-detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
