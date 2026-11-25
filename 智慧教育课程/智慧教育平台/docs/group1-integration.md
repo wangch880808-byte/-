@@ -131,9 +131,25 @@ request 自动使用 header 请求域和取消信号。返回非负安全整数�
         "component": "education/notices" }
 ```
 
-### 运行实例核对
+### 运行实例核对（2026-11-25）
 
-本机 `backend/.env` 不存在、MySQL root 密码未提供、后端未启动，因此本轮没有抓取浏览器中的 `getInfo`/`getRouters` 实际响应。上表由 `sql/install-fresh.sql`、`sql/group12-menu-permissions.sql` 和 `SysPermissionService`/`SysMenuServiceImpl` 的取值逻辑推导。执行补齐脚本后，应在目标库用以下 SQL 核对，再用管理员、教师、学生分别登录，按 `F12 → 网络 → 刷新 → getInfo/getRouters → 响应` 复核，只回传 `permissions`、`path`、`component`。
+已在本地 `smart_edu_g12` 执行补种脚本，启动后端后分别用 `admin`、`teacher`、`student` 登录实测，结果与上节预期一致：
+
+| 角色 | `getInfo.roles` | 与教学相关的 `permissions` |
+| --- | --- | --- |
+| 管理员 | `["admin"]` | `["*:*:*"]` |
+| 教师 | `["teacher"]` | `education:announcement:add/archive/edit/list/publish`、`education:course:add/bind/edit/list/publish`、`education:scope:read` |
+| 学生 | `["student"]` | `education:announcement:list`、`education:course:list`、`education:notice:list/read`、`education:scope:read` |
+
+`getRouters` 的 `education` 子项实测：
+
+- 管理员：`term`、`teaching-class`、`teacher`、`student`、`course`、`announcements`、`notices`
+- 教师：`course`、`announcements`
+- 学生：`course`、`announcements`、`notices`
+
+公告为 `path=announcements`、`component=education/announcements`；通知为 `path=notices`、`component=education/notices`。
+
+其他环境仍需按下面的 SQL 和 F12 步骤复核，避免目标库存在人工添加的同名菜单或不同 `path`/`component`。
 
 ```sql
 SELECT r.role_key, m.menu_type, m.path, m.component, m.perms
