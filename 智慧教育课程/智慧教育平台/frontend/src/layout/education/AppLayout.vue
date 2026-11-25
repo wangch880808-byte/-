@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { bootstrap, canOpen, logout, session } from '@/education/session.js'
+import { canOpen, hasPermission, logout, session } from '@/education/session.js'
 import { api, cancelRequests } from '@/api/education/client.js'
 import { pages } from '@/education/ui-pages.js'
 import useUserStore from '@/store/modules/user'
 import CurrentTerm from '@/components/education/CurrentTerm.vue'
 import { adminMenuItems, buildAdminGroups } from '@/education/ui-menu.js'
-import { context, prepareContext, resetView, suspendWorkspace, workspace } from '@/education/workspace.js'
+import { context, suspendWorkspace, workspace } from '@/education/workspace.js'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
@@ -20,7 +20,7 @@ const coursePage = computed(() => authorized.value.find(page => page.id === 'cou
 const currentPage = computed(() => route.meta.page)
 const selectedMenu = computed(() => session.role === 'admin'
   ? adminMenuItems.find(item => route.path === '/admin/' + item.path) : null)
-const title = computed(() => selectedMenu.value?.title || currentPage.value?.title || (route.name === 'unavailable' ? '功能未开放' : '工作台'))
+const title = computed(() => selectedMenu.value?.title || currentPage.value?.title || route.meta.title || (route.name === 'unavailable' ? '功能未开放' : '工作台'))
 const collapsedGroups = ref(session.role === 'admin' ? [...new Set(adminMenuItems.map(item => item.group))] : [])
 function toggleGroup(title) {
   collapsedGroups.value = collapsedGroups.value.includes(title)
@@ -37,7 +37,7 @@ function withContext(path) {
 watch(() => [route.path, session.ready], () => {
   if (!session.ready) return
   workspace.tabs = workspace.tabs.filter(tab => !tab.page || canOpen(tab.page))
-  if (route.name === 'unavailable') return
+  if (route.name === 'unavailable' || route.name === 'admin-forbidden') return
   const path = route.path
   if (!workspace.tabs.some(tab => tab.path === path)) {
     workspace.tabs.push({ path, title: title.value, page: currentPage.value })
@@ -49,11 +49,7 @@ async function closeTab(tab) {
   if (route.path === tab.path) await router.push(withContext(workspace.tabs.at(-1)?.path || '/' + session.role))
 }
 async function retry() {
-  resetView()
-  try {
-    await bootstrap(); await prepareContext(true)
-    if (currentPage.value && !canOpen(currentPage.value)) await router.replace('/' + session.role)
-  } catch { await router.replace('/login') }
+  await router.replace({ path: route.path, query: { ...route.query, denied: undefined }, hash: route.hash, force: true })
 }
 async function doLogout() {
   suspendWorkspace()
@@ -109,7 +105,7 @@ onUnmounted(() => {
           {{ entry.title }}<span v-if="entry.count > 0" class="notice-count">{{ entry.count > 99 ? '99+' : entry.count }}</span>
           <span v-if="entry.status === 'unavailable'" class="hint">（暂不可用）</span>
         </button>
-        <current-term />
+        <current-term v-if="route.name !== 'overview' || !hasPermission('education:term:list')" />
         <span class="role-tag">{{ roleLabels[session.role] }}</span>
         <router-link v-if="session.ready" class="profile-entry" :to="withContext('/' + session.role + '/profile')"
           aria-label="个人中心" title="个人中心">

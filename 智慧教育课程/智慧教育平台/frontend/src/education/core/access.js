@@ -18,7 +18,9 @@ export function canAccess(page, identity) {
   if (!page || !identity.ready || !identity.user) return false
   if (!page.roles?.includes(identity.role)) return false
   const permissions = identity.permissions || []
-  if (page.permission && !permissions.includes('*:*:*') && !permissions.includes(page.permission)) return false
-  if (page.serviceRoute && !collectRoutes(identity.routes).has(normalizeRoute(page.serviceRoute))) return false
-  return true
+  let routes
+  const allows = ({ permission, serviceRoute }) =>
+    (!permission || permissions.includes('*:*:*') || permissions.includes(permission)) &&
+    (!serviceRoute || (routes ??= collectRoutes(identity.routes)).has(normalizeRoute(serviceRoute)))
+  return allows(page) && (!page.accessAny || page.accessAny.some(allows))
 }

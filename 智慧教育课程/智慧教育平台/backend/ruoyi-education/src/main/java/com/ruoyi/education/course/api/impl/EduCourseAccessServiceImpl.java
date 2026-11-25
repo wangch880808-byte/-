@@ -269,7 +269,7 @@ public class EduCourseAccessServiceImpl implements EduCourseAccessService {
 
     @Override
     public EduTermRef currentTerm() {
-        List<Map<String, Object>> rows = portalMapper.selectTermList(null);
+        List<Map<String, Object>> rows = portalMapper.selectTermList(null, null);
         for (Map<String, Object> row : rows) {
             if (truthy(row.get("current"))) {
                 return new EduTermRef(

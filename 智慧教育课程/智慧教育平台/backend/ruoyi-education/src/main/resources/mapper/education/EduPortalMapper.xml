@@ -16,6 +16,15 @@
         FROM edu_term t
         LEFT JOIN v_identity_dept s ON s.dept_id = t.organization_id
         <where>
+            <if test="schoolIds != null">
+                <choose>
+                    <when test="!schoolIds.isEmpty()">
+                        AND t.organization_id IN
+                        <foreach collection="schoolIds" item="schoolId" open="(" separator="," close=")">#{schoolId}</foreach>
+                    </when>
+                    <otherwise>AND 1 = 0</otherwise>
+                </choose>
+            </if>
             <if test="keyword != null and keyword != ''">
                 AND (t.name LIKE concat('%', #{keyword}, '%') OR t.code LIKE concat('%', #{keyword}, '%'))
             </if>
@@ -438,12 +447,15 @@
                (SELECT COUNT(*) FROM edu_class_teacher ct
                  WHERE ct.user_id = u.user_id AND (ct.valid_from &lt;=NOW(3) AND (ct.valid_to IS NULL OR ct.valid_to &gt;NOW(3)))) AS classCount
         FROM v_identity_user u
-        JOIN v_identity_user_role ur ON ur.user_id = u.user_id
-        JOIN v_identity_role r ON r.role_id = ur.role_id AND r.role_key = 'teacher' AND r.status = '0'
-        LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
+        LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id AND d.del_flag = '0'
         WHERE u.del_flag = '0' AND u.status = '0'
-        <if test="keyword != null and keyword != ''">
-            AND (u.user_name LIKE concat('%', #{keyword}, '%') OR u.nick_name LIKE concat('%', #{keyword}, '%'))
+          AND EXISTS (
+              SELECT 1 FROM v_identity_user_role ur
+              JOIN v_identity_role r ON r.role_id = ur.role_id
+              WHERE ur.user_id = u.user_id AND r.role_key = 'teacher' AND r.status = '0' AND r.del_flag = '0'
+          )
+        <if test="userName != null and userName != ''">
+            AND (u.user_name LIKE concat('%', #{userName}, '%') OR u.nick_name LIKE concat('%', #{userName}, '%'))
         </if>
         <if test="deptId != null">
             AND (u.dept_id = #{deptId} OR FIND_IN_SET(#{deptId}, d.ancestors))
@@ -453,6 +465,18 @@
                   AND <include refid="teacherDepartment"><property name="deptAlias" value="selected"/></include>
             )
         </if>
+        <if test="params.schoolId != null">
+            AND (d.dept_id = #{params.schoolId} OR FIND_IN_SET(#{params.schoolId}, d.ancestors))
+        </if>
+        <if test="params.unassigned == true">
+            AND NOT EXISTS (
+                SELECT 1 FROM v_identity_dept college
+                WHERE college.dept_id = d.dept_id AND college.parent_id != 0
+                  AND college.del_flag = '0' AND college.status = '0'
+                  AND <include refid="teacherDepartment"><property name="deptAlias" value="college"/></include>
+            )
+        </if>
+        ${params.dataScope}
         ORDER BY u.user_id
     </select>
 

@@ -299,9 +299,14 @@ public class SysUserServiceImpl implements ISysUserService
         {
             throw new ServiceException("所选角色不存在或已停用，请重新选择", 400);
         }
-        if ((role.isAdmin() || Constants.SUPER_ADMIN.equals(role.getRoleKey())) && !SecurityUtils.isAdmin())
+        boolean adminRole = role.isAdmin() || Constants.SUPER_ADMIN.equals(role.getRoleKey());
+        if (adminRole && !SecurityUtils.isAdmin())
         {
             throw new ForbiddenException("没有分配管理员角色的权限");
+        }
+        if (adminRole && enabledDepartment(user.getDeptId()) == null)
+        {
+            throw new ServiceException("请选择已开启的所属部门", 400);
         }
         if ("teacher".equals(role.getRoleKey()))
         {

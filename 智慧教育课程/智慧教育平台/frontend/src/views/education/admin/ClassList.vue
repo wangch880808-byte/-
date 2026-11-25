@@ -19,6 +19,7 @@
             <el-button type="primary" @click="search">搜索</el-button>
             <el-button @click="reset">重置</el-button>
           </el-form-item>
+          <el-form-item v-if="schoolId && query.orgId === schoolId"><el-tag>首页所选学校</el-tag></el-form-item>
         </el-form>
 
         <el-alert v-if="error" :title="error" type="error" :closable="false" class="mb8" />
@@ -105,6 +106,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import DirectoryOrgTree from '@/components/education/DirectoryOrgTree.vue'
 import AdministrativeClassRoster from '@/components/education/AdministrativeClassRoster.vue'
@@ -113,7 +115,11 @@ import { getOrgTree } from '@/api/education/directory'
 import { hasPermission } from '@/education/session'
 import { parseTime } from '@/utils/ruoyi'
 
-const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', orgId: null, status: '' })
+const route = useRoute()
+const router = useRouter()
+const requestedSchool = route.query.schoolId
+const schoolId = typeof requestedSchool === 'string' && /^[1-9]\d{0,18}$/.test(requestedSchool) ? requestedSchool : null
+const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', orgId: schoolId, status: '' })
 const canManage = computed(() => hasPermission('education:class:member'))
 const canEdit = computed(() => hasPermission('education:class:edit'))
 const loading = ref(false)
@@ -166,6 +172,11 @@ function search() {
 }
 
 function reset() {
+  if (schoolId) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.schoolId
+    return router.replace({ query: nextQuery })
+  }
   Object.assign(query, { keyword: '', status: '' })
   search()
 }

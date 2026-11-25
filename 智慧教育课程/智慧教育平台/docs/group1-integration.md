@@ -80,3 +80,70 @@ request 自动使用 header 请求域和取消信号。返回非负安全整数�
 新授予的有效内置管理员角色登录后获得管理员操作权限与管理菜单，数据范围使用该角色已有配置；停用角色不授予权限或完整菜单。角色变更的会话失效逻辑继续沿用。新增表单每次打开重新获取角色列表，使用服务器返回的实际roleId提交，不硬编码或伪造管理员选项。
 
 本次验证：8项管理员授予/权限/菜单/数据范围测试，以及27项浏览器回归通过。测试使用隔离数据，没有在真实数据库创建测试管理员。
+
+## 6-02 公告/通知权限与菜单回传（2026-11-25）
+
+### 取值规则
+
+- `getInfo.permissions` 来自当前账号有效角色在 `sys_role_menu` 中已分配的 `sys_menu.perms`；`userId = 1` 的超级管理员直接返回 `["*:*:*"]`。
+- `getRouters` 只取 `menu_type in ('M','C')` 且状态正常的菜单，按父子关系输出 `path`、`component` 和 `meta`；`F` 类型按钮权限只进入 `getInfo.permissions`，不进入路由。
+- 前端 `collectRoutes` 把父路径与子路径拼成完整路径，并同时收录 `component`；比较前去掉首尾 `/` 和末尾 `/index`。
+
+### 补齐前的实际配置（脚本级）
+
+| 角色 | `getInfo.roles` | 与教学相关的 `permissions` | `getRouters` 教学菜单 |
+| --- | --- | --- | --- |
+| 管理员 | `["admin"]` | `["*:*:*"]` | 全部启用菜单 |
+| 教师 | `["teacher"]` | `education:course:list`、`education:course:add/edit/publish/bind`、`education:scope:read` | `education/course` → `education/CourseListPage` |
+| 学生 | `["student"]` | `education:course:list`、`education:scope:read` | `education/course` → `education/CourseListPage` |
+
+教师和学生的 `permissions` 还可能包含一个空字符串，来源是父目录菜单的空 `perms`；前端的 `includes` 判断不受影响。
+
+结论：补齐前，`education:announcement:*`、`education:notice:*` 没有写入任何角色，`getRouters` 中也没有 `education/announcements` 或 `education/notices`。第六组填写的 `serviceRoute: 'education/announcements'` 会匹配失败，公告入口会被前端隐藏；教师发布接口即使有教学班权限，也会因缺少 `@PreAuthorize` 权限码返回 403。这不是权限配错，而是 6-02 的权限与菜单尚未落库。
+
+### 本次补齐
+
+新增可重复执行的 [group1-announcement-menu-permissions.sql](../sql/group1-announcement-menu-permissions.sql)，在已执行 `group12-menu-permissions.sql` 的库上运行：
+
+- 菜单 `班级公告`：`path = announcements`、`component = education/announcements`、`perms = education:announcement:list`，分配给教师和学生；完整路径为 `education/announcements`，与前端 `serviceRoute` 对齐。
+- 菜单 `通知`：`path = notices`、`component = education/notices`、`perms = education:notice:list`，只分配给学生；完整路径为 `education/notices`。
+- 教师按钮权限：`education:announcement:add/edit/publish/archive`。
+- 学生按钮权限：`education:notice:read`。
+- 管理员不写 `sys_role_menu`，继续由账号级 `*:*:*` 覆盖。
+
+执行后，`getInfo` 预期新增：
+
+```text
+教师：education:announcement:list, education:announcement:add,
+      education:announcement:edit, education:announcement:publish,
+      education:announcement:archive
+学生：education:announcement:list, education:notice:list, education:notice:read
+```
+
+`getRouters` 的 `education` 目录下预期新增：
+
+```text
+教师：{ "name": "Announcements", "path": "announcements",
+        "component": "education/announcements" }
+学生：{ "name": "Announcements", "path": "announcements",
+        "component": "education/announcements" }
+      { "name": "Notices", "path": "notices",
+        "component": "education/notices" }
+```
+
+### 运行实例核对
+
+本机 `backend/.env` 不存在、MySQL root 密码未提供、后端未启动，因此本轮没有抓取浏览器中的 `getInfo`/`getRouters` 实际响应。上表由 `sql/install-fresh.sql`、`sql/group12-menu-permissions.sql` 和 `SysPermissionService`/`SysMenuServiceImpl` 的取值逻辑推导。执行补齐脚本后，应在目标库用以下 SQL 核对，再用管理员、教师、学生分别登录，按 `F12 → 网络 → 刷新 → getInfo/getRouters → 响应` 复核，只回传 `permissions`、`path`、`component`。
+
+```sql
+SELECT r.role_key, m.menu_type, m.path, m.component, m.perms
+FROM sys_role r
+JOIN sys_role_menu rm ON rm.role_id = r.role_id
+JOIN sys_menu m ON m.menu_id = rm.menu_id
+WHERE r.role_key IN ('teacher', 'student')
+  AND r.del_flag = '0'
+  AND m.status = '0'
+ORDER BY r.role_key, m.menu_type, m.order_num;
+```
+
+管理员的 `getInfo` 由 `userId = 1` 直接返回 `*:*:*` 和全部启用菜单，不依赖 `sys_role_menu`，因此无需为上表补管理员行。

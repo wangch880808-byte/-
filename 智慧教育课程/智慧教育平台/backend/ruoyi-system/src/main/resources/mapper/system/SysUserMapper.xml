@@ -109,6 +109,25 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="deptId != null">
             and (d.dept_id = #{deptId} or find_in_set(#{deptId}, d.ancestors))
         </if>
+        <if test="params.schoolId != null">
+            and (d.dept_id = #{params.schoolId} or find_in_set(#{params.schoolId}, d.ancestors))
+        </if>
+        <if test="params.unassigned == true">
+            and u.status = '0'
+            and not exists (
+                select 1 from sys_dept parent
+                join sys_dept college on college.dept_id =
+                    case when parent.dept_type = 'MAJOR' then parent.parent_id else parent.dept_id end
+                join sys_dept school on school.dept_id = college.parent_id
+                where parent.dept_id = d.parent_id and d.dept_type = 'CLASS' and d.status = '0'
+                  and parent.del_flag = '0' and parent.status = '0'
+                  and college.del_flag = '0' and college.status = '0'
+                  and (college.dept_type = 'COLLEGE' or (college.dept_type is null
+                    and (trim(college.dept_name) like '%学院' or trim(college.dept_name) like '%系')))
+                  and school.parent_id = 0 and school.del_flag = '0' and school.status = '0'
+                  and (school.dept_type = 'SCHOOL' or school.dept_type is null)
+            )
+        </if>
         ${params.dataScope}
         order by u.user_id
     </select>

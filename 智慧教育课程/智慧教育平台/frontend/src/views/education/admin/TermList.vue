@@ -14,6 +14,7 @@
         <el-button type="primary" @click="handleQuery">搜索</el-button>
         <el-button @click="resetQuery">重置</el-button>
       </el-form-item>
+      <el-form-item v-if="queryParams.schoolId"><el-tag>首页所选学校</el-tag></el-form-item>
     </el-form>
 
     <el-row :gutter="10" class="mb8">
@@ -110,10 +111,13 @@
 
 <script setup name="EduTermList">
 import { ref, reactive, getCurrentInstance, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { listTerm, listTermSchools, addTerm, updateTerm, setCurrentTerm } from '@/api/education/term'
 import { eduErrorText } from '@/api/education/http'
 
 const { proxy } = getCurrentInstance()
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -125,7 +129,13 @@ const formRef = ref()
 const loadingSchools = ref(false)
 const schools = ref([])
 
-const queryParams = reactive({ pageNum: 1, pageSize: 10, keyword: '' })
+const requestedSchool = route.query.schoolId
+const queryParams = reactive({
+  pageNum: 1,
+  pageSize: 10,
+  keyword: '',
+  schoolId: typeof requestedSchool === 'string' && /^[1-9]\d{0,18}$/.test(requestedSchool) ? requestedSchool : undefined
+})
 const form = reactive({ id: null, organizationId: '', schoolName: '', name: '', code: '', startsOn: '', endsOn: '' })
 
 const rules = {
@@ -174,6 +184,11 @@ function handleQuery() {
 }
 
 function resetQuery() {
+  if (queryParams.schoolId) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.schoolId
+    return router.replace({ query: nextQuery })
+  }
   queryParams.keyword = ''
   handleQuery()
 }

@@ -42,7 +42,8 @@
         </div>
 
         <div class="notice-body">
-          <div v-if="hasContent" class="notice-content" v-html="detail.noticeContent" />
+          <iframe v-if="noticeDocument" class="notice-content" title="公告正文"
+            sandbox="" referrerpolicy="no-referrer" :srcdoc="noticeDocument" />
           <div v-else class="notice-empty notice-empty--inner">
             <el-icon><Document /></el-icon> 暂无内容
           </div>
@@ -64,9 +65,25 @@ const isStatusNormal = computed(() => {
   return status === '0' || status === 0
 })
 
-const hasContent = computed(() => {
-  const content = detail.value && detail.value.noticeContent
-  return content != null && String(content).trim() !== ''
+const noticeDocument = computed(() => {
+  const content = String(detail.value?.noticeContent ?? '')
+  if (!content.trim()) return ''
+  return `<!doctype html>
+    <html lang="zh-CN">
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${location.origin}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+    <style>
+      body { margin: 0; color: #2d3748; font: 14px/1.85 system-ui, sans-serif; overflow-wrap: anywhere; }
+      p, ol, ul { margin: 0 0 1em; }
+      h1, h2, h3 { margin: 1em 0 .5em; line-height: 1.4; }
+      ol, ul { padding-left: 24px; }
+      a { color: #27649d; }
+      img { max-width: 100%; height: auto; }
+      blockquote { margin: 1em 0; padding: .4em 1em; border-left: 3px solid #cbd5e0; }
+      table { border-collapse: collapse; max-width: 100%; }
+      th, td { border: 1px solid #e2e8f0; padding: 6px 9px; }
+    </style>
+    <body>${content}</body></html>`
 })
 
 function open(payload) {
@@ -224,67 +241,10 @@ defineExpose({
 }
 
 .notice-content {
-  font-size: 14px;
-  line-height: 1.85;
-  color: var(--notice-content-color, #2d3748);
-  word-break: break-word;
-}
-
-.notice-content :deep(p) { margin: 0 0 1em; }
-
-.notice-content :deep(h1),
-.notice-content :deep(h2),
-.notice-content :deep(h3) {
-  font-weight: 700;
-  color: var(--notice-title-color, #1a202c);
-  margin: 1.4em 0 0.6em;
-}
-
-.notice-content :deep(h1) { font-size: 18px; }
-.notice-content :deep(h2) { font-size: 16px; }
-.notice-content :deep(h3) { font-size: 14px; }
-
-.notice-content :deep(a) {
-  color: #3182ce;
-  text-decoration: underline;
-}
-.notice-content :deep(a:hover) { color: #2b6cb0; }
-
-.notice-content :deep(img) {
-  max-width: 100%;
-  border-radius: 4px;
-  margin: 8px 0;
-}
-
-.notice-content :deep(ul),
-.notice-content :deep(ol) {
-  padding-left: 20px;
-  margin: 0 0 1em;
-}
-.notice-content :deep(li) { margin-bottom: 4px; }
-
-.notice-content :deep(blockquote) {
-  border-left: 3px solid var(--notice-blockquote-border, #cbd5e0);
-  margin: 1em 0;
-  padding: 6px 16px;
-  color: var(--notice-meta-color, #718096);
-  background: var(--notice-blockquote-bg, #f7fafc);
-}
-
-.notice-content :deep(table) {
-  border-collapse: collapse;
+  display: block;
   width: 100%;
-  margin: 1em 0;
-  font-size: 13px;
-}
-.notice-content :deep(table th),
-.notice-content :deep(table td) {
-  border: 1px solid var(--notice-table-border, #e2e8f0);
-  padding: 7px 12px;
-}
-.notice-content :deep(table th) {
-  background: var(--notice-table-header-bg, #f7fafc);
-  font-weight: 600;
+  height: clamp(160px, 45vh, 480px);
+  border: 0;
 }
 
 .notice-empty {

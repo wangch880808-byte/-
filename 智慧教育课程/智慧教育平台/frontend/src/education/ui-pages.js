@@ -1,6 +1,16 @@
 import { shallowReactive } from 'vue'
 export const pages = shallowReactive([
   { id: 'profile', title: '个人中心', sidebar: false, roles: ['admin', 'teacher', 'student'], path: 'profile', component: () => import('@/views/education/ProfileView.vue') },
+  { id: 'overview', title: '管理总览', group: '工作台', roles: ['admin'], path: 'overview', component: () => import('@/views/education/admin/OverviewView.vue') },
+  {
+    id: 'monitoring', title: '运行监控', group: '基础设施', roles: ['admin'], path: 'monitoring',
+    accessAny: [
+      { permission: 'monitor:server:list', serviceRoute: 'monitor/server' },
+      { permission: 'monitor:cache:list', serviceRoute: 'monitor/cache' },
+      { permission: 'monitor:job:list', serviceRoute: 'monitor/job' }
+    ],
+    component: () => import('@/views/education/admin/OperationsView.vue')
+  },
   {id:'terms',title:'学期管理',group:'教务组织',roles:['admin'],path:'terms',permission:'education:term:list',serviceRoute:'education/term',component:()=>import('@/views/education/admin/TermList.vue')},
   {id:'classes',title:'班级管理',group:'教务组织',roles:['admin'],path:'classes',permission:'education:class:list',serviceRoute:'education/teaching-class',component:()=>import('@/views/education/admin/ClassList.vue')},
   {id:'teachers',title:'教师管理',group:'教务组织',roles:['admin'],path:'teachers',permission:'education:directory:list',serviceRoute:'education/teacher',component:()=>import('@/views/education/admin/TeacherList.vue')},
@@ -11,7 +21,9 @@ export const pages = shallowReactive([
   { id: 'roles', title: '角色管理', group: '系统管理', roles: ['admin'], path: 'roles', permission: 'system:role:list', serviceRoute: 'system/role', component: () => import('@/views/education/admin/RoleListView.vue') },
   { id: 'menus', title: '菜单管理', group: '系统管理', roles: ['admin'], path: 'menus', permission: 'system:menu:list', serviceRoute: 'system/menu', component: () => import('@/views/education/admin/MenuListView.vue') },
   { id: 'depts', title: '组织架构管理', group: '教务组织', roles: ['admin'], path: 'depts', permission: 'system:dept:list', serviceRoute: 'system/dept', component: () => import('@/views/education/admin/DeptListView.vue') },
-  { id: 'logs', title: '审计日志', group: '系统管理', roles: ['admin'], path: 'logs', permission: 'monitor:operlog:list', serviceRoute: 'monitor/operlog', component: () => import('@/views/education/admin/OperLogView.vue') }
+  { id: 'logs', title: '审计日志', group: '系统管理', roles: ['admin'], path: 'logs', permission: 'monitor:operlog:list', serviceRoute: 'monitor/operlog', component: () => import('@/views/education/admin/OperLogView.vue') },
+  { id: 'notifications', title: '系统公告', group: '系统管理', roles: ['admin'], path: 'notifications', permission: 'system:notice:list', serviceRoute: 'system/notice', component: () => import('@/views/system/notice/index.vue') },
+  { id: 'login-logs', title: '登录日志', group: '系统管理', roles: ['admin'], path: 'login-logs', permission: 'monitor:logininfor:list', serviceRoute: 'monitor/logininfor', component: () => import('@/views/monitor/logininfor/index.vue') }
 ])
 let install = null
 export function onPageRegistered(handler) { install = handler }
