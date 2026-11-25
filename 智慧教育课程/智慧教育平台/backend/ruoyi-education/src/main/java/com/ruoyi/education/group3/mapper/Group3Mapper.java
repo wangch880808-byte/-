@@ -242,6 +242,9 @@ public interface Group3Mapper
 
     List<Map<String, Object>> selectTeacherPreviewTasks(@Param("bindingId") Long bindingId);
 
+    /** 课前准备已删除环节：资料 / 预习任务 / 讨论 / 备课方案的软归档记录。 */
+    List<Map<String, Object>> selectRemovedPrepareStages(@Param("bindingId") Long bindingId);
+
     List<Map<String, Object>> selectStudentPreviewTasks(
             @Param("bindingId") Long bindingId,
             @Param("userId") Long userId);
@@ -287,6 +290,34 @@ public interface Group3Mapper
 
     int selectSubmissionCount(@Param("assignmentId") Long assignmentId);
 
+    /** 发布去重：同教学班、同课次、同标题、同开放/截止时间且题目数一致的未撤回预习任务。 */
+    Long selectDuplicatePreview(
+            @Param("bindingId") Long bindingId,
+            @Param("lessonId") Long lessonId,
+            @Param("title") String title,
+            @Param("opensAt") java.time.LocalDateTime opensAt,
+            @Param("closesAt") java.time.LocalDateTime closesAt,
+            @Param("itemCount") int itemCount);
+
+    Map<String, Object> selectPreviewSummary(@Param("assignmentId") Long assignmentId);
+
+    /** 当前教学班所有未撤回的预习任务（用于给新入班学生补发目标）。 */
+    List<Map<String, Object>> selectPublishedPreviewAssignments(@Param("bindingId") Long bindingId);
+
+    int insertAssignmentTargetIfAbsent(
+            @Param("assignmentId") Long assignmentId,
+            @Param("teachingClassId") Long teachingClassId,
+            @Param("userId") Long userId,
+            @Param("enrollmentId") Long enrollmentId);
+
+    int deleteAssignmentItems(@Param("assignmentId") Long assignmentId);
+
+    int deleteAssignmentTargets(@Param("assignmentId") Long assignmentId);
+
+    int deletePreviewAssignment(
+            @Param("assignmentId") Long assignmentId,
+            @Param("bindingId") Long bindingId);
+
     int selectMaxUnitSort(@Param("courseSpaceId") Long courseSpaceId, @Param("parentUnitId") Long parentUnitId);
 
     /** 保留策略：清理超过保留期限的 FAILED 资源版本（仅清理失败版本，不影响 READY/PENDING 版本）。 */
@@ -302,6 +333,15 @@ public interface Group3Mapper
 
     /** 软归档备课包 */
     int updateLessonPlanStatus(Map<String, Object> row);
+
+    /** 课前准备已删除资料环节的恢复：重新激活最近一次被删除的 PREPARE 发布。 */
+    int restorePrepareRelease(
+            @Param("bindingId") Long bindingId,
+            @Param("resourceId") Long resourceId);
+
+    int countActivePrepareRelease(
+            @Param("bindingId") Long bindingId,
+            @Param("resourceId") Long resourceId);
 
     /* ---------- 资料 / 题库文件夹 ---------- */
 

@@ -41,12 +41,6 @@
 
       <p v-if="current" class="g3-file-subtitle">{{ current.courseTitle }} · {{ current.className }}</p>
 
-      <StudentProgressBoard
-        ref="boardRef"
-        :binding-id="bindingId"
-        compact
-      />
-
       <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" class="g3-gap" />
 
       <el-table
@@ -78,16 +72,6 @@
                 <el-tag v-if="row.taskEnabled" size="small" type="warning" effect="plain">任务点</el-tag>
               </template>
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="学习进度" width="120">
-          <template #default="{ row }">
-            <span v-if="row.rowType === 'folder'">—</span>
-            <template v-else>
-              <el-tag v-if="row.taskEnabled && isCompleted(row)" size="small" type="success">已完成</el-tag>
-              <el-tag v-else-if="row.taskEnabled" size="small" type="info">未完成</el-tag>
-              <span v-else>-</span>
-            </template>
           </template>
         </el-table-column>
         <el-table-column label="大小" width="110">
@@ -220,11 +204,9 @@ import {
   getVersionMedia,
   getVersionPage,
   listStudentMaterials,
-  listWatchProgress,
   reportWatchProgress
 } from '@/api/education/group3'
 import Group3ContextBar from './Group3ContextBar.vue'
-import StudentProgressBoard from './StudentProgressBoard.vue'
 import { useGroup3Binding } from './useGroup3Binding.js'
 
 const props = defineProps({ contextBindingId: { type: String, default: '' } })
@@ -232,7 +214,6 @@ const { list, bindingId, current, loading, error, load, select } = useGroup3Bind
 const route = useRoute()
 
 const materials = ref([])
-const boardRef = ref(null)
 const keyword = ref('')
 const loadingList = ref(false)
 const loadError = ref('')
@@ -248,7 +229,6 @@ const readerError = ref('')
 const downloadingId = ref(null)
 const videoRef = ref(null)
 const watermarkText = ref('')
-const progressMap = ref({})
 const reportedSeconds = ref({})
 
 let listToken = 0
@@ -314,11 +294,6 @@ function leaveFolder() {
 
 function downloadAllowed(row) {
   return !!row && row.downloadEnabled !== 0
-}
-
-function isCompleted(row) {
-  const progress = progressMap.value[String(row.resourceId)]
-  return !!(progress && progress.completed)
 }
 
 function pad(value) {
@@ -466,33 +441,12 @@ function onVideoEnded() {
 
 async function reportProgress(row, seconds) {
   try {
-    const res = await reportWatchProgress(row.resourceId, {
+    await reportWatchProgress(row.resourceId, {
       bindingId: Number(bindingId.value),
       watchedSeconds: seconds
     })
-    const data = res.data || {}
-    if (data.completed) {
-      progressMap.value = {
-        ...progressMap.value,
-        [String(row.resourceId)]: { completed: true, watchedSeconds: data.watchedSeconds }
-      }
-      if (boardRef.value && typeof boardRef.value.refresh === 'function') boardRef.value.refresh()
-    }
   } catch (err) {
     // 进度上报失败不打断观看，静默处理
-  }
-}
-
-async function loadProgress() {
-  if (!bindingId.value) return
-  try {
-    const res = await listWatchProgress(bindingId.value)
-    const rows = Array.isArray(res.data?.progress) ? res.data.progress : []
-    const map = {}
-    rows.forEach(item => { map[String(item.resourceId)] = item })
-    progressMap.value = map
-  } catch (err) {
-    progressMap.value = {}
   }
 }
 
@@ -544,7 +498,6 @@ async function loadMaterials() {
     const res = await listStudentMaterials(bindingId.value)
     if (token !== listToken) return
     materials.value = Array.isArray(res.data) ? res.data : []
-    await loadProgress()
     openTargetFromQuery()
   } catch (err) {
     if (token !== listToken) return

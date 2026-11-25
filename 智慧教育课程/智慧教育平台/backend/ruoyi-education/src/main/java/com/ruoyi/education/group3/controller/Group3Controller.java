@@ -500,6 +500,14 @@ public class Group3Controller
         return R.ok(prepareService.publishPreview(request), "预习任务已发布");
     }
 
+    @DeleteMapping("/preview-tasks/{assignmentId}")
+    public R<Map<String, Object>> deletePreviewTask(
+            @PathVariable Long assignmentId,
+            @RequestParam Long bindingId)
+    {
+        return R.ok(prepareService.deletePreviewTask(bindingId, assignmentId), "预习任务已删除");
+    }
+
     @GetMapping("/student/materials")
     public R<List<Map<String, Object>>> studentMaterials(@RequestParam Long bindingId)
     {
@@ -886,6 +894,51 @@ public class Group3Controller
         removed.put("id", targetId);
         removed.put("bindingId", bindingId);
         return R.ok(removed, "环节已归档");
+    }
+
+    /* === 已删除环节（查看） === */
+
+    @GetMapping("/stages/removed")
+    public R<List<Map<String, Object>>> removedStages(@RequestParam Long bindingId)
+    {
+        return R.ok(prepareService.removedStages(bindingId));
+    }
+
+    /* === 恢复已删除环节 === */
+
+    @PostMapping("/stages/restore")
+    public R<Map<String, Object>> restoreStage(@RequestBody Map<String, Object> body)
+    {
+        Object rawBinding = body.get("bindingId");
+        Number id = (Number) body.get("id");
+        if (rawBinding == null || id == null)
+        {
+            return R.fail("bindingId 与 id 不能为空");
+        }
+        Long bindingId = Long.valueOf(rawBinding.toString());
+        String kind = String.valueOf(body.get("kind") == null ? "" : body.get("kind")).toUpperCase();
+        Long targetId = id.longValue();
+        accessService.requireTeacherBinding(bindingId);
+        switch (kind)
+        {
+            case "QUIZ":
+                return R.ok(prepareService.restoreQuizStage(bindingId, targetId), "预习任务已恢复");
+            case "PLAN":
+                return R.ok(prepareService.restorePlanStage(bindingId, targetId), "备课方案已恢复");
+            case "MATERIAL":
+            case "DRAFT":
+                resourceService.restorePrepareStage(bindingId, targetId, "DRAFT".equals(kind));
+                break;
+            case "DISCUSSION":
+                return R.ok(discussionService.restoreArchivedStage(bindingId, targetId), "讨论话题已恢复");
+            default:
+                return R.fail("kind 必须是 DISCUSSION / QUIZ / PLAN / MATERIAL / DRAFT");
+        }
+        Map<String, Object> restored = new LinkedHashMap<>();
+        restored.put("kind", kind);
+        restored.put("id", targetId);
+        restored.put("bindingId", bindingId);
+        return R.ok(restored, "环节已恢复");
     }
 
     /* === 资料 / 题库文件夹 === */
