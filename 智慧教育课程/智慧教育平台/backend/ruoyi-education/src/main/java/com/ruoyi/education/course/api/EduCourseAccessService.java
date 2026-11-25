@@ -30,6 +30,14 @@ import java.util.List;
  * 状态判断使用「当前库状态」，不做乐观锁。需要把成员名单、班级状态固定到某个时点的
  * （例如发布作业），由调用方在自己的事务里读取本接口结果并写入快照表。
  *
+ * <p>成员/授权/绑定的「有效」一律按半开区间判定，而不是只看 NULL：
+ * 学生 = joined_at 已到且 left_at 未到；教师 = valid_from 已到且 valid_to 未到；
+ * 绑定 = published_at 已到且 ended_at 未到。生成列 {@code active_user_id}/
+ * {@code active_space_id} 只表达 left_at/valid_to/ended_at 为 NULL，不检查入班/生效时间
+ * 是否已到，也不考虑未来退班/结束时间，仅作唯一索引辅助，不能当作权限判定依据。</p>
+ *
+ * <p>本接口只回答「现在」；按历史时点 at 查询成员段使用 {@link EduMembershipTimelineService}。</p>
+ *
  * @see EduClassRef
  * @see EduMemberRef
  * @see EduClassMembership
@@ -51,10 +59,10 @@ public interface EduCourseAccessService {
      */
     EduClassRef requireActiveClass(Long classId);
 
-    /** 是否为该班有效任课教师（valid_to IS NULL）。 */
+    /** 是否为该班有效任课教师（valid_from 已到且 valid_to 未到，半开区间 [valid_from, valid_to)）。 */
     boolean isActiveTeacher(Long classId, Long userId);
 
-    /** 是否为该班有效在班学生（left_at IS NULL）。 */
+    /** 是否为该班有效在班学生（joined_at 已到且 left_at 未到，半开区间 [joined_at, left_at)）。 */
     boolean isActiveStudent(Long classId, Long userId);
 
     /**

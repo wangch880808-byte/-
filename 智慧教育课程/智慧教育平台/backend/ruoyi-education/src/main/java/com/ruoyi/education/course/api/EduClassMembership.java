@@ -3,7 +3,8 @@ package com.ruoyi.education.course.api;
 /**
  * 当前登录人在某个教学班中的身份与权限位。
  *
- * <p>数据来源是 edu_class_teacher（valid_to IS NULL）与 edu_class_student（left_at IS NULL），
+ * <p>数据来源是 edu_class_teacher（valid_from 已到、valid_to 为空或未到）与 edu_class_student
+ * （joined_at 已到、left_at 为空或未到），判定均为半开区间 [start, end)，
  * 每次请求现查，不做缓存；撤权、退班后下一次请求立即失效。</p>
  *
  * @param classId    教学班 ID

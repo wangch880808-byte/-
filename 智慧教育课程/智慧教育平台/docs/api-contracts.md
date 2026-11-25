@@ -30,6 +30,19 @@ HTTP 业务入口建议集中在 `/education` 命名空间，权限标识可按 
 | analysis | 有口径、样本及截止时点的授权统计 | 教师/学生/管理员各自授权页面 |
 | ai | 异步建议任务、状态、结果及用量审计 | 备课、答疑与作业服务；不直接写正式成绩 |
 
+## course 成员时点查询契约（EduMembershipTimelineService）
+
+2026-11-23 增补，供第 6 组通知授权适配器按历史时点确定接收人：事件 9:00 发生、学生 10:00 退班、通知 11:00 投递时，按 9:00 的成员名单确定接收人；学生现在能否看到通知，仍由消费方按读取时点另行判断，两件事分开处理。
+
+- 三个只读查询：`studentInBinding(bindingId, userId, at)`（学生在绑定下 at 时点的成员段与可见性）、`studentBindings(userId, at)`（学生 at 时点的全部有效绑定）、`studentsInBinding(bindingId, at)`（绑定下 at 时点在班学生名单）。
+- `at` 只接受服务端当前时间或上游事件的 `occurredAt`，不接受客户端时间；投递用 occurredAt，读取/已读授权用服务端 now。
+- 半开区间：学生 `joined_at <= at < left_at`；教师 `valid_from <= at < valid_to`；绑定 `published_at <= at < ended_at`。
+- 教学班/课程空间 `status` 没有生效/失效时间列，按当前库值判断，不做历史回溯。
+- 生成列 `active_user_id`/`active_space_id` 只表达 NULL 判断，不检查入班/生效时间，不能当权限判定依据。
+- 全部时间为 UTC、`DATETIME(3)` 毫秒精度；绑定不存在抛异常，无成员段返回 active=false 快照或空列表。
+- 失败关闭：同一学生在同一教学班有多条覆盖 at 的入班记录（跨行重叠），三个查询一律抛异常，不猜测取一条；时点列返回无法识别的非空值（如非时间类型）抛异常，与真正的数据库 NULL（无上界）严格区分。
+- 追加式增补：`EduCourseAccessService` 现有方法与语义不变。定义见 `backend/ruoyi-education/src/main/java/com/ruoyi/education/course/api/EduMembershipTimelineService.java`。
+
 ## 身份、字段与时间
 
 - 操作者与学生身份由服务端可信认证上下文取得，不能通过传入 `studentId` 或角色参数冒充。课程、教学班、资源与任务间的关联须一并核对。
