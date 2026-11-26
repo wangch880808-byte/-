@@ -2,8 +2,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api } from '@/api/education/client.js'
 import ImportExportActions from '@/components/education/ImportExportActions.vue'
+import StudentClassSelect from '@/components/education/StudentClassSelect.vue'
 import { hasPermission } from '@/education/session.js'
-import { isCollegeDept, studentClassPath } from '@/utils/education/studentClass.js'
+import { isCollegeDept, studentClassOption } from '@/utils/education/studentClass.js'
 import {useRoute} from 'vue-router'
 const route=useRoute()
 
@@ -40,20 +41,31 @@ const canReset = computed(() => hasPermission('system:user:resetPwd'))
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const hasRole = (key, ids = []) => roles.value.some((role) =>
-  role.roleKey === key && ids.includes(String(role.roleId)))
+  ids.includes(String(role.roleId)) && (role.roleKey === key || (key === 'admin' && role.admin === true)))
 const creatingUser = computed(() => form.mode === 'add')
 const roleChoices = computed(() => creatingUser.value
   ? roles.value.filter((role) => String(role.status) === '0')
   : roles.value)
-const editingTeacher = computed(() => hasRole('teacher', form.data.roleIds))
+const teacherSelected = computed(() => hasRole('teacher', form.data.roleIds))
+const creatingAdmin = computed(() => creatingUser.value && hasRole('admin', form.data.roleIds))
 const creatingStudent = computed(() => creatingUser.value && hasRole('student', form.data.roleIds))
+const departmentRequired = computed(() => creatingUser.value &&
+  (teacherSelected.value || creatingAdmin.value || creatingStudent.value))
+const selectedDeptId = computed({
+  get: () => {
+    const defaultDept = creatingUser.value && form.data.roleIds?.length && !departmentRequired.value
+      ? depts.value[0]?.value
+      : undefined
+    return form.data.deptId ?? defaultDept ?? ''
+  },
+  set: (value) => { form.data.deptId = value }
+})
 const teacherDepts = computed(() => depts.value.filter((dept) => dept.teacherCollege))
-const studentClasses = computed(() => depts.value
-  .filter((dept) => dept.classPath)
-  .map((dept) => ({ value: dept.value, label: dept.classPath })))
+const studentClasses = computed(() => depts.value.map((dept) => dept.classOption).filter(Boolean))
 const deptChoices = computed(() => {
   if (creatingStudent.value) return studentClasses.value
-  if (!editingTeacher.value) return depts.value
+  if (creatingAdmin.value) return depts.value.filter((dept) => dept.enabled)
+  if (!teacherSelected.value) return depts.value
   const choices = teacherDepts.value
   const previous = originalTeacherDept.value
   if (!previous || choices.some((dept) => dept.value === previous)) return choices
@@ -114,6 +126,7 @@ function flattenDepts(list) {
   const visit = (parentId, depth) => {
     ;(byParent.get(String(parentId)) || []).forEach((dept) => {
       const school = byId.get(String(dept.parentId))
+      const enabled = String(dept.status) === '0'
       const parentIsSchool = school
         ? String(school.parentId) === '0' && String(school.status) === '0'
           && (!school.deptType || school.deptType === 'SCHOOL')
@@ -121,8 +134,9 @@ function flattenDepts(list) {
       result.push({
         value: String(dept.deptId),
         label: '　'.repeat(depth) + dept.deptName,
-        teacherCollege: parentIsSchool && isCollegeDept(dept) && String(dept.status) === '0',
-        classPath: studentClassPath(dept, byId)
+        enabled,
+        teacherCollege: parentIsSchool && isCollegeDept(dept) && enabled,
+        classOption: studentClassOption(dept, byId)
       })
       visit(dept.deptId, depth + 1)
     })
@@ -143,7 +157,7 @@ function emptyForm() {
     userName: '',
     nickName: '',
     password: '',
-    deptId: depts.value[0]?.value || '',
+    deptId: null,
     phonenumber: '',
     email: '',
     sex: '0',
@@ -155,9 +169,10 @@ function emptyForm() {
 }
 
 async function openAdd() {
+  if (!canAdd.value) return
   try {
     await ensureLookups()
-    if (disposed) return
+    if (disposed || !canAdd.value) return
     form.mode = 'add'
     originalTeacherDept.value = null
     form.data = emptyForm()
@@ -206,16 +221,13 @@ function toggleRole(roleId) {
     if (index >= 0) form.data.roleIds.splice(index, 1)
     else form.data.roleIds.push(value)
   }
-  if (!deptChoices.value.some((dept) => dept.value === form.data.deptId)) {
-    if (editingTeacher.value || creatingStudent.value) {
-      form.data.deptId = ''
-    } else if (creatingUser.value) {
-      form.data.deptId = depts.value[0]?.value || ''
-    }
+  if (!deptChoices.value.some((dept) => dept.value === selectedDeptId.value)) {
+    if (creatingUser.value) form.data.deptId = null
+    else if (teacherSelected.value) form.data.deptId = ''
   }
 }
 
-function validate(data, editing) {
+function validate(data, editing, deptId) {
   if (!data.userName.trim() || data.userName.trim().length < 2) return '账号至少 2 个字符'
   if (!data.nickName.trim()) return '请填写昵称'
   if (!editing && (!data.password || data.password.length < 5 || data.password.length > 20)) return '密码需为 5-20 个字符'
@@ -223,17 +235,20 @@ function validate(data, editing) {
   if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return '邮箱格式不正确'
   if (!editing && data.roleIds.length !== 1) return '请选择一个角色'
   if (editing && !data.roleIds.length) return '请至少选择一个角色'
-  if (hasRole('teacher', data.roleIds) && originalTeacherDept.value !== data.deptId
-    && !teacherDepts.value.some((dept) => dept.value === data.deptId)) return '请选择已开启的所属学院'
+  if (hasRole('teacher', data.roleIds) && originalTeacherDept.value !== deptId
+    && !teacherDepts.value.some((dept) => dept.value === deptId)) return '请选择已开启的所属学院'
+  if (!editing && hasRole('admin', data.roleIds)
+    && !deptChoices.value.some((dept) => dept.value === deptId)) return '请选择已开启的所属部门'
   if (!editing && hasRole('student', data.roleIds)
-    && !studentClasses.value.some((dept) => dept.value === data.deptId)) return '请选择已开启的所属班级'
+    && !studentClasses.value.some((dept) => dept.value === deptId)) return '请选择已开启的所属班级'
   return ''
 }
 
 async function save() {
   if (form.saving) return
   const editing = form.mode === 'edit'
-  const message = validate(form.data, editing)
+  const deptId = selectedDeptId.value
+  const message = validate(form.data, editing, deptId)
   if (message) {
     form.error = message
     return
@@ -244,7 +259,7 @@ async function save() {
     const payload = {
       userName: form.data.userName.trim(),
       nickName: form.data.nickName.trim(),
-      deptId: form.data.deptId || null,
+      deptId: deptId || null,
       phonenumber: form.data.phonenumber.trim(),
       email: form.data.email.trim(),
       sex: form.data.sex,
@@ -328,7 +343,10 @@ async function runConfirm() {
   }
 }
 
-onMounted(() => load(1))
+onMounted(() => {
+  load(1)
+  if (route.query.action === 'add') openAdd()
+})
 onUnmounted(() => {
   disposed = true
   if (controller) controller.abort()
@@ -413,16 +431,24 @@ onUnmounted(() => {
               <input id="f-nickName" v-model="form.data.nickName" class="ui-input" maxlength="30" />
             </div>
             <div class="field">
-              <label for="f-dept" :class="{ req: creatingStudent }">{{ creatingStudent ? '所属班级' : editingTeacher ? '所属学院' : '部门' }}</label>
-              <select
+              <label for="f-dept" :class="{ req: departmentRequired }">{{ creatingStudent ? '所属班级' : teacherSelected ? '所属学院' : '部门' }}</label>
+              <StudentClassSelect
+                v-if="creatingStudent"
                 id="f-dept"
-                v-model="form.data.deptId"
+                v-model="selectedDeptId"
+                :options="studentClasses"
+                aria-label="所属班级（必填）"
+                :aria-describedby="!studentClasses.length ? 'f-no-classes' : undefined"
+              />
+              <select
+                v-else
+                id="f-dept"
+                v-model="selectedDeptId"
                 class="ui-select"
-                :required="creatingStudent"
-                :aria-describedby="creatingStudent && !studentClasses.length ? 'f-no-classes' : undefined"
+                :required="departmentRequired"
               >
-                <option v-if="creatingStudent" value="" disabled>请选择班级</option>
-                <option v-else-if="editingTeacher" value="" :disabled="originalTeacherDept !== ''">
+                <option v-if="creatingAdmin || (creatingUser && !form.data.roleIds.length)" value="" disabled>请选择部门</option>
+                <option v-else-if="teacherSelected" value="" :disabled="originalTeacherDept !== ''">
                   {{ originalTeacherDept === '' ? '保留原部门' : '请选择学院' }}
                 </option>
                 <option v-for="dept in deptChoices" :key="dept.value" :value="dept.value">{{ dept.label }}</option>

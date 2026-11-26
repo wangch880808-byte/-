@@ -1,9 +1,11 @@
 package com.ruoyi.education.mapper;
 
 import org.apache.ibatis.annotations.Param;
+import com.ruoyi.common.core.domain.entity.SysUser;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 三端页面（管理员 / 教师 / 学生）的查询与命令映射。
@@ -17,7 +19,8 @@ public interface EduPortalMapper {
 
     /* ---------------- 学期 ---------------- */
 
-    List<Map<String, Object>> selectTermList(@Param("keyword") String keyword);
+    List<Map<String, Object>> selectTermList(@Param("keyword") String keyword,
+                                            @Param("schoolIds") Set<Long> schoolIds);
 
     List<Map<String, Object>> selectTermSchools(@Param("organizationId") Long organizationId);
 
@@ -84,7 +87,7 @@ public interface EduPortalMapper {
 
     /* ---------------- 教师 / 学生 / 组织 ---------------- */
 
-    List<Map<String, Object>> selectTeacherList(@Param("keyword") String keyword, @Param("deptId") Long deptId);
+    List<Map<String, Object>> selectTeacherList(SysUser filter);
 
     List<Map<String, Object>> selectTeacherClasses(@Param("userId") Long userId);
 

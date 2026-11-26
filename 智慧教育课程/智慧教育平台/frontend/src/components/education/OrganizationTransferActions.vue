@@ -1,12 +1,15 @@
 <script setup>
-import { computed, onUnmounted, reactive } from 'vue'
+import { computed, onMounted, onUnmounted, reactive } from 'vue'
 import { Download, Upload } from '@element-plus/icons-vue'
 import { api } from '@/api/education/client.js'
 import { hasPermission } from '@/education/session.js'
 import { fetchExcel, plainImportMessage, saveExcel, validateExcel } from '@/utils/education/excel.js'
 import AppModal from '@/components/education/AppModal.vue'
 
-const props = defineProps({ filters: { type: Object, default: () => ({}) } })
+const props = defineProps({
+  filters: { type: Object, default: () => ({}) },
+  openImportOnMount: Boolean
+})
 const emit = defineEmits(['imported'])
 const canExport = computed(() => hasPermission('system:dept:list'))
 const canImport = computed(() => canExport.value && hasPermission('system:dept:add'))
@@ -23,6 +26,10 @@ function openImport() {
   if (state.busy || state.downloading || !canImport.value) return
   Object.assign(state, { open: true, file: null, updateSupport: false, error: '', result: '', done: false })
 }
+
+onMounted(() => {
+  if (props.openImportOnMount) openImport()
+})
 
 function choose(event) {
   state.file = event.target.files?.[0] || null

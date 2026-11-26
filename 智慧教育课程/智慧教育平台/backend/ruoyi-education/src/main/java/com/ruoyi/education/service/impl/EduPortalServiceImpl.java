@@ -1,6 +1,7 @@
 package com.ruoyi.education.service.impl;
 
 import com.github.pagehelper.PageHelper;
+import com.ruoyi.common.annotation.DataScope;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
@@ -32,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -99,9 +101,9 @@ public class EduPortalServiceImpl implements IEduPortalService {
     /* ================= 学期 ================= */
 
     @Override
-    public List<Map<String, Object>> termList(String keyword) {
+    public List<Map<String, Object>> termList(String keyword, Set<Long> schoolIds) {
         requireAdmin("查看学期");
-        return portalMapper.selectTermList(keyword);
+        return portalMapper.selectTermList(keyword, schoolIds);
     }
 
     @Override
@@ -432,9 +434,10 @@ public class EduPortalServiceImpl implements IEduPortalService {
     /* ================= 教师 / 学生 / 组织 ================= */
 
     @Override
-    public List<Map<String, Object>> teacherList(String keyword, Long deptId) {
+    @DataScope(deptAlias = "d", userAlias = "u", permission = "education:directory:list")
+    public List<Map<String, Object>> teacherList(SysUser filter) {
         requireAdmin("查看教师");
-        return portalMapper.selectTeacherList(keyword, deptId);
+        return portalMapper.selectTeacherList(filter);
     }
 
     @Override

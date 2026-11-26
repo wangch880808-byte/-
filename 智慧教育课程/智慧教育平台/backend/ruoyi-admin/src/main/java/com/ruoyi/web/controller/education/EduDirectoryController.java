@@ -50,9 +50,11 @@ public class EduDirectoryController extends BaseController {
 
     @GetMapping("/education/teacher/list")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:directory:list')")
-    public TableDataInfo teachers(String keyword, Long deptId) {
+    public TableDataInfo teachers(String keyword, Long deptId, Long schoolId,
+            @RequestParam(defaultValue = "false") boolean unassigned) {
+        SysUser filter = directoryFilter(keyword, deptId, schoolId, unassigned);
         startPage();
-        return getDataTable(portalService.teacherList(keyword, deptId));
+        return getDataTable(portalService.teacherList(filter));
     }
 
     @GetMapping("/education/teacher/{userId}/classes")
@@ -70,13 +72,21 @@ public class EduDirectoryController extends BaseController {
 
     @GetMapping("/education/student/accounts")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:directory:list')")
-    public TableDataInfo studentAccounts(String keyword, Long deptId) {
+    public TableDataInfo studentAccounts(String keyword, Long deptId, Long schoolId,
+            @RequestParam(defaultValue = "false") boolean unassigned) {
         requireStudentManagement();
+        SysUser filter = directoryFilter(keyword, deptId, schoolId, unassigned);
+        startPage();
+        return getDataTable(userService.selectStudentAccounts(filter));
+    }
+
+    private SysUser directoryFilter(String keyword, Long deptId, Long schoolId, boolean unassigned) {
         SysUser filter = new SysUser();
         filter.setUserName(StringUtils.trimToEmpty(keyword));
         filter.setDeptId(deptId);
-        startPage();
-        return getDataTable(userService.selectStudentAccounts(filter));
+        filter.getParams().put("schoolId", schoolId);
+        filter.getParams().put("unassigned", unassigned);
+        return filter;
     }
 
     @PutMapping("/education/student/accounts/{userId}")
