@@ -27,7 +27,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.domain.R;
+import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.education.course.api.EduCourseAccessService;
 import com.ruoyi.education.course.api.EduTeacherRef;
@@ -108,6 +110,7 @@ public class Group3Controller
         return R.ok(resourceService.overview(bindingId));
     }
 
+    @Log(title = "课程资料上传", businessType = BusinessType.INSERT)
     @PostMapping("/resources")
     public R<Map<String, Object>> upload(
             @RequestParam Long bindingId,
@@ -130,12 +133,14 @@ public class Group3Controller
     }
 
     /** 创建外链资料（添加网址 / 在线图书）。 */
+    @Log(title = "课程资料链接", businessType = BusinessType.INSERT)
     @PostMapping("/resources/link")
     public R<Map<String, Object>> createLink(@RequestBody Group3Requests.CreateLinkResource request)
     {
         return R.ok(resourceService.createLink(request), "外链资料已创建");
     }
 
+    @Log(title = "课程资料新版本", businessType = BusinessType.UPDATE)
     @PostMapping("/resources/{resourceId}/versions")
     public R<Map<String, Object>> uploadVersion(
             @PathVariable Long resourceId,
@@ -155,6 +160,7 @@ public class Group3Controller
         return R.ok(resourceService.versions(resourceId, bindingId));
     }
 
+    @Log(title = "资料转码重试", businessType = BusinessType.UPDATE)
     @PostMapping("/versions/{versionId}/retry-conversion")
     public R<Map<String, Object>> retryConversion(
             @PathVariable Long versionId,
@@ -232,6 +238,7 @@ public class Group3Controller
                 .body(new ByteArrayResource(content));
     }
 
+    @Log(title = "课程资料导入", businessType = BusinessType.IMPORT)
     @PostMapping("/resources/import")
     public R<Map<String, Object>> importResources(
             @RequestParam Long bindingId,
@@ -241,12 +248,14 @@ public class Group3Controller
         return R.ok(result, "导入完成：成功 " + result.get("imported") + " 个");
     }
 
+    @Log(title = "课程资料发布", businessType = BusinessType.UPDATE)
     @PostMapping("/releases")
     public R<Map<String, Object>> release(@RequestBody Group3Requests.ReleaseResource request)
     {
         return R.ok(resourceService.release(request), "发布范围已更新");
     }
 
+    @Log(title = "课程资料撤回", businessType = BusinessType.UPDATE)
     @PostMapping("/releases/{releaseId}/revoke")
     public R<Map<String, Object>> revoke(
             @PathVariable Long releaseId,
@@ -257,6 +266,7 @@ public class Group3Controller
                 body == null ? null : body.get("reason")), "资料已撤回");
     }
 
+    @Log(title = "课程资料编辑", businessType = BusinessType.UPDATE)
     @PatchMapping("/resources/{resourceId}")
     public R<Map<String, Object>> updateResource(
             @PathVariable Long resourceId,
@@ -278,6 +288,7 @@ public class Group3Controller
         return R.ok(row, "资料已更新");
     }
 
+    @Log(title = "课程资料归档", businessType = BusinessType.UPDATE)
     @PatchMapping("/resources/{resourceId}/status")
     public R<Map<String, Object>> archiveResource(
             @PathVariable Long resourceId,
@@ -299,6 +310,7 @@ public class Group3Controller
         return R.ok(row, "资料状态已更新");
     }
 
+    @Log(title = "资料讲解信息", businessType = BusinessType.UPDATE)
     @PatchMapping("/resources/{resourceId}/enhance")
     public R<Map<String, Object>> updateResourceEnhance(
             @PathVariable Long resourceId,
@@ -356,6 +368,7 @@ public class Group3Controller
     }
 
     /** 题目资源库：发布题目。 */
+    @Log(title = "题库分享", businessType = BusinessType.GRANT)
     @PostMapping("/questions/library/share")
     public R<Map<String, Object>> shareQuestions(@RequestBody Group3Requests.ShareQuestions request)
     {
@@ -364,6 +377,7 @@ public class Group3Controller
     }
 
     /** 题目资源库：撤回共享。 */
+    @Log(title = "题库分享", businessType = BusinessType.UPDATE)
     @PostMapping("/questions/library/withdraw")
     public R<Map<String, Object>> withdrawSharedQuestions(@RequestBody Group3Requests.WithdrawShares request)
     {
@@ -397,6 +411,7 @@ public class Group3Controller
     }
 
     /** 题目资源库：引入到当前课程题库。 */
+    @Log(title = "题库导入", businessType = BusinessType.IMPORT)
     @PostMapping("/questions/library/import")
     public R<Map<String, Object>> importSharedQuestions(@RequestBody Group3Requests.ImportSharedQuestions request)
     {
@@ -404,18 +419,21 @@ public class Group3Controller
         return R.ok(result, "题目已引入当前题库");
     }
 
+    @Log(title = "题库题目", businessType = BusinessType.INSERT)
     @PostMapping("/questions")
     public R<Map<String, Object>> createQuestion(@RequestBody Group3Requests.Question request)
     {
         return R.ok(prepareService.createQuestion(request), "题目已创建");
     }
 
+    @Log(title = "题库组卷", businessType = BusinessType.INSERT)
     @PostMapping("/questions/compose")
     public R<Map<String, Object>> composePaper(@RequestBody Group3Requests.ComposePaper request)
     {
         return R.ok(prepareService.composePaper(request), "组卷完成");
     }
 
+    @Log(title = "题库题目", businessType = BusinessType.UPDATE)
     @PostMapping("/questions/{questionId}/versions")
     public R<Map<String, Object>> createQuestionVersion(
             @PathVariable Long questionId,
@@ -424,6 +442,7 @@ public class Group3Controller
         return R.ok(prepareService.createQuestionVersion(questionId, request), "题目新版本已创建");
     }
 
+    @Log(title = "题库题目", businessType = BusinessType.UPDATE)
     @PatchMapping("/questions/{questionId}/status")
     public R<Map<String, Object>> updateQuestionStatus(
             @PathVariable Long questionId,
@@ -455,6 +474,7 @@ public class Group3Controller
         return R.ok(transferService.previewQuestionImport(bindingId, file));
     }
 
+    @Log(title = "题库导入", businessType = BusinessType.IMPORT)
     @PostMapping("/questions/import")
     public R<Map<String, Object>> importQuestions(@RequestBody Map<String, Object> body)
     {
@@ -482,6 +502,7 @@ public class Group3Controller
         return R.ok(prepareService.plans(bindingId));
     }
 
+    @Log(title = "备课方案", businessType = BusinessType.INSERT)
     @PostMapping("/plans")
     public R<Map<String, Object>> createPlan(@RequestBody Group3Requests.LessonPlan request)
     {
@@ -494,12 +515,14 @@ public class Group3Controller
         return R.ok(previewTaskProvider.previewTasksForCurrentUser(bindingId));
     }
 
+    @Log(title = "预习任务", businessType = BusinessType.INSERT)
     @PostMapping("/preview-tasks")
     public R<Map<String, Object>> publishPreview(@RequestBody Group3Requests.PreviewTask request)
     {
         return R.ok(prepareService.publishPreview(request), "预习任务已发布");
     }
 
+    @Log(title = "预习任务", businessType = BusinessType.DELETE)
     @DeleteMapping("/preview-tasks/{assignmentId}")
     public R<Map<String, Object>> deletePreviewTask(
             @PathVariable Long assignmentId,
@@ -598,6 +621,7 @@ public class Group3Controller
 
     /* === 课程大纲：章/节 === */
 
+    @Log(title = "课程章节", businessType = BusinessType.INSERT)
     @PostMapping("/outline/units")
     public R<Map<String, Object>> createUnit(@RequestBody Map<String, Object> body)
     {
@@ -612,6 +636,7 @@ public class Group3Controller
         return R.ok(Map.of("id", id, "courseSpaceId", courseId), "章节已创建");
     }
 
+    @Log(title = "课程章节", businessType = BusinessType.UPDATE)
     @PatchMapping("/outline/units/{unitId}")
     public R<Map<String, Object>> updateUnit(@PathVariable Long unitId, @RequestBody Map<String, Object> body)
     {
@@ -622,6 +647,7 @@ public class Group3Controller
         return R.ok(input, "章节已更新");
     }
 
+    @Log(title = "课程章节", businessType = BusinessType.DELETE)
     @DeleteMapping("/outline/units/{unitId}")
     public R<Map<String, Object>> deleteUnit(@PathVariable Long unitId, @RequestParam Long bindingId)
     {
@@ -629,12 +655,14 @@ public class Group3Controller
         return R.ok(Map.of("unitId", unitId), "章节已删除");
     }
 
+    @Log(title = "课程章节", businessType = BusinessType.UPDATE)
     @PatchMapping("/outline/units/{unitId}/sort")
     public R<Map<String, Object>> reorderUnit(@PathVariable Long unitId, @RequestBody Map<String, Object> body)
     {
         return updateUnit(unitId, body);
     }
 
+    @Log(title = "课程知识点", businessType = BusinessType.INSERT)
     @PostMapping("/outline/knowledge-points")
     public R<Map<String, Object>> createKnowledgePoint(@RequestBody Map<String, Object> body)
     {
@@ -643,6 +671,7 @@ public class Group3Controller
         return R.ok(Map.of("id", id, "courseSpaceId", courseId), "知识点已创建");
     }
 
+    @Log(title = "课程知识点", businessType = BusinessType.UPDATE)
     @PatchMapping("/outline/knowledge-points/{pointId}")
     public R<Map<String, Object>> updateKnowledgePoint(@PathVariable Long pointId, @RequestBody Map<String, Object> body)
     {
@@ -653,6 +682,7 @@ public class Group3Controller
         return R.ok(input, "知识点已更新");
     }
 
+    @Log(title = "课程知识点", businessType = BusinessType.DELETE)
     @DeleteMapping("/outline/knowledge-points/{pointId}")
     public R<Map<String, Object>> deleteKnowledgePoint(@PathVariable Long pointId, @RequestParam Long bindingId)
     {
@@ -790,6 +820,7 @@ public class Group3Controller
         return R.ok(discussionService.topicDetail(bindingId, topicId));
     }
 
+    @Log(title = "课程讨论", businessType = BusinessType.INSERT)
     @PostMapping("/discussions")
     public R<Map<String, Object>> createDiscussion(
             @RequestBody Group3Requests.DiscussionTopic request)
@@ -816,6 +847,7 @@ public class Group3Controller
         return R.ok(result, "回复已发布");
     }
 
+    @Log(title = "课程讨论", businessType = BusinessType.UPDATE)
     @PostMapping("/discussions/action")
     public R<Map<String, Object>> discussionAction(
             @RequestBody Group3Requests.DiscussionAction request)
@@ -829,6 +861,7 @@ public class Group3Controller
         return R.ok(discussionService.folders(bindingId));
     }
 
+    @Log(title = "课程讨论", businessType = BusinessType.INSERT)
     @PostMapping("/discussion-folders")
     public R<Map<String, Object>> createDiscussionFolder(
             @RequestBody Group3Requests.DiscussionFolder request)
@@ -838,6 +871,7 @@ public class Group3Controller
 
     /* === 时间轴环节更新 === */
 
+    @Log(title = "备课方案阶段", businessType = BusinessType.UPDATE)
     @PostMapping("/stages/update")
     public R<Map<String, Object>> updateStage(@RequestBody Group3Requests.UpdateStage request)
     {
@@ -846,6 +880,7 @@ public class Group3Controller
 
     /* === 删除环节（软归档） === */
 
+    @Log(title = "备课方案阶段", businessType = BusinessType.DELETE)
     @PostMapping("/stages/remove")
     public R<Map<String, Object>> removeStage(@RequestBody Map<String, Object> body)
     {
@@ -906,6 +941,7 @@ public class Group3Controller
 
     /* === 恢复已删除环节 === */
 
+    @Log(title = "备课方案阶段", businessType = BusinessType.UPDATE)
     @PostMapping("/stages/restore")
     public R<Map<String, Object>> restoreStage(@RequestBody Map<String, Object> body)
     {
@@ -953,6 +989,7 @@ public class Group3Controller
         return R.ok(foldersOf(courseSpaceId, kind));
     }
 
+    @Log(title = "课程资料文件夹", businessType = BusinessType.INSERT)
     @PostMapping("/folders")
     public R<Map<String, Object>> createFolder(@RequestBody Map<String, Object> body)
     {
@@ -995,6 +1032,7 @@ public class Group3Controller
         return R.ok(result, "文件夹已创建");
     }
 
+    @Log(title = "课程资料文件夹", businessType = BusinessType.UPDATE)
     @PatchMapping("/folders/{folderId}")
     public R<Map<String, Object>> updateFolder(
             @PathVariable Long folderId,
@@ -1031,6 +1069,7 @@ public class Group3Controller
     }
 
     /** 题库文件夹归档 / 取消归档。 */
+    @Log(title = "课程资料文件夹", businessType = BusinessType.UPDATE)
     @PostMapping("/folders/{folderId}/archive")
     public R<Map<String, Object>> archiveFolder(
             @PathVariable Long folderId,
@@ -1057,6 +1096,7 @@ public class Group3Controller
         return R.ok(result, archived ? "文件夹已归档" : "文件夹已取消归档");
     }
 
+    @Log(title = "课程资料文件夹", businessType = BusinessType.DELETE)
     @DeleteMapping("/folders/{folderId}")
     public R<Map<String, Object>> deleteFolder(
             @PathVariable Long folderId,
@@ -1078,6 +1118,7 @@ public class Group3Controller
     }
 
     /** 文件夹整体上架：发布文件夹内尚未发布的资料。 */
+    @Log(title = "课程资料文件夹", businessType = BusinessType.UPDATE)
     @PostMapping("/folders/{folderId}/release")
     public R<Map<String, Object>> publishFolder(@PathVariable Long folderId, @RequestParam Long bindingId)
     {
@@ -1085,6 +1126,7 @@ public class Group3Controller
     }
 
     /** 文件夹整体下架：撤回文件夹内已发布的资料。 */
+    @Log(title = "课程资料文件夹", businessType = BusinessType.UPDATE)
     @PostMapping("/folders/{folderId}/revoke")
     public R<Map<String, Object>> revokeFolder(@PathVariable Long folderId, @RequestParam Long bindingId)
     {
@@ -1105,6 +1147,7 @@ public class Group3Controller
                 .body(new ByteArrayResource(content));
     }
 
+    @Log(title = "课程资料文件夹", businessType = BusinessType.UPDATE)
     @PostMapping("/folders/move")
     public R<Map<String, Object>> moveToFolder(@RequestBody Map<String, Object> body)
     {
@@ -1179,6 +1222,7 @@ public class Group3Controller
         return R.ok(publicLibraryService.detail(id));
     }
 
+    @Log(title = "公共资源库", businessType = BusinessType.INSERT)
     @PostMapping("/public/resources/upload")
     public R<Map<String, Object>> uploadPublicResource(
             @RequestParam String title,
@@ -1192,6 +1236,7 @@ public class Group3Controller
                 "资源上传成功");
     }
 
+    @Log(title = "公共资源库", businessType = BusinessType.INSERT)
     @PostMapping("/public/resources/link")
     public R<Map<String, Object>> uploadPublicLink(@RequestBody Map<String, Object> request)
     {
@@ -1264,6 +1309,7 @@ public class Group3Controller
         return R.ok(publicLibraryService.myUploads(pageNum, pageSize));
     }
 
+    @Log(title = "公共资源库", businessType = BusinessType.IMPORT)
     @PostMapping("/public/resources/{id}/import")
     public R<Map<String, Object>> importPublicResource(
             @PathVariable Long id,
