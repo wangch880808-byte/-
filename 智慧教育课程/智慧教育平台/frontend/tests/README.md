@@ -13,13 +13,25 @@ NOTICE_TEST_BASE=http://127.0.0.1:4174 node tests/notice-vue.spec.mjs
 OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
 ```
 
-管理员总览/待办使用仅位于 `tests/` 的隔离入口，不经过生产路由或管理员菜单：
+管理员总览/待办组件隔离入口，不经过生产路由或管理员菜单：
 
 ```bash
 cd frontend
 npx vite --host 127.0.0.1 --port 4175
 # 另开终端
 ADMIN_OVERVIEW_BASE=http://127.0.0.1:4175/tests/admin-overview.html   node tests/admin-overview.spec.mjs
+```
+
+管理员实际入口回归使用生产构建和 `serve-dist.mjs`，驱动实际 Vue Router、公共
+`permission.js` 守卫、canOpen 和管理员侧边栏；接口只由 Playwright 夹具提供：
+
+```bash
+cd frontend
+corepack pnpm install --frozen-lockfile
+corepack pnpm build
+node tests/serve-dist.mjs
+# 另开终端
+ADMIN_ENTRY_TEST_BASE=http://127.0.0.1:4174 node tests/admin-entry.spec.mjs
 ```
 
 管理员截图默认跳过；设置仓库外目录后输出：
@@ -96,6 +108,11 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 合法闰日、Z、偏移和不同小数秒精度可展示；单卡违约不影响其余合法卡片；
 - 390px 总览单列无横向溢出，离开总览后页面恢复；
 - 管理员总览 5 指标、管理员待办固定 NO_DATA、两个端点只发送 from/to；
+- 管理员实际入口：侧边栏和直达 `/admin/teaching-metrics`、`/admin/todos`，`/admin/todos` 不再重定向到第一组组织待办；
+- 管理员第一组 `/admin/overview` 仍调用 `/education/overview`，不混用第 6 组管理员指标；
+- 管理员缺权限、缺目标 serviceRoute、登录后撤权稳定落到 `/admin/forbidden`，无跳转循环、不调用对应总览；
+- 教师/学生直达管理员页面被公共守卫拒绝且不发管理员请求；教师教学总览仍可注册和打开；
+- 管理员待办 NO_DATA、503 和 390px 布局保留原表现；
 - 管理员待办非法来源/value/actionPath/状态/sampleCount 不落入固定空态；
 - 管理员顶层异常、401/403/503/网络失败、刷新失败、筛选乱序、卸载迟到响应和 390px 布局；
 - 未知 endpoint 报错并停止请求。
