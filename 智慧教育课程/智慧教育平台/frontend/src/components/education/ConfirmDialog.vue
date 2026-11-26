@@ -6,6 +6,7 @@ defineProps({
   warnings: { type: Array, default: () => [] },
   title: { type: String, default: '请确认' },
   busy: { type: Boolean, default: false },
+  confirmDisabled: { type: Boolean, default: false },
   error: { type: String, default: '' },
   danger: { type: Boolean, default: false },
   okText: { type: String, default: '确定' }
@@ -17,6 +18,7 @@ const emit = defineEmits(['close', 'confirm'])
   <AppModal
     :title="title"
     :busy="busy"
+    :confirm-disabled="confirmDisabled"
     :error="error"
     :danger="danger"
     :ok-text="okText"

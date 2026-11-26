@@ -7,7 +7,8 @@ defineProps({
   okText: { type: String, default: '确定' },
   cancelText: { type: String, default: '取消' },
   hideCancel: { type: Boolean, default: false },
-  danger: { type: Boolean, default: false }
+  danger: { type: Boolean, default: false },
+  confirmDisabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(['close', 'confirm'])
 </script>
@@ -27,7 +28,7 @@ const emit = defineEmits(['close', 'confirm'])
         <button v-if="!hideCancel" class="ui-btn" type="button" :disabled="busy" @click="emit('close')">
           {{ cancelText }}
         </button>
-        <button class="ui-btn primary" :class="{ danger }" type="button" :disabled="busy" @click="emit('confirm')">
+        <button class="ui-btn primary" :class="{ danger }" type="button" :disabled="busy || confirmDisabled" @click="emit('confirm')">
           {{ busy ? '处理中…' : okText }}
         </button>
       </div>
