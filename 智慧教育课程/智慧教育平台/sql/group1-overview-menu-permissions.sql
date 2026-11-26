@@ -25,6 +25,20 @@ INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_ca
 SET @student_overview=(SELECT menu_id FROM sys_menu WHERE menu_type='C' AND component='education/student/today-todos' ORDER BY menu_id LIMIT 1);
 INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@student_overview FROM sys_role r WHERE FIND_IN_SET(r.role_key,'student') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@student_overview);
 
+-- Admin 6-01 overview anchor. Frontend page: /admin/teaching-overview.
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '教学指标',@edu_parent,10,'admin/overview','education/admin/overview',1,1,'C','0','0','education:overview:admin','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE menu_type='C' AND component='education/admin/overview');
+SET @admin_overview=(SELECT menu_id FROM sys_menu WHERE menu_type='C' AND component='education/admin/overview' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@admin_overview FROM sys_role r WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@admin_overview);
+
+-- Admin 6-01 todos anchor. Frontend page: /admin/todos.
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
+ SELECT '管理员待办',@edu_parent,11,'admin/todos','education/admin/todos',1,1,'C','0','0','education:overview:admin','education','integration',NOW()
+ WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE menu_type='C' AND component='education/admin/todos');
+SET @admin_todos=(SELECT menu_id FROM sys_menu WHERE menu_type='C' AND component='education/admin/todos' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_role_menu(role_id,menu_id) SELECT r.role_id,@admin_todos FROM sys_role r WHERE FIND_IN_SET(r.role_key,'admin') AND r.del_flag='0' AND NOT EXISTS(SELECT 1 FROM sys_role_menu rm WHERE rm.role_id=r.role_id AND rm.menu_id=@admin_todos);
+
 -- Admin overview permission used by 6-01 /education/admin/overview and /education/admin/todos.
 INSERT INTO sys_menu(menu_name,parent_id,order_num,path,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time)
  SELECT '教育总览',@edu_parent,45,'#',1,1,'F','0','0','education:overview:admin','#','integration',NOW() WHERE NOT EXISTS(SELECT 1 FROM sys_menu WHERE perms='education:overview:admin');
