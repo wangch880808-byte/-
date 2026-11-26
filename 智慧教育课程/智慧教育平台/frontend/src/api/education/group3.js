@@ -540,3 +540,26 @@ export function listMyPublicResources(params) {
 export function importPublicResource(id, data) {
   return request({ url: `/education/group3/public/resources/${id}/import`, method: 'post', data })
 }
+
+/* ---------- 环节思政融入点 ---------- */
+
+/** 读取某个环节的思政融入点（教师/学生均可） */
+export function getStageIdeologyPoints(params) {
+  return request({ url: '/education/group3/ideology/stage-points', method: 'get', params })
+}
+
+/** 教师整体保存某个环节的思政融入点 */
+export function saveStageIdeologyPoints(data) {
+  return request({ url: '/education/group3/ideology/stage-points', method: 'put', data })
+}
+
+/* ---------- 教师端课堂完成度 ---------- */
+
+/** 逐环节完成学生 ID，前端按堂课取交集统计“全员完成”人数 */
+export function getClassCompletion(bindingId) {
+  return request({
+    url: '/education/group3/analytics/class-completion',
+    method: 'get',
+    params: { bindingId }
+  })
+}

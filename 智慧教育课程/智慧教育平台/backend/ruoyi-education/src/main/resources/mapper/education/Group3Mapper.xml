@@ -590,6 +590,41 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         GROUP BY p.topic_id, p.user_id
     </select>
 
+    <!-- 教师端课堂完成度：逐学生 / 逐环节完成明细，判定口径与学生端一致。 -->
+    <select id="selectCompletionUsers" resultType="java.util.LinkedHashMap">
+        SELECT 'VIDEO' AS kind,
+               p.resource_id AS refId,
+               p.user_id AS userId
+        FROM edu_resource_progress p
+        WHERE p.binding_id = #{bindingId}
+          AND p.completed = 1
+        UNION ALL
+        SELECT 'QUIZ' AS kind,
+               a.id AS refId,
+               t.student_user_id AS userId
+        FROM edu_assignment a
+        JOIN edu_assignment_target t
+          ON t.assignment_id = a.id AND t.target_status = 'REQUIRED'
+        JOIN edu_assignment_submission s
+          ON s.target_id = t.id
+        JOIN edu_submission_version sv
+          ON sv.submission_id = s.id AND sv.superseded_at IS NULL
+        WHERE a.binding_id = #{bindingId}
+          AND a.assignment_kind = 'PREVIEW'
+          AND a.status = 'PUBLISHED'
+        UNION ALL
+        SELECT 'DISCUSSION' AS kind,
+               p.topic_id AS refId,
+               p.user_id AS userId
+        FROM edu_discussion_post p
+        JOIN edu_discussion_topic t
+          ON t.id = p.topic_id AND t.binding_id = p.binding_id
+        WHERE p.binding_id = #{bindingId}
+          AND t.deleted_at IS NULL
+          AND p.status = 'NORMAL'
+        GROUP BY p.topic_id, p.user_id
+    </select>
+
     <!-- 学情契约：逐题作答记录。answerVisible 只控制答案/解析字段，提交事实始终可见。 -->
     <select id="selectSubmissionAnalytics" resultType="java.util.LinkedHashMap">
         SELECT a.id AS assignmentId,
@@ -2231,6 +2266,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="resourceKind != null and resourceKind != ''">
           AND r.resource_kind = #{resourceKind}
         </if>
+        <if test="categoryKind != null and categoryKind != ''">
+          AND c.kind = #{categoryKind}
+        </if>
+        <if test="excludeCategoryKind != null and excludeCategoryKind != ''">
+          AND (c.kind IS NULL OR c.kind &lt;&gt; #{excludeCategoryKind})
+        </if>
         ORDER BY r.created_at DESC, r.id DESC
         LIMIT #{offset}, #{limit}
     </select>
@@ -2238,6 +2279,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="countPublicResources" resultType="int">
         SELECT COUNT(*)
         FROM edu_public_resource r
+        LEFT JOIN edu_public_resource_category c ON c.id = r.category_id
         WHERE r.status = 'APPROVED'
         <if test="keyword != null and keyword != ''">
           AND (r.title LIKE CONCAT('%', #{keyword}, '%')
@@ -2249,6 +2291,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         </if>
         <if test="resourceKind != null and resourceKind != ''">
           AND r.resource_kind = #{resourceKind}
+        </if>
+        <if test="categoryKind != null and categoryKind != ''">
+          AND c.kind = #{categoryKind}
+        </if>
+        <if test="excludeCategoryKind != null and excludeCategoryKind != ''">
+          AND (c.kind IS NULL OR c.kind &lt;&gt; #{excludeCategoryKind})
         </if>
     </select>
 
@@ -2351,6 +2399,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
          WHERE id = #{id}
     </update>
 
+    <select id="countActiveReleasedResourceByTitle" resultType="int">
+        SELECT COUNT(*)
+          FROM edu_resource r
+          JOIN edu_resource_class_release rel
+            ON rel.resource_id = r.id
+           AND rel.binding_id = #{bindingId}
+           AND rel.ended_at IS NULL
+         WHERE r.course_space_id = #{courseSpaceId}
+           AND r.title = #{title}
+           AND r.status &lt;&gt; 'ARCHIVED'
+    </select>
+
     <insert id="insertPublicFavorite" parameterType="map" useGeneratedKeys="true" keyProperty="id">
         INSERT IGNORE INTO edu_public_resource_favorite
             (resource_id, user_id)
@@ -2379,8 +2439,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                f.created_at AS favoritedAt
         FROM edu_public_resource_favorite f
         JOIN edu_public_resource r ON r.id = f.resource_id
+        LEFT JOIN edu_public_resource_category c ON c.id = r.category_id
         WHERE f.user_id = #{userId}
           AND r.status = 'APPROVED'
+          AND (c.kind IS NULL OR c.kind &lt;&gt; 'IDEOLOGY')
         ORDER BY f.created_at DESC
     </select>
 
@@ -2396,20 +2458,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                rv.mime_type AS mimeType,
                rv.byte_size AS byteSize
         FROM edu_public_resource r
+        LEFT JOIN edu_public_resource_category c ON c.id = r.category_id
         LEFT JOIN edu_public_resource_version rv
           ON rv.resource_id = r.id
          AND rv.version_no = (SELECT MAX(v.version_no)
                                 FROM edu_public_resource_version v
                                WHERE v.resource_id = r.id)
         WHERE r.submitter_user_id = #{userId}
+          AND (c.kind IS NULL OR c.kind &lt;&gt; 'IDEOLOGY')
         ORDER BY r.created_at DESC, r.id DESC
         LIMIT #{offset}, #{limit}
     </select>
 
     <select id="countMyPublicResources" resultType="int">
         SELECT COUNT(*)
-        FROM edu_public_resource
-        WHERE submitter_user_id = #{userId}
+        FROM edu_public_resource r
+        LEFT JOIN edu_public_resource_category c ON c.id = r.category_id
+        WHERE r.submitter_user_id = #{userId}
+          AND (c.kind IS NULL OR c.kind &lt;&gt; 'IDEOLOGY')
     </select>
 
     <update id="updatePublicVersionStatus" parameterType="map">
@@ -2417,5 +2483,80 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
            SET processing_status = #{processingStatus}
          WHERE id = #{versionId}
     </update>
+
+    <!-- ========== 环节思政融入点 ========== -->
+    <select id="selectStageIdeologyPoints" resultType="java.util.LinkedHashMap">
+        SELECT p.id,
+               p.stage_kind AS stageKind,
+               p.stage_id AS stageId,
+               p.category_id AS categoryId,
+               c.name AS categoryName,
+               p.note,
+               DATE_FORMAT(p.updated_at, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt
+        FROM edu_stage_ideology p
+        JOIN edu_public_resource_category c ON c.id = p.category_id
+        WHERE p.binding_id = #{bindingId}
+          AND p.stage_kind = #{stageKind}
+          AND p.stage_id = #{stageId}
+        ORDER BY c.sort_order, c.id
+    </select>
+
+    <select id="selectAllStageIdeologyPoints" resultType="java.util.LinkedHashMap">
+        SELECT p.id,
+               p.stage_kind AS stageKind,
+               p.stage_id AS stageId,
+               p.category_id AS categoryId,
+               c.name AS categoryName,
+               p.note,
+               DATE_FORMAT(p.updated_at, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt
+        FROM edu_stage_ideology p
+        JOIN edu_public_resource_category c ON c.id = p.category_id
+        WHERE p.binding_id = #{bindingId}
+        ORDER BY p.stage_kind, p.stage_id, c.sort_order, c.id
+    </select>
+
+    <delete id="deleteStageIdeologyPoints">
+        DELETE FROM edu_stage_ideology
+         WHERE binding_id = #{bindingId}
+           AND stage_kind = #{stageKind}
+           AND stage_id = #{stageId}
+    </delete>
+
+    <insert id="insertStageIdeologyPoint" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO edu_stage_ideology
+            (binding_id, course_space_id, stage_kind, stage_id, category_id, note, created_by_user_id)
+        VALUES
+            (#{bindingId}, #{courseSpaceId}, #{stageKind}, #{stageId}, #{categoryId}, #{note}, #{createdByUserId})
+    </insert>
+
+    <select id="selectIdeologyCategoryId" resultType="java.lang.Long">
+        SELECT id
+        FROM edu_public_resource_category
+        WHERE id = #{categoryId}
+          AND kind = 'IDEOLOGY'
+          AND status = '0'
+    </select>
+
+    <select id="countStageResource" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_resource_class_release
+        WHERE binding_id = #{bindingId}
+          AND resource_id = #{resourceId}
+          AND ended_at IS NULL
+    </select>
+
+    <select id="countStageQuiz" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_assignment
+        WHERE id = #{assignmentId}
+          AND binding_id = #{bindingId}
+    </select>
+
+    <select id="countStageDiscussion" resultType="int">
+        SELECT COUNT(*)
+        FROM edu_discussion_topic
+        WHERE id = #{topicId}
+          AND binding_id = #{bindingId}
+    </select>
 
 </mapper>

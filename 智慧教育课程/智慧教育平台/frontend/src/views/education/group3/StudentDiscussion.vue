@@ -126,6 +126,14 @@
             <h3 class="g3-detail-title">{{ topic.title }}</h3>
             <p class="g3-topic-body">{{ topic.content || '教师暂未填写正文' }}</p>
 
+            <div v-if="ideologyPoints.length" class="g3-ideology-block">
+              <div class="g3-ideology-head">思政融入</div>
+              <div v-for="point in ideologyPoints" :key="point.categoryId" class="g3-ideology-row">
+                <el-tag size="small" type="warning" effect="plain">{{ point.categoryName }}</el-tag>
+                <span v-if="point.note">{{ point.note }}</span>
+              </div>
+            </div>
+
             <div class="g3-topic-tags">
               <el-tag size="small" type="info" effect="plain">{{ topic.category || '未分类' }}</el-tag>
               <el-tag v-if="topic.knowledgePoint" size="small" effect="plain">{{ topic.knowledgePoint }}</el-tag>
@@ -248,6 +256,7 @@ import {
   createDiscussionPost,
   discussionAction,
   getDiscussion,
+  getStageIdeologyPoints,
   listDiscussionFolders,
   listDiscussions
 } from '@/api/education/group3'
@@ -287,6 +296,7 @@ const replyContent = ref('')
 const replyAnonymous = ref(false)
 const posting = ref(false)
 const likeLoading = ref(false)
+const ideologyPoints = ref([])
 
 let listToken = 0
 let topicToken = 0
@@ -434,11 +444,27 @@ async function loadTopic(topicId) {
     replyContent.value = ''
     replyAnonymous.value = false
     postAnonymous.value = false
+    loadIdeologyPoints(topicId)
   } catch (err) {
     if (token !== topicToken) return
     topicError.value = err && err.message ? err.message : '讨论详情加载失败'
   } finally {
     if (token === topicToken) topicLoading.value = false
+  }
+}
+
+async function loadIdeologyPoints(topicId) {
+  ideologyPoints.value = []
+  if (!topicId || !bindingId.value) return
+  try {
+    const res = await getStageIdeologyPoints({
+      bindingId: bindingId.value,
+      stageKind: 'DISCUSSION',
+      stageId: topicId
+    })
+    ideologyPoints.value = Array.isArray(res.data) ? res.data : []
+  } catch (err) {
+    ideologyPoints.value = []
   }
 }
 
@@ -654,4 +680,13 @@ onMounted(async () => {
   .g3-discussion-filter { align-items: stretch; }
   .g3-like { margin-left: 0; }
 }
+.g3-ideology-block {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: #fffaf0;
+  border: 1px solid #f5dab1;
+  border-radius: 6px;
+}
+.g3-ideology-head { font-size: 13px; font-weight: 600; color: #b45309; margin-bottom: 6px; }
+.g3-ideology-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.7; color: #4b5563; padding: 2px 0; }
 </style>

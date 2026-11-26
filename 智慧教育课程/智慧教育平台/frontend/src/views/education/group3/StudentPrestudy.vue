@@ -88,6 +88,15 @@
                   :closable="false"
                   class="g3-gap"
                 />
+
+                <div v-if="ideologyPoints.length" class="g3-ideology-block">
+                  <div class="g3-ideology-head">思政融入</div>
+                  <div v-for="point in ideologyPoints" :key="point.categoryId" class="g3-ideology-row">
+                    <el-tag size="small" type="warning" effect="plain">{{ point.categoryName }}</el-tag>
+                    <span v-if="point.note">{{ point.note }}</span>
+                  </div>
+                </div>
+
                 <el-alert
                   v-if="!canSubmit && !detail.submitted"
                   :title="blockReason"
@@ -283,6 +292,13 @@
             开放：{{ formatTime(materialNode.opensAt) }} 至 {{ formatTime(materialNode.closesAt) }}
             <span v-if="materialNode.meta">· V{{ materialNode.meta.versionNo || 1 }} · {{ Number(materialNode.meta.pageCount || 0) }} 页</span>
           </p>
+          <div v-if="ideologyPoints.length" class="g3-ideology-block">
+            <div class="g3-ideology-head">思政融入</div>
+            <div v-for="point in ideologyPoints" :key="point.categoryId" class="g3-ideology-row">
+              <el-tag size="small" type="warning" effect="plain">{{ point.categoryName }}</el-tag>
+              <span v-if="point.note">{{ point.note }}</span>
+            </div>
+          </div>
           <div v-if="materialVideoUrl" class="g3-material-video">
             <video :src="materialVideoUrl" controls />
           </div>
@@ -498,6 +514,7 @@ import { ElMessage } from 'element-plus'
 import { saveAs } from 'file-saver'
 import {
   downloadVersion,
+  getStageIdeologyPoints,
   getStudentPreview,
   getVersion,
   getVersionPage,
@@ -727,7 +744,7 @@ const nodes = computed(() => withSeq([
   ...toNodes(tasks.value),
   ...materials.value.map(toMaterialNode),
   ...discussions.value.map(toDiscussionNode)
-]))
+].map(node => ({ ...node, ideology: ideologyOfNode(node) }))))
 
 const visibleNodes = computed(() => {
   if (stateFilter.value === 'all') return nodes.value
@@ -754,6 +771,74 @@ const stats = computed(() => {
 })
 
 const selectedNode = computed(() => nodes.value.find(node => node.key === selectedKey.value) || null)
+
+/* ---------- 环节思政融入点（只读） ---------- */
+const ideologyPoints = ref([])
+const ideologyLoading = ref(false)
+const ideologyMap = ref({})
+let ideologyToken = 0
+
+function buildIdeologyMap(rows) {
+  const map = {}
+  ;(rows || []).forEach(row => {
+    const key = `${row.stageKind}:${row.stageId}`
+    if (!map[key]) map[key] = []
+    map[key].push(row)
+  })
+  return map
+}
+
+function ideologyOfNode(node) {
+  if (!node) return []
+  if (node.kind === 'MATERIAL') {
+    const resourceId = (node.meta && node.meta.resourceId) || node.resourceId
+    return resourceId ? ideologyMap.value[`RESOURCE:${resourceId}`] || [] : []
+  }
+  if (node.kind === 'QUIZ' || node.kind === 'DISCUSSION') {
+    return node.id ? ideologyMap.value[`${node.kind}:${node.id}`] || [] : []
+  }
+  return []
+}
+
+function ideologyStageOf(node) {
+  if (!node) return null
+  if (node.kind === 'MATERIAL') {
+    const resourceId = (node.meta && node.meta.resourceId) || node.resourceId
+    return resourceId ? { stageKind: 'RESOURCE', stageId: resourceId } : null
+  }
+  if (node.kind === 'QUIZ') {
+    return node.id ? { stageKind: 'QUIZ', stageId: node.id } : null
+  }
+  return null
+}
+
+async function loadIdeologyPoints(node) {
+  const target = ideologyStageOf(node)
+  if (!bindingId.value || !target) {
+    ideologyPoints.value = []
+    return
+  }
+  const token = ++ideologyToken
+  ideologyLoading.value = true
+  try {
+    const res = await getStageIdeologyPoints({
+      bindingId: bindingId.value,
+      stageKind: target.stageKind,
+      stageId: target.stageId
+    })
+    if (token !== ideologyToken) return
+    ideologyPoints.value = Array.isArray(res.data) ? res.data : []
+  } catch (err) {
+    if (token !== ideologyToken) return
+    ideologyPoints.value = []
+  } finally {
+    if (token === ideologyToken) ideologyLoading.value = false
+  }
+}
+
+watch(selectedKey, () => {
+  loadIdeologyPoints(selectedNode.value)
+})
 const items = computed(() => (detail.value && Array.isArray(detail.value.items) ? detail.value.items : []))
 const detailState = computed(() => (detail.value && detail.value.state) || (selectedNode.value && selectedNode.value.state) || '')
 const canSubmit = computed(() => Boolean(
@@ -1020,15 +1105,17 @@ async function loadTasks() {
   const token = ++listToken
   loadingList.value = true
   try {
-    const [previewRes, materialRes, discussionRes] = await Promise.all([
+    const [previewRes, materialRes, discussionRes, ideologyRes] = await Promise.all([
       listStudentPreviews(bindingId.value),
       listStudentPrepMaterials(bindingId.value).catch(() => null),
-      listDiscussions(bindingId.value).catch(() => null)
+      listDiscussions(bindingId.value).catch(() => null),
+      getStageIdeologyPoints({ bindingId: bindingId.value }).catch(() => null)
     ])
     if (token !== listToken) return
     tasks.value = Array.isArray(previewRes.data) ? previewRes.data : []
     materials.value = materialRes && Array.isArray(materialRes.data) ? materialRes.data : []
     discussions.value = discussionRes && Array.isArray(discussionRes.data) ? discussionRes.data : []
+    ideologyMap.value = buildIdeologyMap(ideologyRes && Array.isArray(ideologyRes.data) ? ideologyRes.data : [])
     openTargetFromQuery()
   } catch (err) {
     if (token !== listToken) return
@@ -1149,4 +1236,13 @@ onBeforeUnmount(() => {
 .g3-material-video video { width: 100%; max-height: 60vh; background: #000; border-radius: 6px; }
 .g3-material-pages { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
 .g3-material-pages img { width: 100%; border: 1px solid #ebeef5; border-radius: 4px; }
+.g3-ideology-block {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: #fffaf0;
+  border: 1px solid #f5dab1;
+  border-radius: 6px;
+}
+.g3-ideology-head { font-size: 13px; font-weight: 600; color: #b45309; margin-bottom: 6px; }
+.g3-ideology-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.7; color: #4b5563; padding: 2px 0; }
 </style>

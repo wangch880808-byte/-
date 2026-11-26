@@ -39,11 +39,13 @@ import com.ruoyi.education.group3.contract.PublishedResourceProvider;
 import com.ruoyi.education.group3.mapper.Group3Mapper;
 import com.ruoyi.education.group3.service.Group3AccessService;
 import com.ruoyi.education.group3.service.Group3DiscussionService;
+import com.ruoyi.education.group3.service.Group3LearningAnalyticsService;
 import com.ruoyi.education.group3.service.Group3PrepareService;
 import com.ruoyi.education.group3.service.Group3ResourceService;
 import com.ruoyi.education.group3.service.Group3StudentDashboardService;
 import com.ruoyi.education.group3.service.Group3TransferService;
 import com.ruoyi.education.group3.service.Group3PublicLibraryService;
+import com.ruoyi.education.group3.service.Group3StageIdeologyService;
 import com.ruoyi.education.group3.support.Group3Requests;
 import com.ruoyi.education.group3.support.Group3Security;
 import com.ruoyi.education.service.EduOutlineService;
@@ -65,6 +67,8 @@ public class Group3Controller
     private final EduCourseAccessService courseAccess;
     private final EduOutlineService outline;
     private final Group3PublicLibraryService publicLibraryService;
+    private final Group3StageIdeologyService stageIdeologyService;
+    private final Group3LearningAnalyticsService learningAnalyticsService;
 
     public Group3Controller(
             Group3AccessService accessService,
@@ -79,7 +83,9 @@ public class Group3Controller
             LearningAnalyticsProvider learningAnalyticsProvider,
             EduCourseAccessService courseAccess,
             EduOutlineService outline,
-            Group3PublicLibraryService publicLibraryService)
+            Group3PublicLibraryService publicLibraryService,
+            Group3StageIdeologyService stageIdeologyService,
+            Group3LearningAnalyticsService learningAnalyticsService)
     {
         this.accessService = accessService;
         this.resourceService = resourceService;
@@ -94,6 +100,8 @@ public class Group3Controller
         this.courseAccess = courseAccess;
         this.outline = outline;
         this.publicLibraryService = publicLibraryService;
+        this.stageIdeologyService = stageIdeologyService;
+        this.learningAnalyticsService = learningAnalyticsService;
     }
 
     @GetMapping("/contexts")
@@ -602,6 +610,13 @@ public class Group3Controller
     public R<Map<String, Object>> learningSubmissions(@PathVariable Long bindingId)
     {
         return R.ok(learningAnalyticsProvider.submissionRecords(bindingId));
+    }
+
+    /** 教师端课堂完成度：逐环节完成学生 ID，前端按堂课取交集统计全员完成人数。 */
+    @GetMapping("/analytics/class-completion")
+    public R<Map<String, Object>> classCompletion(@RequestParam Long bindingId)
+    {
+        return R.ok(learningAnalyticsService.classCompletion(bindingId));
     }
 
     @GetMapping("/contracts/learning-analytics/{bindingId}/discussion")
@@ -1196,6 +1211,36 @@ public class Group3Controller
                 : mapper.selectResourceFolders(courseSpaceId);
     }
 
+    /* ========== 环节思政融入点 ========== */
+
+    @GetMapping("/ideology/stage-points")
+    public R<List<Map<String, Object>>> stageIdeologyPoints(
+            @RequestParam Long bindingId,
+            @RequestParam(required = false) String stageKind,
+            @RequestParam(required = false) Long stageId)
+    {
+        if (stageKind == null || stageKind.isBlank() || stageId == null)
+        {
+            return R.ok(stageIdeologyService.allPoints(bindingId));
+        }
+        return R.ok(stageIdeologyService.points(bindingId, stageKind, stageId));
+    }
+
+    @Log(title = "环节思政融入点", businessType = BusinessType.UPDATE)
+    @PutMapping("/ideology/stage-points")
+    public R<List<Map<String, Object>>> saveStageIdeologyPoints(@RequestBody Map<String, Object> request)
+    {
+        Long bindingId = request.get("bindingId") == null ? null
+                : Long.valueOf(String.valueOf(request.get("bindingId")));
+        Long stageId = request.get("stageId") == null ? null
+                : Long.valueOf(String.valueOf(request.get("stageId")));
+        String stageKind = request.get("stageKind") == null ? null : String.valueOf(request.get("stageKind"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> points = request.get("points") instanceof List
+                ? (List<Map<String, Object>>) request.get("points") : List.of();
+        return R.ok(stageIdeologyService.replace(bindingId, stageKind, stageId, points), "思政融入点已保存");
+    }
+
     /* ========== 公共资源库 ========== */
 
     @GetMapping("/public/categories")
@@ -1210,10 +1255,13 @@ public class Group3Controller
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String resourceKind,
+            @RequestParam(required = false) String categoryKind,
+            @RequestParam(required = false) String excludeCategoryKind,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize)
     {
-        return R.ok(publicLibraryService.listResources(keyword, categoryId, resourceKind, pageNum, pageSize));
+        return R.ok(publicLibraryService.listResources(keyword, categoryId, resourceKind, categoryKind,
+                excludeCategoryKind, pageNum, pageSize));
     }
 
     @GetMapping("/public/resources/{id}")

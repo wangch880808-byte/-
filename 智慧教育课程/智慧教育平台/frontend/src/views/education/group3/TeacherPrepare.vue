@@ -78,6 +78,26 @@
                     <span class="day-dot"></span>
                     <strong>{{ group.label }}</strong>
                     <span class="day-count">{{ groupCountText(group) }}</span>
+                    <template v-if="group.key !== 'unscheduled'">
+                      <el-tooltip
+                        v-if="group.progress"
+                        :content="`本堂课 ${group.progress.stageCount} 个任务点；${group.progress.completedAll} / ${group.progress.studentCount} 名学生已完成全部任务点`"
+                        placement="top"
+                      >
+                        <span class="day-progress">
+                          <el-progress
+                            :percentage="group.progress.percent"
+                            :stroke-width="6"
+                            :show-text="false"
+                            class="day-progress-bar"
+                          />
+                          <span class="day-progress-text">
+                            全员完成 {{ group.progress.completedAll }}/{{ group.progress.studentCount }}
+                          </span>
+                        </span>
+                      </el-tooltip>
+                      <span v-else class="day-progress-text muted">全员完成 —</span>
+                    </template>
                     <el-tag v-if="isTodayGroup(group.key)" size="small" type="success">现在</el-tag>
                   </div>
 
@@ -110,6 +130,19 @@
                       <div v-if="node.tags.length" class="tl-tags">
                         <el-tag v-for="tag in node.tags" :key="tag" size="small" type="info" effect="plain">
                           {{ tag }}
+                        </el-tag>
+                      </div>
+                      <div v-if="ideologyOfNode(node).length" class="tl-ideology">
+                        <span class="tl-ideology-label">思政</span>
+                        <el-tag
+                          v-for="point in ideologyOfNode(node)"
+                          :key="point.categoryId"
+                          size="small"
+                          type="warning"
+                          effect="plain"
+                          :title="point.note || point.categoryName"
+                        >
+                          {{ point.categoryName }}
                         </el-tag>
                       </div>
                       <div class="tl-actions" @click.stop>
@@ -376,6 +409,33 @@
                 </el-tag>
               </div>
 
+              <el-divider v-if="ideologyTarget" />
+
+              <div v-if="ideologyTarget" class="detail-section">
+                <div class="discussion-section-head">
+                  <h4>思政融入点</h4>
+                  <el-button link type="primary" @click="openIdeologyEditor">设置思政融入点</el-button>
+                </div>
+                <div v-loading="ideologyLoading">
+                  <div v-if="ideologyPoints.length" class="ideology-chip-list">
+                    <el-tag
+                      v-for="point in ideologyPoints"
+                      :key="point.categoryId"
+                      type="warning"
+                      effect="plain"
+                    >
+                      {{ point.categoryName }}
+                    </el-tag>
+                  </div>
+                  <div v-for="point in ideologyPoints" :key="'note-' + point.categoryId" class="ideology-note">
+                    <strong>{{ point.categoryName }}：</strong>{{ point.note || '（未填写融入说明）' }}
+                  </div>
+                  <p v-if="!ideologyLoading && !ideologyPoints.length" class="edu-hint">
+                    尚未设置。设置后，学生在资料阅读、预习任务或讨论环节中会看到对应思政元素与融入说明。
+                  </p>
+                </div>
+              </div>
+
               <el-divider />
 
               <div v-if="selectedNode.kind === 'QUIZ'" class="detail-section">
@@ -640,6 +700,36 @@
               </p>
             </template>
       </el-card>
+    </el-dialog>
+
+    <el-dialog
+      v-model="ideologyEditorVisible"
+      title="设置思政融入点"
+      width="min(680px, 94vw)"
+      top="8vh"
+      append-to-body
+      class="stage-detail-dialog"
+    >
+      <p class="edu-hint">
+        选择本环节要融入的思政元素，并说明融入方式与教学意图；学生会在对应环节详情中看到这些内容。
+      </p>
+      <div v-if="ideologyEditorVisible" class="ideology-editor">
+        <div v-for="cat in ideologyCategories" :key="cat.id" class="ideology-editor-row">
+          <el-checkbox v-model="ideologyDraft[cat.id].checked">{{ cat.name }}</el-checkbox>
+          <el-input
+            v-model="ideologyDraft[cat.id].note"
+            :disabled="!ideologyDraft[cat.id].checked"
+            maxlength="500"
+            show-word-limit
+            placeholder="融入说明，例如：结合案例讨论科学家精神"
+          />
+        </div>
+      </div>
+      <el-empty v-if="ideologyEditorVisible && !ideologyCategories.length" description="暂无可用的思政元素" />
+      <template #footer>
+        <el-button @click="ideologyEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="ideologySaving" @click="saveIdeologyPoints">保存</el-button>
+      </template>
     </el-dialog>
 
     <!-- 已删除环节 -->
@@ -1446,19 +1536,23 @@ import {
   deletePreviewTask,
   discussionAction,
   downloadVersion,
+  getClassCompletion,
   getDiscussion,
   getOverview,
+  getStageIdeologyPoints,
   getVersion,
   getVersionPage,
   listDiscussionFolders,
   listDiscussions,
   listPlans,
   listPreviewTasks,
+  listPublicCategories,
   listRemovedStages,
   listResourceVersions,
   removeStage,
   restoreStage,
   revokeRelease,
+  saveStageIdeologyPoints,
   updateStage
 } from '@/api/education/group3'
 
@@ -1506,6 +1600,7 @@ const planRows = ref([])
 const discussionRows = ref([])
 const discussionFolders = ref([])
 const nodes = ref([])
+const classCompletion = ref(null)
 const serverNow = ref('')
 const selectedKey = ref('')
 const detailVisible = ref(false)
@@ -1557,18 +1652,22 @@ async function loadData() {
     discussionRows.value = []
     discussionFolders.value = []
     nodes.value = []
+    ideologyMap.value = {}
+    classCompletion.value = null
     return
   }
   pageLoading.value = true
   errorText.value = ''
   const requested = String(bindingId.value)
   try {
-    const [overviewRes, taskRes, planRes, discussionRes, folderRes] = await Promise.all([
+    const [overviewRes, taskRes, planRes, discussionRes, folderRes, ideologyRes, completionRes] = await Promise.all([
       getOverview(bindingId.value),
       listPreviewTasks(bindingId.value),
       listPlans(bindingId.value),
       listDiscussions(bindingId.value).catch(() => ({ data: [] })),
-      listDiscussionFolders(bindingId.value).catch(() => ({ data: [] }))
+      listDiscussionFolders(bindingId.value).catch(() => ({ data: [] })),
+      getStageIdeologyPoints({ bindingId: bindingId.value }).catch(() => null),
+      getClassCompletion(bindingId.value).catch(() => null)
     ])
     if (String(bindingId.value) !== requested) return
     overview.value = overviewRes.data || {}
@@ -1576,6 +1675,8 @@ async function loadData() {
     planRows.value = Array.isArray(planRes.data) ? planRes.data : []
     discussionRows.value = listRows(discussionRes.data)
     discussionFolders.value = listRows(folderRes.data)
+    ideologyMap.value = buildIdeologyMap(ideologyRes && Array.isArray(ideologyRes.data) ? ideologyRes.data : [])
+    classCompletion.value = completionRes && completionRes.data ? completionRes.data : null
     serverNow.value = overview.value.serverTime || ''
     nodes.value = numberStages(
       collectTeacherNodes(overview.value, taskRows.value, discussionRows.value),
@@ -2082,7 +2183,64 @@ function groupNodesByDay(nodeList, now) {
 /* ---------- 视图数据 ---------- */
 
 const visibleNodes = computed(() => filterNodes(nodes.value, filter.value))
-const nodeGroups = computed(() => groupNodesByDay(visibleNodes.value, serverNow.value))
+
+/** 学情接口返回的“环节 → 完成学生集合”，键与环节卡片一致。 */
+const completionStageSets = computed(() => {
+  const map = {}
+  const data = classCompletion.value
+  if (data && Array.isArray(data.stages)) {
+    data.stages.forEach(stage => {
+      if (stage && stage.kind && stage.refId != null) {
+        map[`${stage.kind}:${stage.refId}`] = new Set(
+          Array.isArray(stage.completedStudentIds) ? stage.completedStudentIds : []
+        )
+      }
+    })
+  }
+  return map
+})
+
+function completionKeyOf(node) {
+  if (!node) return ''
+  if (node.kind === 'MATERIAL') {
+    const resourceId = (node.meta && node.meta.resourceId) || node.resourceId
+    return resourceId ? `VIDEO:${resourceId}` : ''
+  }
+  if (node.kind === 'QUIZ') return node.id ? `QUIZ:${node.id}` : ''
+  if (node.kind === 'DISCUSSION') return node.id ? `DISCUSSION:${node.id}` : ''
+  return ''
+}
+
+/** 完成本堂课全部可统计环节的学生人数（未开放环节不计入分母）。 */
+function groupCompletion(group) {
+  const data = classCompletion.value
+  if (!group || group.key === 'unscheduled' || !data || !data.studentCount) return null
+  const keys = []
+  group.nodes.forEach(node => {
+    if (node.state === 'UPCOMING') return
+    const key = completionKeyOf(node)
+    if (key && completionStageSets.value[key]) keys.push(key)
+  })
+  const uniqueKeys = [...new Set(keys)]
+  if (!uniqueKeys.length) return null
+  const sets = uniqueKeys.map(key => completionStageSets.value[key])
+  const smallest = sets.reduce((a, b) => (a.size <= b.size ? a : b))
+  let completedAll = 0
+  smallest.forEach(studentId => {
+    if (sets.every(set => set.has(studentId))) completedAll += 1
+  })
+  return {
+    completedAll,
+    studentCount: data.studentCount,
+    stageCount: uniqueKeys.length,
+    percent: Math.round((completedAll * 100) / data.studentCount)
+  }
+}
+
+const nodeGroups = computed(() => groupNodesByDay(visibleNodes.value, serverNow.value).map(group => ({
+  ...group,
+  progress: groupCompletion(group)
+})))
 const stageGroups = computed(() => buildStageGroups(nodes.value))
 const stageTotal = computed(() => stageGroups.value.reduce((sum, group) => sum + group.nodes.length, 0))
 const nodeIndex = computed(() => {
@@ -2091,6 +2249,130 @@ const nodeIndex = computed(() => {
   return map
 })
 const selectedNode = computed(() => nodeIndex.value[selectedKey.value] || null)
+
+/* ---------- 环节思政融入点 ---------- */
+
+const ideologyPoints = ref([])
+const ideologyLoading = ref(false)
+const ideologyEditorVisible = ref(false)
+const ideologySaving = ref(false)
+const ideologyCategories = ref([])
+const ideologyDraft = reactive({})
+const ideologyMap = ref({})
+let ideologyToken = 0
+
+function buildIdeologyMap(rows) {
+  const map = {}
+  ;(rows || []).forEach(row => {
+    const key = `${row.stageKind}:${row.stageId}`
+    if (!map[key]) map[key] = []
+    map[key].push(row)
+  })
+  return map
+}
+
+/** 环节卡片上展示的思政元素；与环节详情使用同一套 stageKind/stageId 规则。 */
+function ideologyOfNode(node) {
+  if (!node) return []
+  if (node.kind === 'MATERIAL') {
+    const resourceId = (node.meta && node.meta.resourceId) || node.resourceId
+    return resourceId ? ideologyMap.value[`RESOURCE:${resourceId}`] || [] : []
+  }
+  if (node.kind === 'QUIZ' || node.kind === 'DISCUSSION') {
+    return node.id ? ideologyMap.value[`${node.kind}:${node.id}`] || [] : []
+  }
+  return []
+}
+
+function ideologyStageOf(node) {
+  if (!node) return null
+  if (node.kind === 'MATERIAL') {
+    const resourceId = (node.meta && node.meta.resourceId) || node.resourceId
+    return resourceId ? { stageKind: 'RESOURCE', stageId: resourceId } : null
+  }
+  if (node.kind === 'QUIZ' || node.kind === 'DISCUSSION') {
+    return node.id ? { stageKind: node.kind, stageId: node.id } : null
+  }
+  return null
+}
+
+const ideologyTarget = computed(() => ideologyStageOf(selectedNode.value))
+
+async function loadIdeologyPoints(node) {
+  const target = ideologyStageOf(node)
+  if (!bindingId.value || !target) {
+    ideologyPoints.value = []
+    return
+  }
+  const token = ++ideologyToken
+  ideologyLoading.value = true
+  try {
+    const res = await getStageIdeologyPoints({
+      bindingId: bindingId.value,
+      stageKind: target.stageKind,
+      stageId: target.stageId
+    })
+    if (token !== ideologyToken) return
+    ideologyPoints.value = Array.isArray(res.data) ? res.data : []
+  } catch (err) {
+    if (token !== ideologyToken) return
+    ideologyPoints.value = []
+  } finally {
+    if (token === ideologyToken) ideologyLoading.value = false
+  }
+}
+
+watch(selectedKey, () => {
+  loadIdeologyPoints(selectedNode.value)
+})
+
+async function openIdeologyEditor() {
+  if (!ideologyTarget.value || !bindingId.value) return
+  if (!ideologyCategories.value.length) {
+    try {
+      const res = await listPublicCategories('IDEOLOGY')
+      ideologyCategories.value = Array.isArray(res.data) ? res.data : []
+    } catch (err) {
+      ElMessage.error('思政元素加载失败：' + (err && err.message ? err.message : err))
+      return
+    }
+  }
+  Object.keys(ideologyDraft).forEach(key => { delete ideologyDraft[key] })
+  ideologyCategories.value.forEach(cat => {
+    ideologyDraft[cat.id] = { checked: false, note: '' }
+  })
+  ideologyPoints.value.forEach(point => {
+    ideologyDraft[point.categoryId] = { checked: true, note: point.note || '' }
+  })
+  ideologyEditorVisible.value = true
+}
+
+async function saveIdeologyPoints() {
+  const target = ideologyTarget.value
+  if (!target || !bindingId.value) return
+  const points = ideologyCategories.value
+    .filter(cat => ideologyDraft[cat.id] && ideologyDraft[cat.id].checked)
+    .map(cat => ({ categoryId: cat.id, note: (ideologyDraft[cat.id].note || '').trim() }))
+  ideologySaving.value = true
+  try {
+    const res = await saveStageIdeologyPoints({
+      bindingId: Number(bindingId.value),
+      stageKind: target.stageKind,
+      stageId: Number(target.stageId),
+      points
+    })
+    const rows = Array.isArray(res.data) ? res.data : []
+    ideologyPoints.value = rows
+    ideologyMap.value = { ...ideologyMap.value, [`${target.stageKind}:${target.stageId}`]: rows }
+    ideologyEditorVisible.value = false
+    ElMessage.success('思政融入点已保存')
+  } catch (err) {
+    ElMessage.error('保存失败：' + (err && err.message ? err.message : err))
+  } finally {
+    ideologySaving.value = false
+  }
+}
+
 const selectedGroup = computed(() => {
   if (!selectedNode.value || !selectedNode.value.groupKey) return null
   return stageGroups.value.find(group => group.key === selectedNode.value.groupKey) || null
@@ -3595,6 +3877,7 @@ function submitPostScore(post) {
 }
 .day-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
@@ -3610,6 +3893,22 @@ function submitPostScore(post) {
 .day-count {
   font-size: 12px;
   color: #909399;
+}
+.day-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+.day-progress-bar {
+  width: 72px;
+}
+.day-progress-text {
+  font-size: 12px;
+  color: #606266;
+}
+.day-progress-text.muted {
+  color: #c0c4cc;
 }
 .tl-item {
   display: grid;
@@ -3716,6 +4015,23 @@ function submitPostScore(post) {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 6px;
+}
+.tl-ideology {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tl-ideology-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fdf6ec;
+  border: 1px solid #f5dab1;
+  border-radius: 4px;
+  padding: 0 6px;
+  line-height: 20px;
 }
 .tl-actions {
   display: flex;
@@ -4192,5 +4508,33 @@ function submitPostScore(post) {
   .discussion-post-actions {
     gap: 8px;
   }
+}
+.ideology-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ideology-note {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4b5563;
+  padding: 4px 0;
+}
+.ideology-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+.ideology-editor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.ideology-editor-row:last-child {
+  border-bottom: none;
 }
 </style>

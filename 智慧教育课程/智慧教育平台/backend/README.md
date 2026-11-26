@@ -13,7 +13,7 @@
 - /education/course/{id}/outline：章节、知识点维护，必须具有操作权限且是课程负责人。
 - /education/context：第一组公共课程／教学班上下文。
 - /education/scope：为后续业务提供服务端有效班级、成员、绑定只读契约。
-- /education/group3：第三组课程建设与课前学习入口，覆盖资料与文件夹、题库与题目资源库、章节与知识点详情、预习任务（含整卷发布）、讨论、学生进度看板与笔记、公共教学资源库；实现位于 `ruoyi-education` 的 `com.ruoyi.education.group3`。
+- /education/group3：第三组课程建设与课前学习入口，覆盖资料与文件夹、题库与题目资源库、章节与知识点详情、预习任务（含整卷发布）、讨论、学生进度看板与笔记、公共教学资源库、课程思政素材与环节融入点、课堂全员完成度；实现位于 `ruoyi-education` 的 `com.ruoyi.education.group3`。
 
 复制 .env.example 为 .env 并填写私有配置，前端构建完成后从项目根执行 mvn -f backend/pom.xml -pl ruoyi-admin -am -DskipTests clean package，再执行 backend/run-local.ps1。脚本读取的是本目录 .env；IDEA 不会自动读取它。
 

@@ -546,6 +546,14 @@
       :folder-id="currentFolderId"
     />
 
+    <!-- ============ 课程思政素材库 ============ -->
+    <PublicLibrary
+      v-model="ideologyVisible"
+      kind="IDEOLOGY"
+      :binding-id="bindingId"
+      :folder-id="currentFolderId"
+    />
+
     <!-- ============ 新建文件夹 ============ -->
     <el-dialog v-model="folderDialogOpen" title="新建文件夹" width="460px" append-to-body>
       <el-form label-width="90px">
@@ -1320,6 +1328,7 @@ const linkForm = reactive({
 /* 公共资源库 */
 const PublicLibrary = defineAsyncComponent(() => import('./PublicLibrary.vue'))
 const libraryVisible = ref(false)
+const ideologyVisible = ref(false)
 
 const versionOpen = ref(false)
 const versionSaving = ref(false)
@@ -2110,6 +2119,10 @@ function handleSourceCommand(label) {
   }
   if (label === '教学资源库') {
     libraryVisible.value = true
+    return
+  }
+  if (label === '课程思政') {
+    ideologyVisible.value = true
     return
   }
   ElMessage.info(`“${label}”来源暂未接入，当前请使用本地上传、添加网址或在线图书`)

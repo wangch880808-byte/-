@@ -515,13 +515,17 @@ public interface Group3Mapper
             @Param("keyword") String keyword,
             @Param("categoryId") Long categoryId,
             @Param("resourceKind") String resourceKind,
+            @Param("categoryKind") String categoryKind,
+            @Param("excludeCategoryKind") String excludeCategoryKind,
             @Param("offset") int offset,
             @Param("limit") int limit);
 
     int countPublicResources(
             @Param("keyword") String keyword,
             @Param("categoryId") Long categoryId,
-            @Param("resourceKind") String resourceKind);
+            @Param("resourceKind") String resourceKind,
+            @Param("categoryKind") String categoryKind,
+            @Param("excludeCategoryKind") String excludeCategoryKind);
 
     Map<String, Object> selectPublicResourceDetail(@Param("id") Long id);
 
@@ -538,6 +542,11 @@ public interface Group3Mapper
     int increasePublicViewCount(@Param("id") Long id);
 
     int increasePublicDownloadCount(@Param("id") Long id);
+
+    int countActiveReleasedResourceByTitle(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("bindingId") Long bindingId,
+            @Param("title") String title);
 
     int insertPublicFavorite(Map<String, Object> row);
 
@@ -559,4 +568,40 @@ public interface Group3Mapper
     int countMyPublicResources(@Param("userId") Long userId);
 
     int updatePublicVersionStatus(Map<String, Object> row);
+
+    /* ========== 环节思政融入点 ========== */
+
+    List<Map<String, Object>> selectStageIdeologyPoints(
+            @Param("bindingId") Long bindingId,
+            @Param("stageKind") String stageKind,
+            @Param("stageId") Long stageId);
+
+    List<Map<String, Object>> selectAllStageIdeologyPoints(@Param("bindingId") Long bindingId);
+
+    /**
+     * 逐学生 × 逐环节的完成明细，用于教师端统计“完成本堂课全部环节的学生人数”。
+     * 返回 kind（VIDEO/QUIZ/DISCUSSION）、refId、userId。
+     */
+    List<Map<String, Object>> selectCompletionUsers(@Param("bindingId") Long bindingId);
+
+    int deleteStageIdeologyPoints(
+            @Param("bindingId") Long bindingId,
+            @Param("stageKind") String stageKind,
+            @Param("stageId") Long stageId);
+
+    int insertStageIdeologyPoint(Map<String, Object> row);
+
+    Long selectIdeologyCategoryId(@Param("categoryId") Long categoryId);
+
+    int countStageResource(
+            @Param("bindingId") Long bindingId,
+            @Param("resourceId") Long resourceId);
+
+    int countStageQuiz(
+            @Param("bindingId") Long bindingId,
+            @Param("assignmentId") Long assignmentId);
+
+    int countStageDiscussion(
+            @Param("bindingId") Long bindingId,
+            @Param("topicId") Long topicId);
 }
