@@ -163,3 +163,38 @@ ORDER BY r.role_key, m.menu_type, m.order_num;
 ```
 
 管理员的 `getInfo` 由 `userId = 1` 直接返回 `*:*:*` 和全部启用菜单，不依赖 `sys_role_menu`，因此无需为上表补管理员行。
+
+## 6-01/6-03 总览入口与权限（2026-11-26）
+
+### 两套总览的边界
+
+| 入口 | 归属 | 后端 | 权限 | 说明 |
+| --- | --- | --- | --- | --- |
+| `/admin/overview` | 第一组 | `/education/overview` | `education:overview:admin` 作为页面门槛；超级管理员由 `*:*:*` 覆盖 | 组织管理统计：学校、学生、教师、学院、行政班，以及未分班学生/未归属学院教师；组织待办仍在页面 `#overview-tasks` |
+| `/admin/todos` | 6-01 | `/education/admin/todos` | `education:overview:admin` | 6-01 管理员待办。`#37` 注册生产页面前，当前路由仍重定向到 `/admin/overview#overview-tasks`；注册后移除该重定向 |
+| `/teacher/teaching-overview` | 6-01/6-03 | 6-01 教师总览接口 | `education:overview:teacher` | `serviceRoute` 为 `education/teacher/overview` |
+| `/student/today-todos` | 6-01/6-03 | 6-01 学生总览接口 | `education:overview:student` | 学习总览/今日待办，`serviceRoute` 为 `education/student/today-todos` |
+
+6-01 的管理员指标接口 `/education/admin/overview` 与第一组 `/education/overview` 分别取值，不合并口径，也不互相覆盖页面。第一组保留 `/admin/overview` 作为管理总览；6-01 保留 `/education/admin/overview`、`/education/admin/todos` 和 `education:overview:admin` 权限要求。
+
+### 已补菜单与权限
+
+新增可重复执行的 [group1-overview-menu-permissions.sql](../sql/group1-overview-menu-permissions.sql)：
+
+- 菜单 `教学总览`：`path=teacher/overview`、`component=education/teacher/overview`、`perms=education:overview:teacher`，分配给教师。
+- 菜单 `学习总览`：`path=student/today-todos`、`component=education/student/today-todos`、`perms=education:overview:student`，分配给学生。
+- 按钮权限 `education:overview:admin`，分配给 `admin` 角色；`管理总览` 页面同步声明该权限。
+- 超级管理员仍由 `*:*:*` 覆盖，不依赖 `sys_role_menu`。
+
+本地 `smart_edu_g12` 实测（2026-11-26）：
+
+- 管理员：`roles=["admin"]`、`permissions=["*:*:*"]`；`education` 子项新增 `teacher/overview`、`student/today-todos`。
+- 教师：新增 `education:overview:teacher`；`education` 子项为 `course`、`announcements`、`teacher/overview`。
+- 学生：新增 `education:overview:student`；`education` 子项为 `course`、`announcements`、`notices`、`student/today-todos`。
+
+### 前端入口
+
+- 管理员的 `/admin/overview` 继续使用第一组页面，不渲染 6-01 指标；6-01 指标留在其独立接口和页面中。
+- `/admin/todos` 的重定向是临时兼容，6-01 生产页面注册后由 6-01 接管，第一组不占用该路径。
+- 教师/学生侧边栏现在会渲染所有已授权业务页；6-01/6-03 注册 `TeacherOverview`、`StudentOverview` 后会自动出现入口，不需要再改第一组菜单。
+- 默认登录落地仍是 `/teacher/overview`、`/student/overview` 占位；6-01 页面合并后可将落地页改为 `teaching-overview`/`today-todos`，或在工作台补快捷入口。

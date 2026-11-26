@@ -1,7 +1,7 @@
 import { shallowReactive } from 'vue'
 export const pages = shallowReactive([
   { id: 'profile', title: '个人中心', sidebar: false, roles: ['admin', 'teacher', 'student'], path: 'profile', component: () => import('@/views/education/ProfileView.vue') },
-  { id: 'overview', title: '管理总览', group: '工作台', roles: ['admin'], path: 'overview', component: () => import('@/views/education/admin/OverviewView.vue') },
+  { id: 'overview', title: '管理总览', group: '工作台', roles: ['admin'], path: 'overview', permission: 'education:overview:admin', component: () => import('@/views/education/admin/OverviewView.vue') },
   {
     id: 'monitoring', title: '运行监控', group: '基础设施', roles: ['admin'], path: 'monitoring',
     accessAny: [

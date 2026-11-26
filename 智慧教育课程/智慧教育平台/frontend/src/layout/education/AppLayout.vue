@@ -122,6 +122,9 @@ onUnmounted(() => {
         <template v-if="session.role !== 'admin'">
           <router-link class="menu-item" :class="{ active: route.name === 'home' }"
             :to="withContext('/' + session.role)" @click="navOpen = false">工作台</router-link>
+          <router-link v-for="page in authorized.filter(item => item.sidebar !== false && item.id !== 'courses')" :key="page.id"
+            class="menu-item" :class="{ active: route.path === pathOf(page) }"
+            :to="withContext(pathOf(page))" @click="navOpen = false">{{ page.title }}</router-link>
           <router-link v-if="coursePage" class="menu-item" :class="{ active: route.name === 'courses' || route.name === 'course-detail' }"
             :to="withContext(pathOf(coursePage))" @click="navOpen = false">我的课程</router-link>
         </template>
