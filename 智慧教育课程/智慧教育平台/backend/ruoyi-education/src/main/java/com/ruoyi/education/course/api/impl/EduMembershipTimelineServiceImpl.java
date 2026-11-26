@@ -4,7 +4,9 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.education.course.api.EduMembershipTimelineService;
 import com.ruoyi.education.course.api.EduStudentBindingAccess;
 import com.ruoyi.education.course.api.EduStudentMemberSegment;
+import com.ruoyi.education.course.api.EduTeacherBindingAccess;
 import com.ruoyi.education.mapper.EduMembershipTimelineMapper;
+import com.ruoyi.education.mapper.EduPortalMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -34,6 +36,8 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
 
     @Autowired
     private EduMembershipTimelineMapper mapper;
+    @Autowired
+    private EduPortalMapper portalMapper;
 
     @Override
     public EduStudentBindingAccess studentInBinding(Long bindingId, Long userId, Instant at) {
@@ -107,6 +111,67 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
         return result;
     }
 
+    @Override
+    public EduTeacherBindingAccess teacherInBinding(Long bindingId, Long userId, Instant at) {
+        if (userId == null) throw new ServiceException("用户编号不能为空");
+        Date point = requireAt(at);
+        Map<String, Object> binding = requireBinding(bindingId);
+        Instant publishedAt = instant(binding.get("published_at"), "published_at");
+        Instant endedAt = instant(binding.get("ended_at"), "ended_at");
+        boolean bindingActive = covers(publishedAt, endedAt, at);
+
+        Map<String, Object> teacherRow = null;
+        List<Map<String, Object>> teacherSegments = mapper.selectTeacherSegmentsInBinding(bindingId, userId, point);
+        if (teacherSegments != null && teacherSegments.size() > 1) {
+            throw new ServiceException("教师在该绑定对应教学班下存在多条重叠任课记录，无法判定唯一权限"
+                    + "（bindingId=" + bindingId + ", userId=" + userId + "）");
+        }
+        if (teacherSegments != null && !teacherSegments.isEmpty()) teacherRow = teacherSegments.get(0);
+
+        boolean teamTeacher = false;
+        if (teacherRow == null) {
+            List<Map<String, Object>> teamSegments = mapper.selectTeamSegmentsInBinding(bindingId, userId, point);
+            if (teamSegments != null && teamSegments.size() > 1) {
+                throw new ServiceException("教师在该绑定对应课程下存在多条重叠团队记录，无法判定唯一权限"
+                        + "（bindingId=" + bindingId + ", userId=" + userId + "）");
+            }
+            teamTeacher = teamSegments != null && !teamSegments.isEmpty();
+        }
+
+        Map<String, Object> user = userBrief(userId);
+        boolean currentTeacher = teacherRow != null || teamTeacher;
+        String teacherRole = teacherRow != null ? text(teacherRow.get("teacher_role"))
+                : (teamTeacher ? "CO_TEACHER" : null);
+        Boolean canPublish = teacherRow != null ? truthy(teacherRow.get("can_publish"))
+                : (teamTeacher ? Boolean.FALSE : null);
+
+        return new EduTeacherBindingAccess(
+                number(binding.get("binding_id")),
+                number(binding.get("teaching_class_id")),
+                text(binding.get("teaching_class_name")),
+                text(binding.get("teaching_class_code")),
+                number(binding.get("course_space_id")),
+                publishedAt,
+                endedAt,
+                userId,
+                text(user.get("userName")),
+                text(user.get("nickName")),
+                bindingActive,
+                "ACTIVE".equals(binding.get("teaching_class_status")),
+                currentTeacher,
+                teacherRole,
+                canPublish);
+    }
+
+    /** 用户标识缺失属于不完整数据，按查询失败处理，不返回身份为空的快照。 */
+    private Map<String, Object> userBrief(Long userId) {
+        List<Map<String, Object>> users = portalMapper.selectUserBrief(List.of(userId));
+        if (users == null || users.isEmpty()) {
+            throw new ServiceException("用户标识不存在（userId=" + userId + "）");
+        }
+        return users.get(0);
+    }
+
     private Map<String, Object> requireBinding(Long bindingId) {
         if (bindingId == null) throw new ServiceException("课程绑定编号不能为空");
         Map<String, Object> binding = mapper.selectBindingWithClass(bindingId);
@@ -152,5 +217,13 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
         if (value == null) return null;
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? null : text;
+    }
+
+    private static boolean truthy(Object value) {
+        if (value == null) return false;
+        if (value instanceof Boolean bool) return bool;
+        if (value instanceof Number number) return number.intValue() == 1;
+        String text = String.valueOf(value).trim();
+        return "1".equals(text) || "true".equalsIgnoreCase(text);
     }
 }

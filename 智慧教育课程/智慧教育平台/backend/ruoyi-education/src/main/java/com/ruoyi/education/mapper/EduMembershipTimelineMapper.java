@@ -21,4 +21,14 @@ public interface EduMembershipTimelineMapper {
 
     /** 学生在时点 at 的全部有效绑定（成员段与绑定都覆盖 at）。 */
     List<Map<String, Object>> selectStudentBindings(@Param("userId") Long userId, @Param("at") Date at);
+
+    /** 绑定下某教师在时点 at 覆盖的全部任课授权段；正常 0 或 1 条，重叠脏数据会返回多条，由服务层判定。 */
+    List<Map<String, Object>> selectTeacherSegmentsInBinding(@Param("bindingId") Long bindingId,
+                                                             @Param("userId") Long userId,
+                                                             @Param("at") Date at);
+
+    /** 绑定下某教师在时点 at 覆盖的全部课程团队段（要求绑定覆盖 at 且课程当前未删除/未归档）。 */
+    List<Map<String, Object>> selectTeamSegmentsInBinding(@Param("bindingId") Long bindingId,
+                                                          @Param("userId") Long userId,
+                                                          @Param("at") Date at);
 }

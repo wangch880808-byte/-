@@ -7,7 +7,8 @@
     <select id="selectBindingWithClass" resultType="java.util.Map">
         SELECT b.id AS binding_id, b.teaching_class_id AS teaching_class_id,
                b.course_space_id AS course_space_id, b.published_at AS published_at,
-               b.ended_at AS ended_at, tc.status AS teaching_class_status
+               b.ended_at AS ended_at, tc.status AS teaching_class_status,
+               tc.name AS teaching_class_name, tc.code AS teaching_class_code
         FROM edu_course_class_binding b
         JOIN edu_teaching_class tc ON tc.id = b.teaching_class_id
         WHERE b.id = #{bindingId}
@@ -50,5 +51,38 @@
         WHERE cs.user_id = #{userId}
           AND cs.joined_at &lt;= #{at} AND (cs.left_at IS NULL OR cs.left_at &gt; #{at})
         ORDER BY b.id ASC, cs.joined_at ASC
+    </select>
+
+    <!-- 教师在绑定对应教学班中覆盖 at 的全部任课授权段；正常 0 或 1 条，多条即重叠脏数据，由服务层报错 -->
+    <select id="selectTeacherSegmentsInBinding" resultType="java.util.Map">
+        SELECT ct.id AS teacher_id, ct.teacher_role AS teacher_role,
+               ct.can_publish AS can_publish, ct.can_grade AS can_grade, ct.can_export AS can_export,
+               ct.valid_from AS valid_from, ct.valid_to AS valid_to
+        FROM edu_course_class_binding b
+        JOIN edu_class_teacher ct ON ct.teaching_class_id = b.teaching_class_id
+            AND ct.user_id = #{userId}
+            AND ct.valid_from &lt;= #{at} AND (ct.valid_to IS NULL OR ct.valid_to &gt; #{at})
+        WHERE b.id = #{bindingId}
+        ORDER BY ct.valid_from ASC, ct.id ASC
+    </select>
+
+    <!-- 课程团队教师在绑定对应课程中覆盖 at 的团队段；仅当绑定本身覆盖 at 且课程当前未删除/未归档 -->
+    <select id="selectTeamSegmentsInBinding" resultType="java.util.Map">
+        SELECT team.id AS team_id, team.team_role AS team_role,
+               team.joined_at AS joined_at, team.ended_at AS ended_at
+        FROM edu_course_class_binding b
+        JOIN edu_course_space c ON c.id = b.course_space_id
+            AND c.deleted_at IS NULL AND c.status &lt;&gt; 'ARCHIVED'
+        JOIN edu_course_teacher team ON team.course_space_id = b.course_space_id
+            AND team.user_id = #{userId}
+            AND team.joined_at &lt;= #{at} AND (team.ended_at IS NULL OR team.ended_at &gt; #{at})
+        WHERE b.id = #{bindingId}
+          AND b.published_at &lt;= #{at} AND (b.ended_at IS NULL OR b.ended_at &gt; #{at})
+          AND EXISTS (SELECT 1 FROM v_identity_user u
+                      JOIN v_identity_user_role ur ON ur.user_id = u.user_id
+                      JOIN v_identity_role r ON r.role_id = ur.role_id
+                      WHERE u.user_id = team.user_id AND u.status = '0' AND u.del_flag = '0'
+                        AND r.role_key = 'teacher' AND r.status = '0' AND r.del_flag = '0')
+        ORDER BY team.joined_at ASC, team.id ASC
     </select>
 </mapper>

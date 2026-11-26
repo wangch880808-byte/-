@@ -19,8 +19,9 @@
         FROM edu_course_teacher team
         JOIN edu_course_space course ON course.id = team.course_space_id
         JOIN edu_course_class_binding binding ON binding.course_space_id = course.id
-        WHERE binding.teaching_class_id = #{classId} AND binding.ended_at IS NULL
-          AND binding.published_at &lt;= NOW(3) AND course.deleted_at IS NULL AND course.status &lt;&gt; 'ARCHIVED'
+        WHERE binding.teaching_class_id = #{classId} AND binding.published_at &lt;= NOW(3)
+          AND (binding.ended_at IS NULL OR binding.ended_at &gt; NOW(3))
+          AND course.deleted_at IS NULL AND course.status &lt;&gt; 'ARCHIVED'
           AND team.user_id = #{userId} AND team.ended_at IS NULL AND <include refid="activeTeacherAccount"/>
         HAVING COUNT(*) > 0
     </select>

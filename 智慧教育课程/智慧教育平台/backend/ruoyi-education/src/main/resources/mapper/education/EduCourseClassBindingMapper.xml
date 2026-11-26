@@ -19,18 +19,19 @@
         FROM edu_course_class_binding
     </sql>
 
-    <!-- 查某个班当前有效的绑定（ended_at IS NULL） -->
+    <!-- 查某个班当前有效的绑定（半开区间：已发布且未到 ended_at） -->
     <select id="selectActiveListByClassId" resultMap="BindingResult">
         <include refid="selectVo"/>
-        WHERE teaching_class_id = #{classId} AND ended_at IS NULL AND published_at &lt;= NOW(3)
+        WHERE teaching_class_id = #{classId} AND published_at &lt;= NOW(3)
+          AND (ended_at IS NULL OR ended_at &gt; NOW(3))
     </select>
 
     <select id="selectById" resultMap="BindingResult"><include refid="selectVo"/> WHERE id=#{id}</select>
 
-    <!-- 查某门课绑定了哪些班 -->
+    <!-- 查某门课绑定了哪些班（半开区间：未到 ended_at 仍有效） -->
     <select id="selectByCourseId" resultMap="BindingResult">
         <include refid="selectVo"/>
-        WHERE course_space_id = #{courseId} AND ended_at IS NULL
+        WHERE course_space_id = #{courseId} AND (ended_at IS NULL OR ended_at &gt; NOW(3))
         ORDER BY id DESC
     </select>
 

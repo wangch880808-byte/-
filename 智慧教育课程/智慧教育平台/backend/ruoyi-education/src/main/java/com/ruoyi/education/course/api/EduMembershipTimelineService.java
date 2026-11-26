@@ -62,4 +62,15 @@ public interface EduMembershipTimelineService {
 
     /** (c) 绑定下在时点 at 在班的学生名单（含每人的成员段 joinedAt/leftAt）。空列表正常。 */
     List<EduStudentMemberSegment> studentsInBinding(Long bindingId, Instant at);
+
+    /**
+     * (d) 教师在指定绑定下、时点 at 的任课与发布权限快照（教师公告等消费方使用）。
+     *
+     * <p>任课与绑定区间按同一 at 判断（半开区间）；教学班状态、发布权限位取当前库值
+     * （status、can_publish 无历史时间列，不做回溯）。绑定不存在抛异常；
+     * 用户不是任课教师属正常情况：返回 currentTeacher=false、canPublish=null 的快照，
+     * 不抛权限异常；同一教师多条任课/团队段覆盖 at 属跨行重叠脏数据，抛
+     * {@link com.ruoyi.common.exception.ServiceException} 失败关闭。</p>
+     */
+    EduTeacherBindingAccess teacherInBinding(Long bindingId, Long userId, Instant at);
 }
