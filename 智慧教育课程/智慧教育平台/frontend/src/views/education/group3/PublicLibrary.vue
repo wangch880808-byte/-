@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="公共教学资源库"
+    :title="isIdeology ? '课程思政素材库' : '公共教学资源库'"
     width="90%"
     top="5vh"
     :close-on-click-modal="false"
@@ -30,7 +30,7 @@
         <div class="header-actions">
           <el-button type="primary" size="large" @click="openUploadDialog">
             <el-icon><Upload /></el-icon>
-            上传资源
+            {{ isIdeology ? '上传思政素材' : '上传资源' }}
           </el-button>
         </div>
       </div>
@@ -38,14 +38,14 @@
       <div class="library-body">
         <!-- 左侧分类 -->
         <div class="library-sidebar">
-          <div class="sidebar-title">资源分类</div>
+          <div class="sidebar-title">{{ isIdeology ? '思政主题' : '资源分类' }}</div>
           <ul class="category-list">
             <li
               :class="{ active: !searchForm.categoryId }"
               @click="selectCategory(null)"
             >
               <el-icon><Folder /></el-icon>
-              全部资源
+              {{ isIdeology ? '全部主题' : '全部资源' }}
             </li>
             <li
               v-for="cat in categories"
@@ -67,7 +67,7 @@
             </el-radio-group>
           </div>
 
-          <div class="sidebar-section">
+          <div v-if="!isIdeology" class="sidebar-section">
             <div class="sidebar-title">我的</div>
             <ul class="category-list">
               <li :class="{ active: activeTab === 'favorites' }" @click="switchTab('favorites')">
@@ -134,7 +134,9 @@
     <!-- 上传对话框 -->
     <el-dialog
       v-model="uploadVisible"
-      :title="uploadForm.linkMode ? '上传外链资源' : '上传文件资源'"
+      :title="isIdeology
+        ? (uploadForm.linkMode ? '上传思政外链素材' : '上传思政文件素材')
+        : (uploadForm.linkMode ? '上传外链资源' : '上传文件资源')"
       width="560px"
       :close-on-click-modal="false"
       append-to-body
@@ -314,10 +316,13 @@ const props = defineProps({
   modelValue: Boolean,
   bindingId: [Number, String],
   folderId: [Number, String],
-  unitId: [Number, String]
+  unitId: [Number, String],
+  kind: { type: String, default: 'RESOURCE' }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const isIdeology = computed(() => props.kind === 'IDEOLOGY')
 
 const visible = computed({
   get: () => props.modelValue,
@@ -364,7 +369,7 @@ const importing = ref(false)
 // 加载分类
 async function loadCategories() {
   try {
-    const res = await listPublicCategories()
+    const res = await listPublicCategories(props.kind)
     categories.value = res.data || []
   } catch (e) {
     console.error('加载分类失败', e)
@@ -387,7 +392,11 @@ async function loadResources() {
       resourceList.value = res.data.list || []
       total.value = res.data.total || 0
     } else {
-      const res = await listPublicResources(searchForm)
+      const res = await listPublicResources({
+        ...searchForm,
+        categoryKind: isIdeology.value ? 'IDEOLOGY' : undefined,
+        excludeCategoryKind: isIdeology.value ? undefined : 'IDEOLOGY'
+      })
       resourceList.value = res.data.list || []
       total.value = res.data.total || 0
     }

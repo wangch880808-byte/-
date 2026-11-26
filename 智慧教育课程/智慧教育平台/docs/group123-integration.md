@@ -13,11 +13,11 @@
 
 | 领域 | 主要入口 | 说明 |
 |---|---|---|
-| 课程建设 | `TeacherStudio.vue`、`/education/group3` | 资料多版本、分页预览、发布/撤回、资料文件夹（新建/改名/上架/下架/打包下载/批量移动）、章节与知识点（内容概览、学生进度、详情、正文）、ZIP 导入导出、题库 Excel 导入导出、题库文件夹（含归档）、题目资源库 |
-| 课前准备 | `TeacherPrepare.vue`、`/education/group3` | 时间轴编排、备课方案、资料阅读、预习任务（支持整卷多题一次发布）、课堂讨论环节 |
-| 学生端 | `StudentMaterials.vue`、`StudentPrestudy.vue`、`StudentDiscussion.vue` | 课程资料（文件夹层级导航）、课前学习/整卷作答、课堂讨论；均通过服务端按班级、时间窗和角色过滤 |
+| 课程建设 | `TeacherStudio.vue`、`/education/group3` | 资料多版本、分页预览、发布/撤回、资料文件夹（新建/改名/上架/下架/打包下载/批量移动）、章节与知识点（内容概览、学生进度、详情、正文）、ZIP 导入导出、题库 Excel 导入导出、题库文件夹（含归档）、题目资源库、课程思政素材库（公共资源库 `kind=IDEOLOGY`） |
+| 课前准备 | `TeacherPrepare.vue`、`/education/group3` | 时间轴编排、备课包管理（查看/删除）、资料阅读、预习任务（整卷多题一次发布、编辑设置、无提交时永久删除）、课堂讨论环节与详情、环节思政融入点、课堂分组“全员完成”进度、已删除环节的查看与恢复 |
+| 学生端 | `StudentMaterials.vue`、`StudentPrestudy.vue`、`StudentDiscussion.vue` | 课程资料（文件夹层级导航）、课前学习/整卷作答、课堂讨论；环节卡片展示思政元素，详情只读展示融入说明；均通过服务端按班级、时间窗和角色过滤 |
 | 学生学习看板 | `StudentProgressBoard.vue`、`/education/group3/student/dashboard`、`/education/group3/student/answer-review` | 汇总视频任务点、预习提交与计分讨论的完成状态；提示新发布/即将截止/逾期任务；解析公布后提供作答回看、错题本与知识点归集；支持个人笔记读取与保存 |
-| 公共教学资源库 | 教师端课程建设中的 `PublicLibrary.vue`、`/education/group3/public/*` | 分类浏览、文件或外链详情、分页预览、收藏、我的提交，并可把公共资源加入当前课程资料；使用独立的 `edu_public_resource_*` 表，不复用课程私有资源表 |
+| 公共教学资源库 | 教师端课程建设中的 `PublicLibrary.vue`、`/education/group3/public/*` | 分类浏览、文件或外链详情、分页预览、收藏、我的提交，并可把公共资源加入当前课程资料；使用独立的 `edu_public_resource_*` 表，不复用课程私有资源表。`kind=IDEOLOGY` 另作课程思政素材库，与教学资源库互相隔离 |
 | 外部契约 | `PublishedResourceProvider`、`PreviewTaskProvider`、`PreviewSubmissionHandler`、`LearningAnalyticsProvider` | 供课堂、作业、统计/AI 等下游组读取已发布资源、预习任务与学情数据；提交持久化默认走本地实现，可由 `@Primary` 实现替换 |
 | 学情数据契约 | `LearningAnalyticsProvider`、`Group3LearningAnalyticsService`、`/education/group3/contracts/learning-analytics/{bindingId}` | 面向统计/AI 组提供全班任务完成率、逐题作答记录、讨论参与度；仅本班具备发布权限的任课教师可读，解析公布前不返回答案/解析 |
 
@@ -43,21 +43,40 @@
 | 章节详情 | `GET /outline/units/{unitId}/detail` | 返回章节信息、该章及子节的知识点、未归档资料与题目 |
 | 知识点详情 | `GET /outline/knowledge-points/{pointId}/detail` | 返回知识点信息与关联题目 |
 | 整卷发布 | `POST /preview-tasks` | 请求体在原有字段上增加 `questionVersionIds`；多题一次发布为同一份预习任务，学生统一作答、统一提交 |
+| 环节设置更新 | `POST /stages/update` | 请求体 `{bindingId, kind, id, title?, instructions?, opensAt?, closesAt?, answerOpensAt?}`；`kind` 取 `DISCUSSION/MATERIAL/QUIZ/PLAN`，用于时间轴环节改名、改文案与调整时间；已撤回的预习任务需先恢复才能修改 |
+| 环节归档 | `POST /stages/remove` | 请求体 `{bindingId, kind, id}`，`kind` 取 `DISCUSSION/QUIZ/PLAN/MATERIAL/DRAFT`；仅对课前准备环节做软归档，课程建设资料不在此处理 |
+| 已删除环节 | `GET /stages/removed` | 参数 `bindingId`；返回 `kind`、`stageId`、`title`、`subtitle`、`opensAt`、`closesAt`、`removedAt`、`reason`，按删除时间倒序 |
+| 恢复环节 | `POST /stages/restore` | 请求体 `{bindingId, kind, id}`，`kind` 取 `DISCUSSION/QUIZ/PLAN/MATERIAL/DRAFT`；按类型还原归属与状态，不改变原开放/截止时间 |
+| 删除预习任务 | `DELETE /preview-tasks/{assignmentId}` | 参数 `bindingId`；仅在没有学生提交时永久删除，否则返回 409 并提示改用撤回 |
 | 学生笔记 | `GET/PUT /student/note` | 按 `bindingId` 读写本人笔记，请求体 `{bindingId, content}` |
-| 公共资源库 | `GET /public/categories`、`GET /public/resources`、`GET /public/resources/{id}`、`POST /public/resources/{id}/import` 等 | 分类、列表、详情、上传、外链、预览页、下载、收藏、我的提交与加入课程资料 |
+| 公共资源库 | `GET /public/categories`、`GET /public/resources`、`GET /public/resources/{id}`、`POST /public/resources/{id}/import` 等 | 分类、列表、详情、上传、外链、预览页、下载、收藏、我的提交与加入课程资料；`kind` / `categoryKind` 支持 `IDEOLOGY`，用于课程思政素材库 |
+| 环节思政读取 | `GET /ideology/stage-points` | 参数 `bindingId`；可选 `stageKind` + `stageId`，省略时返回本班全部环节的融入点，供时间轴批量渲染；教师、学生均可读，按各自绑定校验 |
+| 环节思政保存 | `PUT /ideology/stage-points` | 请求体 `{bindingId, stageKind, stageId, points:[{categoryId, note}]}`；教师整体覆盖该环节的融入点，`stageKind` 取 `RESOURCE/QUIZ/DISCUSSION`，保存操作写入操作日志 |
+| 课堂完成度 | `GET /analytics/class-completion` | 参数 `bindingId`；返回在班学生数与每个可统计环节的完成学生 ID，前端按堂课求交集统计“全员完成”人数 |
 
 题目创建接口 `POST /questions` 支持可选的 `folderId`；题库列表返回 `folderId`、`shareId`、`shareStatus`，供前端区分根目录、文件夹内与已共享题目。
+
+### 2.2 操作审计
+
+第三组 `Group3Controller` 的教师端管理类写接口已标注若依 `@Log(title, businessType)`，由日志切面写入 `sys_oper_log`，记录操作人、时间、模块标题、业务类型与执行结果；管理员可在「系统监控 → 操作日志」按操作人、时间与模块筛选查看。覆盖范围包括：课程资料的上传、外链、新版本、转码重试、导入、发布、撤回、编辑、归档与讲解信息；题库的分享/撤回、导入、题目新建/版本与状态更新、组卷；备课方案、时间轴环节的更新/归档/恢复、预习任务发布与删除；课程章节与知识点；讨论、讨论操作与讨论文件夹；资料文件夹的新建/修改/删除/归档/上下架/批量移动；公共资源库的上传、外链与加入课程；环节思政融入点的保存。查询接口，以及学生观看、笔记、预习提交、导入预览、讨论回复和公共资源收藏不记录日志。
 
 ## 3. 关键数据约定
 
 - 资料归属：`edu_resource.origin` 区分 `STUDIO`（课程建设）与 `PREPARE`（课前准备）。
 - 发布来源：`edu_resource_class_release.release_source` 按来源独立生效，课程建设与课前准备的发布、撤回互不影响。
+- 课前准备环节的删除是软归档：`QUIZ` 置 `edu_assignment.status=ARCHIVED`（撤回预习任务）；`PLAN` 置 `edu_lesson_plan.status=ARCHIVED`；`DISCUSSION` 置 `edu_discussion_topic.status=ARCHIVED`，`deleted_at` 保持 NULL 以保留回复与评分；`MATERIAL` 结束课前准备发布（`end_kind=REVOKED`、`end_reason='课前准备删除资料环节'`）；`DRAFT` 置 `edu_resource.status=ARCHIVED`。
+- 恢复 `POST /stages/restore` 按类型还原：`QUIZ→PUBLISHED`、`PLAN→READY`、`DISCUSSION→PUBLISHED`、`MATERIAL` 清空对应发布记录的 `ended_*` 字段（该资料须没有其他有效发布）、`DRAFT→ACTIVE`。恢复只还原状态与归属，学生端仍按原开放/截止时间判定可见性。
+- 已删除列表：`GET /stages/removed` 汇总上述归档记录；`QUIZ` 无删除时间，`removedAt` 为空，`DISCUSSION` 取 `updated_at`，`MATERIAL` 取最近一次结束发布的 `ended_at`，`PLAN/DRAFT` 取记录时间。
+- 预习任务永久删除：`DELETE /preview-tasks/{assignmentId}` 直接删除 `edu_assignment` 及其题目、目标记录，仅允许在没有学生提交时执行；已有提交请改用 `POST /stages/remove`（`kind=QUIZ`）撤回，撤回可恢复。
 - 章节归属：`edu_resource.unit_id` 关联 `edu_course_unit(id, course_space_id)`，上传时传入的 `unitId` 会落库。
 - 章节与知识点正文：`edu_course_unit.content_text`、`edu_knowledge_point.content_text` 由第二组大纲服务统一保存，单条上限 4000 字；教师端详情接口按章节聚合子节、知识点、未归档资料、题目与学习进度。
 - 题目资源库：`edu_question_share` 以题目版本（`question_version_id`）为单位保存共享快照，`status` 为 `PUBLISHED/WITHDRAWN`，同一版本最多一条共享记录；引入时在当前课程生成题目副本，`edu_question.origin_share_id` 指向来源共享记录，不复制原课程的知识点关联。
 - 题库文件夹：`edu_question_folder.archived_at` 标记归档，NULL 表示未归档；归档文件夹及其题目不进入根目录的常规展示。
 - 学生笔记：`edu_student_note` 按 `(binding_id, user_id)` 唯一，读写均取当前登录用户，只能访问本人笔记。
 - 公共资源库：`edu_public_resource_category/resource/version/page/favorite` 五张表独立于课程资源；加入课程时复制为当前课程的 `edu_resource`、版本、预览页与班级发布记录，之后与原公共资源互不影响。
+- 课程思政素材库：公共资源分类 `kind='IDEOLOGY'` 预置 6 个主题与 8 条种子素材；教学资源库列表与收藏/我的上传固定排除 `IDEOLOGY`，思政素材通过 `categoryKind=IDEOLOGY` 单独读取，允许教师直接上传、暂不审核。
+- 环节思政融入点：`edu_stage_ideology` 按 `(binding_id, stage_kind, stage_id, category_id)` 唯一，`category_id` 引用 `kind='IDEOLOGY'` 的分类作为思政元素，`note` 为融入说明；教师保存为整体覆盖，学生只读。资料环节的 `stage_id` 取资源 ID，习题取作业 ID，讨论取话题 ID。
+- 课堂全员完成：`GET /analytics/class-completion` 只返回可统计环节（开启任务点的已发布资料、已发布必做预习任务、计分讨论）及完成学生 ID；前端按时间轴日期分组后对学生集合取交集，未开放环节不计入分母。
 - 时间：Java 侧 `Group3Time` 以 UTC 墙钟写入，SQL 侧以 `UTC_TIMESTAMP(3)` 判断开放窗口；JDBC 连接按 `运行说明.md` 的示例配置。
 - 文件存储：`${ruoyi.profile}/education`，支持的文件类型见 `Group3FileStorageService`；转换在独立异步线程池执行，状态为 PENDING/READY/FAILED。
 - 学习进度：看板只统计视频任务点、预习提交和开启评分的讨论话题；未开放任务不计完成率。作答回看严格按 `answer_opens_at` 过滤，简答题只展示参考答案，不自动判分。
@@ -72,3 +91,5 @@
 已用独立 MySQL 8.0、Redis 环境验证单脚本空库初始化、增量脚本重跑、三端登录和课程详情。浏览器检查了课程建设、课前准备、学生资料、课前学习和讨论标签。联调覆盖课程大纲同步、资料上传和预览、资料 ZIP 和题库 Excel 导入导出、备课、预习提交、讨论回复、学习进度及跨班访问拦截。
 
 本轮通过真实接口补充验证了题目资源库的发布、重复发布跳过、引入、重复引入跳过、撤回与按学院筛选，题库批量发布，章节与知识点详情及正文保存回读，以及学生笔记读写。整卷发布沿用既有预习任务接口，通过 `questionVersionIds` 一次提交多题。
+
+课程思政相关接口已用教师、学生账号验证：教师可保存并读回资料、习题、讨论三类环节的融入点，学生只能读取本班数据，保存请求返回 403，非法环节返回 404；教学资源库列表不再出现思政素材，思政分类下可正常浏览与上传。课堂完成度接口已验证教师可读、学生返回 403，并核对 3 名在班学生、3 个习题环节下的全员完成人数。

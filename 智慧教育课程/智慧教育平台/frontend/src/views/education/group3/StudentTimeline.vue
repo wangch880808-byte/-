@@ -171,6 +171,17 @@ function enterLabel(node) {
             <div v-if="node.tags && node.tags.length" class="g3-tl-tags">
               <span v-for="(tag, index) in node.tags" :key="index" class="g3-tl-tag">{{ tag }}</span>
             </div>
+            <div v-if="node.ideology && node.ideology.length" class="g3-tl-ideology">
+              <span class="g3-tl-ideology-label">思政</span>
+              <span
+                v-for="point in node.ideology"
+                :key="point.categoryId"
+                class="g3-tl-ideology-tag"
+                :title="point.note || point.categoryName"
+              >
+                {{ point.categoryName }}
+              </span>
+            </div>
             <div class="g3-tl-actions">
               <el-button size="small" type="primary" @click.stop="emit('select', node)">{{ enterLabel(node) }}</el-button>
             </div>
@@ -229,5 +240,26 @@ function enterLabel(node) {
 .g3-tl-subtitle { margin-top: 2px; font-size: 12px; color: #909399; }
 .g3-tl-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .g3-tl-tag { font-size: 12px; color: #606266; background: #f4f4f5; border-radius: 4px; padding: 1px 6px; }
+.g3-tl-ideology { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.g3-tl-ideology-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fdf6ec;
+  border: 1px solid #f5dab1;
+  border-radius: 4px;
+  padding: 0 6px;
+  line-height: 18px;
+}
+.g3-tl-ideology-tag {
+  font-size: 12px;
+  color: #b45309;
+  background: #fff8e6;
+  border: 1px solid #f5dab1;
+  border-radius: 10px;
+  padding: 0 8px;
+  line-height: 18px;
+  cursor: help;
+}
 .g3-tl-actions { margin-top: 8px; }
 </style>

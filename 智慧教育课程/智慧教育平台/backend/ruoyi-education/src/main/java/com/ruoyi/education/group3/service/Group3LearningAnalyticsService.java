@@ -181,6 +181,103 @@ public class Group3LearningAnalyticsService implements LearningAnalyticsProvider
         return result;
     }
 
+    /**
+     * 教师端“课堂完成度”：返回每个可统计环节的完成学生 ID 集合。
+     *
+     * <p>前端按日期把环节分组后，对同一堂课内各环节的学生集合取交集，
+     * 即可得到“完成本堂课全部环节的学生人数”。学习口径与学生端保持一致：
+     * 资料需开启任务点、讨论需计分、习题为已发布必做目标。</p>
+     */
+    public Map<String, Object> classCompletion(Long bindingId)
+    {
+        Set<Long> activeStudents = new LinkedHashSet<>(accessService.activeStudentIds(bindingId));
+
+        Map<String, Set<Long>> completedByKey = new LinkedHashMap<>();
+        for (Map<String, Object> row : safe(mapper.selectCompletionUsers(bindingId)))
+        {
+            String kind = text(row.get("kind"));
+            Long refId = Group3AccessService.asLong(row.get("refId"));
+            Long userId = Group3AccessService.asLong(row.get("userId"));
+            if (kind.isEmpty() || refId == null || userId == null || !activeStudents.contains(userId))
+            {
+                continue;
+            }
+            completedByKey.computeIfAbsent(kind + ":" + refId, key -> new LinkedHashSet<>()).add(userId);
+        }
+
+        List<Map<String, Object>> stages = new ArrayList<>();
+
+        Map<Long, Map<String, Object>> materials = new LinkedHashMap<>();
+        for (Map<String, Object> row : safe(resourceService.publishedResources(bindingId)))
+        {
+            if (!flag(row.get("taskEnabled")))
+            {
+                continue;
+            }
+            Long resourceId = Group3AccessService.asLong(row.get("resourceId"));
+            if (resourceId != null)
+            {
+                materials.putIfAbsent(resourceId, row);
+            }
+        }
+        materials.forEach((resourceId, row) -> stages.add(completionStage("VIDEO", resourceId, row, completedByKey)));
+
+        Map<Long, Map<String, Object>> quizzes = new LinkedHashMap<>();
+        for (Map<String, Object> row : safe(prepareService.teacherPreviewTasks(bindingId)))
+        {
+            if (!"PUBLISHED".equalsIgnoreCase(text(row.get("status"))))
+            {
+                continue;
+            }
+            Long assignmentId = Group3AccessService.asLong(row.get("assignmentId"));
+            if (assignmentId != null)
+            {
+                quizzes.putIfAbsent(assignmentId, row);
+            }
+        }
+        quizzes.forEach((assignmentId, row) -> stages.add(completionStage("QUIZ", assignmentId, row, completedByKey)));
+
+        Map<Long, Map<String, Object>> topics = new LinkedHashMap<>();
+        for (Map<String, Object> row : safe(discussionService.topics(bindingId, null, null, null, null, null)))
+        {
+            String status = text(row.get("status")).toUpperCase();
+            if ("ARCHIVED".equals(status) || "DRAFT".equals(status))
+            {
+                continue;
+            }
+            if (!flag(row.get("scoreEnabled")))
+            {
+                continue;
+            }
+            Long topicId = Group3AccessService.asLong(row.get("topicId"));
+            if (topicId != null)
+            {
+                topics.putIfAbsent(topicId, row);
+            }
+        }
+        topics.forEach((topicId, row) -> stages.add(completionStage("DISCUSSION", topicId, row, completedByKey)));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("studentCount", activeStudents.size());
+        result.put("stages", stages);
+        result.put("serverTime", Group3Time.nowIso());
+        return result;
+    }
+
+    private Map<String, Object> completionStage(String kind, Long refId, Map<String, Object> row,
+            Map<String, Set<Long>> completedByKey)
+    {
+        Map<String, Object> stage = new LinkedHashMap<>();
+        stage.put("kind", kind);
+        stage.put("refId", refId);
+        stage.put("title", row.get("title"));
+        stage.put("opensAt", row.get("opensAt"));
+        stage.put("closesAt", row.get("closesAt"));
+        stage.put("completedStudentIds",
+                new ArrayList<>(completedByKey.getOrDefault(kind + ":" + refId, Set.of())));
+        return stage;
+    }
+
     private Map<String, Object> task(String kind, Long refId, Object title, Object opensAt, Object closesAt,
             Map<String, Object> stat, String completedField)
     {

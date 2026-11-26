@@ -491,15 +491,7 @@ public class Group3PrepareService implements PreviewTaskProvider
             throw new ServiceException("解析公布时间不能早于截止时间", HttpStatus.BAD_REQUEST);
         }
 
-        for (Long versionId : distinct(request.resourceVersionIds()))
-        {
-            Group3Requests.ReleaseResource release = new Group3Requests.ReleaseResource(
-                    request.bindingId(), versionId,
-                    opensAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                    closesAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                    Group3Constants.RELEASE_PREPARE);
-            resourceService.release(release);
-        }
+        List<Long> resourceVersionIds = distinct(request.resourceVersionIds());
 
         // 整卷发布：questionVersionIds 支持一次绑定多道题；questionVersionId 保留单题兼容。
         List<Long> requestedQuestionVersionIds = distinct(request.questionVersionIds());
@@ -522,13 +514,46 @@ public class Group3PrepareService implements PreviewTaskProvider
             }
             questionVersions.add(questionVersion);
         }
+        if (questionVersions.isEmpty() && resourceVersionIds.isEmpty())
+        {
+            throw new ServiceException("请至少选择一道题目或一份资料", HttpStatus.BAD_REQUEST);
+        }
+        String title = requiredText(request.title(), "预习任务名称", 200);
+
+        // 重复提交同一份任务时直接返回已有结果，避免双击或超时重试生成重复环节。
+        Long duplicateId = mapper.selectDuplicatePreview(request.bindingId(), request.lessonId(),
+                title, opensAt, closesAt, questionVersions.size());
+        if (duplicateId != null)
+        {
+            Map<String, Object> summary = mapper.selectPreviewSummary(duplicateId);
+            Map<String, Object> duplicate = new LinkedHashMap<>();
+            duplicate.put("assignmentId", duplicateId);
+            duplicate.put("itemCount", summary == null ? 0 : summary.get("itemCount"));
+            duplicate.put("totalScore", summary == null ? BigDecimal.ZERO : summary.get("totalScore"));
+            duplicate.put("targetCount", summary == null ? 0 : summary.get("targetCount"));
+            duplicate.put("status", "PUBLISHED");
+            duplicate.put("idempotent", true);
+            duplicate.put("opensAt", opensAt + "Z");
+            duplicate.put("closesAt", closesAt + "Z");
+            return duplicate;
+        }
+
+        for (Long versionId : resourceVersionIds)
+        {
+            Group3Requests.ReleaseResource release = new Group3Requests.ReleaseResource(
+                    request.bindingId(), versionId,
+                    opensAt.toInstant(java.time.ZoneOffset.UTC).toString(),
+                    closesAt.toInstant(java.time.ZoneOffset.UTC).toString(),
+                    Group3Constants.RELEASE_PREPARE);
+            resourceService.release(release);
+        }
 
         Map<String, Object> assignment = new LinkedHashMap<>();
         assignment.put("bindingId", request.bindingId());
         assignment.put("teachingClassId", teachingClassId);
         assignment.put("courseSpaceId", courseSpaceId);
         assignment.put("lessonId", request.lessonId());
-        assignment.put("title", requiredText(request.title(), "预习任务名称", 200));
+        assignment.put("title", title);
         assignment.put("instructions", request.instructions() == null ? "" : request.instructions().trim());
         assignment.put("opensAt", opensAt);
         assignment.put("closesAt", closesAt);
@@ -592,9 +617,55 @@ public class Group3PrepareService implements PreviewTaskProvider
         return mapper.selectTeacherPreviewTasks(bindingId);
     }
 
+    /** 课前准备「已删除环节」：只返回软归档记录，用于时间轴之外的查看入口。 */
+    public List<Map<String, Object>> removedStages(Long bindingId)
+    {
+        accessService.requireTeacherBinding(bindingId);
+        return mapper.selectRemovedPrepareStages(bindingId);
+    }
+
+    /** 恢复已撤回的预习任务：重新发布，学生端按原开放/截止时间可见。 */
+    public Map<String, Object> restoreQuizStage(Long bindingId, Long assignmentId)
+    {
+        accessService.requireTeacherBinding(bindingId);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("assignmentId", assignmentId);
+        row.put("bindingId", bindingId);
+        row.put("status", "PUBLISHED");
+        if (mapper.updateAssignmentStatus(row) == 0)
+        {
+            throw new ServiceException("预习任务不存在或不属于当前教学班", HttpStatus.NOT_FOUND);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("kind", "QUIZ");
+        result.put("id", assignmentId);
+        result.put("status", "PUBLISHED");
+        return result;
+    }
+
+    /** 恢复已删除的备课方案。 */
+    public Map<String, Object> restorePlanStage(Long bindingId, Long planId)
+    {
+        accessService.requireTeacherBinding(bindingId);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("planId", planId);
+        row.put("bindingId", bindingId);
+        row.put("status", "READY");
+        if (mapper.updateLessonPlanStatus(row) == 0)
+        {
+            throw new ServiceException("备课方案不存在或不属于当前教学班", HttpStatus.NOT_FOUND);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("kind", "PLAN");
+        result.put("id", planId);
+        result.put("status", "READY");
+        return result;
+    }
+
     public List<Map<String, Object>> studentPreviewTasks(Long bindingId)
     {
         accessService.requireStudentBinding(bindingId);
+        ensureStudentPreviewTargets(bindingId, Group3Security.currentUserId());
         List<Map<String, Object>> tasks = mapper.selectStudentPreviewTasks(
                 bindingId, Group3Security.currentUserId());
         for (Map<String, Object> task : tasks)
@@ -611,6 +682,7 @@ public class Group3PrepareService implements PreviewTaskProvider
     public Map<String, Object> studentPreviewDetail(Long bindingId, Long assignmentId)
     {
         accessService.requireStudentBinding(bindingId);
+        ensureStudentPreviewTargets(bindingId, Group3Security.currentUserId());
         Map<String, Object> task = mapper.selectStudentPreviewTask(
                 bindingId, assignmentId, Group3Security.currentUserId());
         if (task == null)
@@ -656,6 +728,7 @@ public class Group3PrepareService implements PreviewTaskProvider
     {
         accessService.requireStudentBinding(bindingId);
         Long userId = Group3Security.currentUserId();
+        ensureStudentPreviewTargets(bindingId, userId);
         Map<String, Object> target = submissionHandler.studentTarget(assignmentId, userId);
         if (target == null
                 || !bindingId.equals(Group3AccessService.asLong(target.get("bindingId"))))
@@ -708,6 +781,60 @@ public class Group3PrepareService implements PreviewTaskProvider
         result.put("submitted", true);
         result.put("submittedAt", Group3Time.nowIso());
         return Group3Time.withServerTime(result);
+    }
+
+    /**
+     * 新入班学生补发：发布时冻结的目标名单不包含后入班学生，
+     * 学生每次读取或提交前按当前在班名单补齐缺失目标。
+     */
+    private void ensureStudentPreviewTargets(Long bindingId, Long userId)
+    {
+        List<Map<String, Object>> assignments = mapper.selectPublishedPreviewAssignments(bindingId);
+        if (assignments.isEmpty())
+        {
+            return;
+        }
+        var member = accessService.activeMembers(bindingId).stream()
+                .filter(item -> userId.equals(item.userId()))
+                .findFirst()
+                .orElse(null);
+        if (member == null)
+        {
+            return;
+        }
+        for (Map<String, Object> assignment : assignments)
+        {
+            Long assignmentId = Group3AccessService.asLong(assignment.get("assignmentId"));
+            if (assignmentId == null)
+            {
+                continue;
+            }
+            mapper.insertAssignmentTargetIfAbsent(
+                    assignmentId, member.classId(), userId, member.memberId());
+        }
+    }
+
+    /** 硬删除预习任务：仅允许没有学生提交时删除，已有提交请改用撤回（软归档）。 */
+    @Transactional
+    public Map<String, Object> deletePreviewTask(Long bindingId, Long assignmentId)
+    {
+        accessService.requireTeacherBinding(bindingId);
+        Map<String, Object> existing = mapper.selectAssignmentStage(bindingId, assignmentId);
+        if (existing == null)
+        {
+            throw new ServiceException("预习任务不存在或不属于当前教学班", HttpStatus.NOT_FOUND);
+        }
+        if (mapper.selectSubmissionCount(assignmentId) > 0)
+        {
+            throw new ServiceException("该预习任务已有学生提交，不能删除；请使用撤回", HttpStatus.CONFLICT);
+        }
+        mapper.deleteAssignmentItems(assignmentId);
+        mapper.deleteAssignmentTargets(assignmentId);
+        int removed = mapper.deletePreviewAssignment(assignmentId, bindingId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("assignmentId", assignmentId);
+        result.put("deleted", removed);
+        return result;
     }
 
     private Map<String, Object> insertQuestionVersion(

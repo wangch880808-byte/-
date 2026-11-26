@@ -242,6 +242,9 @@ public interface Group3Mapper
 
     List<Map<String, Object>> selectTeacherPreviewTasks(@Param("bindingId") Long bindingId);
 
+    /** 课前准备已删除环节：资料 / 预习任务 / 讨论 / 备课方案的软归档记录。 */
+    List<Map<String, Object>> selectRemovedPrepareStages(@Param("bindingId") Long bindingId);
+
     List<Map<String, Object>> selectStudentPreviewTasks(
             @Param("bindingId") Long bindingId,
             @Param("userId") Long userId);
@@ -287,6 +290,34 @@ public interface Group3Mapper
 
     int selectSubmissionCount(@Param("assignmentId") Long assignmentId);
 
+    /** 发布去重：同教学班、同课次、同标题、同开放/截止时间且题目数一致的未撤回预习任务。 */
+    Long selectDuplicatePreview(
+            @Param("bindingId") Long bindingId,
+            @Param("lessonId") Long lessonId,
+            @Param("title") String title,
+            @Param("opensAt") java.time.LocalDateTime opensAt,
+            @Param("closesAt") java.time.LocalDateTime closesAt,
+            @Param("itemCount") int itemCount);
+
+    Map<String, Object> selectPreviewSummary(@Param("assignmentId") Long assignmentId);
+
+    /** 当前教学班所有未撤回的预习任务（用于给新入班学生补发目标）。 */
+    List<Map<String, Object>> selectPublishedPreviewAssignments(@Param("bindingId") Long bindingId);
+
+    int insertAssignmentTargetIfAbsent(
+            @Param("assignmentId") Long assignmentId,
+            @Param("teachingClassId") Long teachingClassId,
+            @Param("userId") Long userId,
+            @Param("enrollmentId") Long enrollmentId);
+
+    int deleteAssignmentItems(@Param("assignmentId") Long assignmentId);
+
+    int deleteAssignmentTargets(@Param("assignmentId") Long assignmentId);
+
+    int deletePreviewAssignment(
+            @Param("assignmentId") Long assignmentId,
+            @Param("bindingId") Long bindingId);
+
     int selectMaxUnitSort(@Param("courseSpaceId") Long courseSpaceId, @Param("parentUnitId") Long parentUnitId);
 
     /** 保留策略：清理超过保留期限的 FAILED 资源版本（仅清理失败版本，不影响 READY/PENDING 版本）。 */
@@ -302,6 +333,15 @@ public interface Group3Mapper
 
     /** 软归档备课包 */
     int updateLessonPlanStatus(Map<String, Object> row);
+
+    /** 课前准备已删除资料环节的恢复：重新激活最近一次被删除的 PREPARE 发布。 */
+    int restorePrepareRelease(
+            @Param("bindingId") Long bindingId,
+            @Param("resourceId") Long resourceId);
+
+    int countActivePrepareRelease(
+            @Param("bindingId") Long bindingId,
+            @Param("resourceId") Long resourceId);
 
     /* ---------- 资料 / 题库文件夹 ---------- */
 
@@ -475,13 +515,17 @@ public interface Group3Mapper
             @Param("keyword") String keyword,
             @Param("categoryId") Long categoryId,
             @Param("resourceKind") String resourceKind,
+            @Param("categoryKind") String categoryKind,
+            @Param("excludeCategoryKind") String excludeCategoryKind,
             @Param("offset") int offset,
             @Param("limit") int limit);
 
     int countPublicResources(
             @Param("keyword") String keyword,
             @Param("categoryId") Long categoryId,
-            @Param("resourceKind") String resourceKind);
+            @Param("resourceKind") String resourceKind,
+            @Param("categoryKind") String categoryKind,
+            @Param("excludeCategoryKind") String excludeCategoryKind);
 
     Map<String, Object> selectPublicResourceDetail(@Param("id") Long id);
 
@@ -498,6 +542,11 @@ public interface Group3Mapper
     int increasePublicViewCount(@Param("id") Long id);
 
     int increasePublicDownloadCount(@Param("id") Long id);
+
+    int countActiveReleasedResourceByTitle(
+            @Param("courseSpaceId") Long courseSpaceId,
+            @Param("bindingId") Long bindingId,
+            @Param("title") String title);
 
     int insertPublicFavorite(Map<String, Object> row);
 
@@ -519,4 +568,40 @@ public interface Group3Mapper
     int countMyPublicResources(@Param("userId") Long userId);
 
     int updatePublicVersionStatus(Map<String, Object> row);
+
+    /* ========== 环节思政融入点 ========== */
+
+    List<Map<String, Object>> selectStageIdeologyPoints(
+            @Param("bindingId") Long bindingId,
+            @Param("stageKind") String stageKind,
+            @Param("stageId") Long stageId);
+
+    List<Map<String, Object>> selectAllStageIdeologyPoints(@Param("bindingId") Long bindingId);
+
+    /**
+     * 逐学生 × 逐环节的完成明细，用于教师端统计“完成本堂课全部环节的学生人数”。
+     * 返回 kind（VIDEO/QUIZ/DISCUSSION）、refId、userId。
+     */
+    List<Map<String, Object>> selectCompletionUsers(@Param("bindingId") Long bindingId);
+
+    int deleteStageIdeologyPoints(
+            @Param("bindingId") Long bindingId,
+            @Param("stageKind") String stageKind,
+            @Param("stageId") Long stageId);
+
+    int insertStageIdeologyPoint(Map<String, Object> row);
+
+    Long selectIdeologyCategoryId(@Param("categoryId") Long categoryId);
+
+    int countStageResource(
+            @Param("bindingId") Long bindingId,
+            @Param("resourceId") Long resourceId);
+
+    int countStageQuiz(
+            @Param("bindingId") Long bindingId,
+            @Param("assignmentId") Long assignmentId);
+
+    int countStageDiscussion(
+            @Param("bindingId") Long bindingId,
+            @Param("topicId") Long topicId);
 }

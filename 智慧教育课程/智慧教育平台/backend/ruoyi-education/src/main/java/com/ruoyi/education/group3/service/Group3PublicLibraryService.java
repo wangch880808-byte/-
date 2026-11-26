@@ -45,20 +45,28 @@ public class Group3PublicLibraryService
 
     /* ========== 资源列表 ========== */
 
-    public Map<String, Object> listResources(String keyword, Long categoryId, String resourceKind, int pageNum, int pageSize)
+    public Map<String, Object> listResources(String keyword, Long categoryId, String resourceKind, String categoryKind,
+            String excludeCategoryKind, int pageNum, int pageSize)
     {
         int offset = (pageNum - 1) * pageSize;
+        String normalizedCategoryKind = categoryKind == null || categoryKind.isBlank() ? null : categoryKind.toUpperCase();
+        String normalizedExcludeKind = excludeCategoryKind == null || excludeCategoryKind.isBlank()
+                ? null : excludeCategoryKind.toUpperCase();
         List<Map<String, Object>> list = mapper.selectPublicResources(
                 keyword == null ? null : keyword.trim(),
                 categoryId,
                 resourceKind == null || resourceKind.isBlank() ? null : resourceKind.toUpperCase(),
+                normalizedCategoryKind,
+                normalizedExcludeKind,
                 offset,
                 pageSize);
         list.forEach(this::decorateResource);
         int total = mapper.countPublicResources(
                 keyword == null ? null : keyword.trim(),
                 categoryId,
-                resourceKind == null || resourceKind.isBlank() ? null : resourceKind.toUpperCase());
+                resourceKind == null || resourceKind.isBlank() ? null : resourceKind.toUpperCase(),
+                normalizedCategoryKind,
+                normalizedExcludeKind);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("list", list);
         result.put("total", total);
@@ -380,12 +388,18 @@ public class Group3PublicLibraryService
 
         Long userId = Group3Security.currentUserId();
 
+        String resourceTitle = String.valueOf(pubDetail.get("title"));
+        if (mapper.countActiveReleasedResourceByTitle(courseSpaceId, bindingId, resourceTitle) > 0)
+        {
+            throw new ServiceException("该资源已在课程资料中", HttpStatus.BAD_REQUEST);
+        }
+
         // 1. 创建课程资源记录
         Map<String, Object> resource = new LinkedHashMap<>();
         resource.put("courseSpaceId", courseSpaceId);
         resource.put("folderId", folderId);
         resource.put("unitId", unitId);
-        resource.put("title", pubDetail.get("title"));
+        resource.put("title", resourceTitle);
         resource.put("resourceKind", resourceKind);
         resource.put("origin", Group3Constants.RELEASE_STUDIO);
         resource.put("userId", userId);
