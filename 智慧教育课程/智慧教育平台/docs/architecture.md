@@ -25,6 +25,7 @@ com.ruoyi.education.group3
 - `Group3RetentionService` 每天 03:00 清理超过保留期且仍为 FAILED 的版本及其文件。
 - `PublishedResourceProvider`、`PreviewTaskProvider`、`PreviewSubmissionHandler` 是给课堂、作业、AI 等下游组消费的接口；提交持久化默认由本地实现写入共享作业表，可由下游 `@Primary` 实现替换。
 - `LearningAnalyticsProvider` 向统计/AI 组暴露全班完成率、作答记录与讨论参与度，本地实现 `Group3LearningAnalyticsService` 只读第三组数据，成员范围经第二组 `EduCourseAccessService` 获取，答案/解析仍受 `answer_opens_at` 约束。
+- 写操作审计：`Group3Controller` 的教师端管理类写接口标注若依 `@Log(title, businessType)`，由日志切面写入 `sys_oper_log`；查询接口及学生观看、笔记、提交、讨论回复、收藏等轻量操作不记录，管理员在「系统监控 → 操作日志」查看。
 
 ## 3. 数据范围与权限
 
