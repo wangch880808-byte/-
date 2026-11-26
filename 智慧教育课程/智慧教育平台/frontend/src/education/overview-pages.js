@@ -6,12 +6,17 @@ import { registerBusinessPage } from './ui-pages'
  * 工作台快捷入口和独立路径使用同一组件。角色、权限和服务端路由三项
  * 同时满足才显示/可直达；服务端 @PreAuthorize 仍会逐请求复核。
  *
- * TODO(6-03-overview-menu)：本地已注册教师、学生和管理员页面，但生产
- * sys_menu、角色授权和 getRouters 尚未配置；下面 serviceRoute 仍是候选值。
- * 解除条件：第 1 组/负责人写入对应菜单和权限，且 getRouters 返回
+ * 第 1 组 #41@549ef8e 已提供四个总览菜单锚点，并在其环境报告真实账号验证；
+ * serviceRoute 值已双方确认。本轮组合分支包含这些菜单脚本，但没有在本轮
+ * 目标库执行 SQL，也没有做真实账号联调。正式 #37@97460b2 仍未注册生产
+ * 入口；本地 proto 分支已注册两个管理员页面。
+ *
+ * TODO(6-03-overview-menu)：目标环境仍需执行第一组菜单脚本并复核
  * education/teacher/overview、education/student/today-todos、
- * education/admin/overview、education/admin/todos 后复核并删除浏览器夹具补丁。
- * 管理员 /admin/todos 不再重定向到第一组组织待办；生产菜单和守卫仍需复审。
+ * education/admin/overview、education/admin/todos 的实际 getRouters 返回；
+ * 解除条件为目标环境完成菜单/角色配置和公共外壳复审。有效浏览器回归继续
+ * 保留，真实联调是另一个验证层次，不以删除夹具测试作为完成条件。
+ * 管理员 /admin/todos 不再重定向到第一组组织待办。
  */
 registerBusinessPage({
   id: 'teacher-overview',

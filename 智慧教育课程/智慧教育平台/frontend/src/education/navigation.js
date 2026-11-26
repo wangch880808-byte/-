@@ -10,16 +10,6 @@ export const menuByRole = {
         "id": "overview",
         "title": "管理总览",
         "path": "overview"
-      },
-      {
-        "id": "teaching-metrics",
-        "title": "管理员教学指标",
-        "path": "teaching-metrics"
-      },
-      {
-        "id": "todos",
-        "title": "管理员待办",
-        "path": "todos"
       }
     ]
   },

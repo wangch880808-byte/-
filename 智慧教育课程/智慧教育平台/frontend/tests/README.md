@@ -113,6 +113,7 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 管理员缺权限、缺目标 serviceRoute、登录后撤权稳定落到 `/admin/forbidden`，无跳转循环、不调用对应总览；
 - 教师/学生直达管理员页面被公共守卫拒绝且不发管理员请求；教师教学总览仍可注册和打开；
 - 管理员待办 NO_DATA、503 和 390px 布局保留原表现；
+- 管理员实际入口每次导航/点击只断言本次新增的精确 GET 端点，历史请求不能满足断言；
 - 管理员待办非法来源/value/actionPath/状态/sampleCount 不落入固定空态；
 - 管理员顶层异常、401/403/503/网络失败、刷新失败、筛选乱序、卸载迟到响应和 390px 布局；
 - 未知 endpoint 报错并停止请求。
@@ -125,6 +126,8 @@ npm install --no-save --no-package-lock playwright@1.65.1
 GET 详情、POST 创建、PUT 编辑、POST 发布和 POST 归档。`overview-vue.spec.mjs`
 另行提供 `/education/teacher/overview`、`/education/student/today-todos` 的夹具。
 生产环境仍需 `education:notice:list`、`education:announcement:list/add/edit/publish/archive`
-以及 `education:overview:teacher/student/admin` 的菜单、角色授权和对应服务端路由；
-当前 `sys_menu` 尚未配置。管理员隔离入口不会进入生产构建，不能证明管理员菜单、
-登录或路由守卫已联调。夹具响应不代表真实后端、权限或数据库联调通过。
+以及 `education:overview:teacher/student/admin` 的菜单、角色授权和对应服务端路由。
+第 1 组 #41@549ef8e 已提供四个总览锚点脚本并报告其环境真实账号验证；本轮组合分支
+包含这些脚本，但未在本轮目标库执行 SQL，也未做真实账号联调。管理员组件隔离入口
+不进入生产构建；`admin-entry.spec.mjs` 加载实际生产构建，但所有接口仍是 Playwright
+夹具，不能证明真实登录、HTTP、服务端授权、审计或数据库联调通过。
