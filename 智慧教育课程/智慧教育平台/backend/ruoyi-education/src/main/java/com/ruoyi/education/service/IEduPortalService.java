@@ -2,6 +2,8 @@ package com.ruoyi.education.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import com.ruoyi.common.core.domain.entity.SysUser;
 
 /**
  * 三端页面（管理员 / 教师 / 学生）的联调服务。
@@ -15,7 +17,7 @@ public interface IEduPortalService {
 
     /* ---------------- 学期 ---------------- */
 
-    List<Map<String, Object>> termList(String keyword);
+    List<Map<String, Object>> termList(String keyword, Set<Long> schoolIds);
 
     List<Map<String, Object>> termSchools();
 
@@ -66,7 +68,7 @@ public interface IEduPortalService {
 
     /* ---------------- 教师 / 学生 / 组织 ---------------- */
 
-    List<Map<String, Object>> teacherList(String keyword, Long deptId);
+    List<Map<String, Object>> teacherList(SysUser filter);
 
     List<Map<String, Object>> teacherClasses(Long userId);
 

@@ -10,16 +10,6 @@ export const menuByRole = {
         "id": "overview",
         "title": "管理总览",
         "path": "overview"
-      },
-      {
-        "id": "todos",
-        "title": "待办事项",
-        "path": "todos"
-      },
-      {
-        "id": "operations",
-        "title": "运行概况",
-        "path": "operations"
       }
     ]
   },
@@ -47,11 +37,6 @@ export const menuByRole = {
         "path": "students"
       },
       {
-        "id": "discussions",
-        "title": "留言互动",
-        "path": "discussions"
-      },
-      {
         "id": "terms",
         "title": "学期管理",
         "path": "terms"
@@ -65,11 +50,6 @@ export const menuByRole = {
         "id": "evaluation-indicators",
         "title": "评价指标管理",
         "path": "evaluation-indicators"
-      },
-      {
-        "id": "certificates",
-        "title": "证书配置",
-        "path": "certificates"
       },
       {
         "id": "teaching-analysis",
@@ -92,11 +72,6 @@ export const menuByRole = {
         "path": "practical-tasks"
       },
       {
-        "id": "admin-dashboard",
-        "title": "管理员看板",
-        "path": "admin-dashboard"
-      },
-      {
         "id": "teacher-workspace",
         "title": "教师工作台",
         "path": "teacher-workspace"
@@ -112,34 +87,9 @@ export const menuByRole = {
         "path": "campus-news"
       },
       {
-        "id": "learning-home",
-        "title": "学习首页",
-        "path": "learning-home"
-      },
-      {
-        "id": "my-courses",
-        "title": "我的课程",
-        "path": "my-courses"
-      },
-      {
         "id": "tasks",
         "title": "任务中心",
         "path": "tasks"
-      },
-      {
-        "id": "capability-analysis",
-        "title": "能力分析",
-        "path": "capability-analysis"
-      },
-      {
-        "id": "ability-assessment",
-        "title": "单项能力评测",
-        "path": "ability-assessment"
-      },
-      {
-        "id": "my-messages",
-        "title": "我的留言",
-        "path": "my-messages"
       }
     ]
   },
@@ -173,7 +123,7 @@ export const menuByRole = {
       },
       {
         "id": "monitoring",
-        "title": "监控中心",
+        "title": "运行监控",
         "path": "monitoring"
       },
       {
@@ -208,13 +158,18 @@ export const menuByRole = {
       },
       {
         "id": "notifications",
-        "title": "通知中心",
+        "title": "系统公告",
         "path": "notifications"
       },
       {
         "id": "logs",
         "title": "审计日志",
         "path": "logs"
+      },
+      {
+        "id": "login-logs",
+        "title": "登录日志",
+        "path": "login-logs"
       },
       {
         "id": "third-party-login",

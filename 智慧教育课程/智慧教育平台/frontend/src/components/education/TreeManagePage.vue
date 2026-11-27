@@ -9,7 +9,8 @@ import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
 import OrganizationTransferActions from '@/components/education/OrganizationTransferActions.vue'
 
 const props = defineProps({
-  config: { type: Object, required: true }
+  config: { type: Object, required: true },
+  openImportOnMount: Boolean
 })
 
 const cfg = props.config
@@ -313,7 +314,11 @@ onUnmounted(() => { disposed = true })
         <button v-if="can('add')" class="ui-btn primary" type="button" @click="openForm()">
           <Plus class="org-icon" aria-hidden="true" />新建组织
         </button>
-        <OrganizationTransferActions :filters="appliedFilters" @imported="load" />
+        <OrganizationTransferActions
+          :filters="appliedFilters"
+          :open-import-on-mount="props.openImportOnMount"
+          @imported="load"
+        />
         <button class="ui-btn" type="button" :disabled="!branchIds.size" @click="toggleAll">
           {{ hasExpandedBranches ? '收起全部' : '展开全部' }}
         </button>

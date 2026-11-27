@@ -13,6 +13,8 @@
             <el-button type="primary" native-type="submit">搜索</el-button>
             <el-button @click="resetQuery">重置</el-button>
           </el-form-item>
+          <el-form-item v-if="queryParams.schoolId"><el-tag>首页所选学校</el-tag></el-form-item>
+          <el-form-item v-if="queryParams.unassigned"><el-tag type="warning">仅未分班</el-tag></el-form-item>
         </el-form>
 
         <el-alert v-if="errorText" :title="errorText" type="warning" show-icon :closable="false" class="mb8" />
@@ -76,9 +78,7 @@
         <el-form-item label="姓名" required><el-input v-model="edit.data.nickName" maxlength="30" /></el-form-item>
         <el-form-item label="角色"><el-input model-value="学生" readonly /></el-form-item>
         <el-form-item label="所属班级">
-          <el-select v-model="edit.data.deptId" placeholder="请选择班级" filterable :loading="edit.loading" style="width: 100%">
-            <el-option v-for="item in classOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+          <StudentClassSelect v-model="edit.data.deptId" :options="classOptions" :loading="edit.loading" />
         </el-form-item>
         <el-form-item label="手机号"><el-input v-model="edit.data.phonenumber" maxlength="11" inputmode="tel" /></el-form-item>
         <el-form-item label="邮箱"><el-input v-model="edit.data.email" maxlength="50" inputmode="email" /></el-form-item>
@@ -116,20 +116,32 @@
 
 <script setup name="EduStudentList">
 import { computed, ref, reactive, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { disableStudentAccount, listStudentAccounts, updateStudentAccount } from '@/api/education/directory'
 import { eduErrorText } from '@/api/education/http'
 import { api } from '@/api/education/client.js'
 import { hasPermission, session } from '@/education/session.js'
-import { studentClassPath } from '@/utils/education/studentClass.js'
+import { studentClassOption } from '@/utils/education/studentClass.js'
 import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
 import DirectoryOrgTree from '@/components/education/DirectoryOrgTree.vue'
+import StudentClassSelect from '@/components/education/StudentClassSelect.vue'
 
 const loading = ref(false)
 const errorText = ref('')
 const list = ref([])
 const total = ref(0)
-const queryParams = reactive({ pageNum: 1, pageSize: 10, keyword: '', deptId: null })
+const route = useRoute()
+const router = useRouter()
+const { schoolId, unassigned } = route.query
+const queryParams = reactive({
+  pageNum: 1,
+  pageSize: 10,
+  keyword: '',
+  deptId: null,
+  schoolId: typeof schoolId === 'string' && /^[1-9]\d{0,18}$/.test(schoolId) ? schoolId : undefined,
+  unassigned: unassigned === 'true' || undefined
+})
 let latestListRequest = 0
 
 const edit = reactive({ open: false, loading: false, saving: false, error: '', data: null, originalClass: null })
@@ -142,7 +154,10 @@ const classOptions = computed(() => {
   return [edit.originalClass, ...eligibleClasses.value]
 })
 
-const classLabel = row => row.dept?.deptType === 'CLASS' ? row.dept.deptName : '未分班'
+function classLabel(row) {
+  if (row.dept?.deptType !== 'CLASS') return '未分班'
+  return queryParams.unassigned ? `${row.dept.deptName}（无有效归属）` : row.dept.deptName
+}
 const isEnabled = row => String(row.status) === '0'
 const statusLabel = row => isEnabled(row) ? '正常' : '停用'
 
@@ -182,6 +197,12 @@ function handleQuery() {
 }
 
 function resetQuery() {
+  if (queryParams.schoolId || queryParams.unassigned) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.schoolId
+    delete nextQuery.unassigned
+    return router.replace({ query: nextQuery })
+  }
   queryParams.keyword = ''
   handleQuery()
 }
@@ -201,7 +222,8 @@ async function openEdit(row) {
     status: row.status,
     remark: row.remark || ''
   }
-  edit.originalClass = { value: edit.data.deptId, label: classLabel(row) }
+  const originalName = classLabel(row)
+  edit.originalClass = { value: edit.data.deptId, name: originalName, path: originalName, original: true }
   eligibleClasses.value = []
   edit.open = true
   if (!hasPermission('system:dept:list')) return
@@ -212,10 +234,7 @@ async function openEdit(row) {
     if (current !== edit.data || !edit.open) return
     const depts = Array.isArray(data) ? data : []
     const byId = new Map(depts.map(dept => [String(dept.deptId), dept]))
-    eligibleClasses.value = depts.flatMap(dept => {
-      const label = studentClassPath(dept, byId)
-      return label ? [{ value: String(dept.deptId), label }] : []
-    })
+    eligibleClasses.value = depts.map(dept => studentClassOption(dept, byId)).filter(Boolean)
   } catch (error) {
     if (current === edit.data && edit.open) edit.error = eduErrorText(error)
   } finally {

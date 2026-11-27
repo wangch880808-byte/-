@@ -20,8 +20,10 @@
 
 ## 业务接入
 
-系统管理沿用原界面与业务组件，身份和请求接入若依公共模块，保留用户/角色 Excel 导入导出。管理员七组菜单保留，登录后默认收起；33 个未实施菜单仍为空白。
+系统管理沿用原界面与业务组件，身份和请求接入若依公共模块，保留用户和角色 Excel 导入导出。管理员登录后进入管理总览，待办与看板集中在首页。运行监控、系统公告和登录日志按原有权限开放。
 
 教师、学生使用同一框架，课程上下文位于 src/education/context.js。业务页通过 window.EduVue.registerPage 注册，必须提供 roles、permission、serviceRoute，服务端路由与权限同时满足才允许显示。需要课程/班级的页面声明 requiresContext: 'course' 或 'class'。
+
+管理员导航和“重新核验”都通过公共守卫刷新 `/getInfo` 和 `/getRouters`。业务页权限或服务端路由不满足时，守卫将管理员送到 `/admin/forbidden`。教师和学生直达管理员页时会返回自己的工作台。
 
 当前界面：src/layout/education/AppLayout.vue；原管理页面：src/views/education/admin/；样式：src/assets/styles/education.css。旧页面 API 调用通过 src/api/education/client.js 适配统一若依 Axios；src/education/session.js 读取官方 Pinia user/permission，不再维护第二套身份令牌。

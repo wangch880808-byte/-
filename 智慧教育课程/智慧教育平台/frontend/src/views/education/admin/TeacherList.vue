@@ -20,6 +20,8 @@
             <el-button type="primary" @click="handleQuery">搜索</el-button>
             <el-button @click="resetQuery">重置</el-button>
           </el-form-item>
+          <el-form-item v-if="queryParams.schoolId"><el-tag>首页所选学校</el-tag></el-form-item>
+          <el-form-item v-if="queryParams.unassigned"><el-tag type="warning">仅未归属学院</el-tag></el-form-item>
         </el-form>
 
         <el-alert
@@ -94,12 +96,13 @@
 
 <script setup name="EduTeacherList">
 import { ref, reactive, getCurrentInstance, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { listTeacher, listTeacherClasses } from '@/api/education/directory'
 import { eduErrorText } from '@/api/education/http'
 import DirectoryOrgTree from '@/components/education/DirectoryOrgTree.vue'
 
 const { proxy } = getCurrentInstance()
+const route = useRoute()
 const router = useRouter()
 
 const loading = ref(false)
@@ -107,7 +110,15 @@ const errorText = ref('')
 const list = ref([])
 const total = ref(0)
 
-const queryParams = reactive({ pageNum: 1, pageSize: 10, keyword: '', deptId: null })
+const { schoolId, unassigned } = route.query
+const queryParams = reactive({
+  pageNum: 1,
+  pageSize: 10,
+  keyword: '',
+  deptId: null,
+  schoolId: typeof schoolId === 'string' && /^[1-9]\d{0,18}$/.test(schoolId) ? schoolId : undefined,
+  unassigned: unassigned === 'true' || undefined
+})
 
 const drawer = ref(false)
 const drawerLoading = ref(false)
@@ -149,6 +160,12 @@ function handleQuery() {
 }
 
 function resetQuery() {
+  if (queryParams.schoolId || queryParams.unassigned) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.schoolId
+    delete nextQuery.unassigned
+    return router.replace({ query: nextQuery })
+  }
   queryParams.keyword = ''
   handleQuery()
 }
