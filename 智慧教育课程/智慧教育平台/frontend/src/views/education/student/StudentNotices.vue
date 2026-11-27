@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getNoticeDetail, getUnreadCount, listNotices, markAllNoticesRead, markNoticeRead } from '@/api/education/notice'
 import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
+import TeachingContext from '@/components/education/TeachingContext.vue'
 import StudentAnnouncements from './StudentAnnouncements.vue'
 import { context } from '@/education/context'
 import { classifyNotice503, notice503Detail } from './notice-error'
@@ -98,6 +99,14 @@ let disposed = false
 const bindingId = computed(() => {
   const value = context.current?.bindingId
   return value === undefined || value === null || value === '' ? '' : String(value)
+})
+
+/** 当前范围名称；无选择时明确表示全部当前可见范围。 */
+const scopeLabel = computed(() => {
+  if (!bindingId.value) return '全部当前可见通知'
+  const course = context.current?.courseTitle
+  const className = context.current?.className
+  return course && className ? `${course} · ${className}` : (className || course || '当前教学班')
 })
 
 const unreadText = computed(() => {
@@ -645,6 +654,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="student-notices" aria-label="学习通知与课程公告">
+    <TeachingContext />
     <div class="notice-tabs" role="tablist" aria-label="学习通知与课程公告">
       <button
         type="button"
@@ -682,7 +692,7 @@ onBeforeUnmount(() => {
     </ul>
 
     <p class="context-note">
-      {{ bindingId ? `当前教学班：${bindingId}` : '未选择教学班，显示本人全部当前可见通知。' }}
+      {{ scopeLabel }}
     </p>
 
     <div class="notice-filters">
@@ -843,6 +853,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .student-notices { padding: 20px; background: #fff; border-radius: 8px; }
+/* 通知页签的既有 z-index 高于默认弹窗；局部抬高确认/详情弹窗，保证可操作。 */
+.student-notices :deep(.modal-mask) { z-index: 4000; }
 .notice-tabs { position: relative; z-index: 3100; display: flex; gap: 8px; margin-bottom: 18px; border-bottom: 1px solid #ebeef5; }
 .notice-tabs button {
   padding: 8px 14px; border: 0; border-bottom: 2px solid transparent;
@@ -873,7 +885,7 @@ onBeforeUnmount(() => {
 }
 .notice-main:hover .notice-title { color: #409eff; }
 .detail-overlay {
-  position: fixed; inset: 0; z-index: 3000;
+  position: fixed; inset: 0; z-index: 4000;
   display: flex; align-items: center; justify-content: center;
   padding: 20px; background: rgba(0, 0, 0, .45);
 }

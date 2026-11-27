@@ -9,6 +9,7 @@ import {
   updateTeacherAnnouncement
 } from '@/api/education/announcement'
 import ConfirmDialog from '@/components/education/ConfirmDialog.vue'
+import TeachingContext from '@/components/education/TeachingContext.vue'
 import { context } from '@/education/context'
 import { hasPermission, session } from '@/education/session'
 import { classifyNotice503, notice503Detail } from '@/views/education/student/notice-error'
@@ -103,6 +104,15 @@ const currentUserId = computed(() => {
  * 当前教学班是否允许创建和编辑公告。该值来自上下文核验响应，不是前端推测。
  */
 const canPublishInCurrentClass = computed(() => context.current?.canPublish === true)
+
+/** 当前范围的展示名称；选项全部来自服务端授权上下文，不回显 URL 原始参数。 */
+const scopeLabel = computed(() => {
+  const course = context.current?.courseTitle
+  const className = context.current?.className
+  if (!bindingId.value) return '未选择教学班'
+  if (course && className) return `${course} · ${className}`
+  return className || course || '当前教学班'
+})
 
 /**
  * 新建草稿入口条件：有效教学班 + 当前班级允许发布 + add 权限。
@@ -847,12 +857,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="teacher-announcements">
+    <TeachingContext />
     <header class="ann-head">
       <div>
         <h2>班级消息 / 公告</h2>
         <p class="sub">本班公告按教学班授权；支持草稿新建、编辑以及发布、归档。</p>
       </div>
-      <span class="scope">{{ bindingId ? `当前教学班：${bindingId}` : '未选择教学班' }}</span>
+      <span class="scope">{{ scopeLabel }}</span>
     </header>
 
     <div class="ann-toolbar">
