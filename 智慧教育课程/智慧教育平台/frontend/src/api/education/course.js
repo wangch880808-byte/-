@@ -57,6 +57,32 @@ export function createCourseTeachingClass(courseId, data) {
   return edu({ url: '/education/course/' + courseId + '/teaching-classes', method: 'post', data, headers: { silent403: true } })
 }
 
+/** 目录草稿发布（教师）；目录编辑均写入草稿，学生只看已发布版本 */
+export function publishCourseOutline(courseId) {
+  return edu({ url: '/education/course/' + courseId + '/outline/publish', method: 'post' })
+}
+
+/** 课程操作日志（教师） */
+export function listCourseOperations(courseId, params) {
+  return edu({ url: '/education/course/' + courseId + '/operations', method: 'get', params, headers: { silent403: true } })
+}
+
+/** 学生学习进度：已学章节、最近学习位置 */
+export function getCourseOutlineProgress(courseId) {
+  return edu({ url: '/education/course/' + courseId + '/outline/progress', method: 'get', headers: { silent403: true } })
+}
+export function viewCourseUnit(courseId, unitId) {
+  return edu({ url: `/education/course/${courseId}/outline/units/${unitId}/view`, method: 'post', headers: { silent403: true } })
+}
+export function markCourseUnit(courseId, unitId, learned) {
+  return edu({ url: `/education/course/${courseId}/outline/units/${unitId}/progress`, method: 'post', data: { learned }, headers: { silent403: true } })
+}
+
+/** 学生全部课程的学习进度汇总（课程列表页） */
+export function listCourseProgress() {
+  return edu({ url: '/education/course/list/progress', method: 'get', headers: { silent403: true } })
+}
+
 function courseClassStudentsUrl(courseId, classId) {
   return '/education/course/' + courseId + '/teaching-classes/' + classId + '/students'
 }

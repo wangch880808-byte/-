@@ -1,3 +1,39 @@
-.group2-page {padding:16px;background:#fff;border-radius:8px;min-width:0}
+.group2-page {padding:16px;min-width:0}
 .group2-page .mb8 {margin-bottom:8px}.group2-page .mr8{margin-right:8px}
+.group2-page .el-card {border:0;box-shadow:none;border-radius:0}
 @media(max-width:700px){.group2-page{padding:12px}.group2-page .el-drawer{max-width:100vw}.group2-page .el-dialog{max-width:calc(100vw - 24px)}}
+
+/* ============ 我的课程：更大、更简洁的控件与字体 ============ */
+.group2-page { font-size: 15px; }
+
+/* 按钮 */
+.group2-page .el-button { height: 38px; padding: 0 20px; font-size: 15px; border-radius: 6px; }
+.group2-page .el-button--small { height: 30px; padding: 0 14px; font-size: 13px; }
+.group2-page .el-button--large { height: 46px; padding: 0 28px; font-size: 16px; }
+.group2-page .el-button.is-link { height: auto; padding: 0; }
+.group2-page .el-button.is-circle { padding: 0; width: 38px; }
+.group2-page .el-button--small.is-circle { width: 30px; }
+
+/* 输入 / 下拉 / 文本域 */
+.group2-page .el-input__wrapper { font-size: 15px; }
+.group2-page .el-input__inner { font-size: 15px; }
+.group2-page .el-textarea__inner { font-size: 15px; }
+.group2-page .el-select__wrapper { font-size: 15px; }
+.group2-page .el-select__selected-item { font-size: 15px; }
+.group2-page .el-date-editor { font-size: 15px; }
+
+/* 表格 */
+.group2-page .el-table { font-size: 15px; }
+.group2-page .el-table th.el-table__cell .cell { font-size: 15px; font-weight: 600; }
+.group2-page .el-table .cell { line-height: 1.7; }
+
+/* 标签 / 标签页 / 提示 / 分页 / 表单 / 弹窗 */
+.group2-page .el-tag { font-size: 13px; }
+.group2-page .el-tabs__item { font-size: 16px; }
+.group2-page .el-alert { font-size: 14px; }
+.group2-page .el-alert__title { font-size: 14px; }
+.group2-page .el-empty__description { font-size: 14px; }
+.group2-page .el-pagination { font-size: 14px; }
+.group2-page .el-form-item__label { font-size: 14px; }
+.group2-page .el-dialog__title, .group2-page .el-drawer__title { font-size: 17px; }
+.group2-page .el-descriptions__label, .group2-page .el-descriptions__content { font-size: 14px; }

@@ -357,7 +357,7 @@ async function moveStudents() {
 .class-empty,
 .class-item small {
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 .class-list {
   display: grid;

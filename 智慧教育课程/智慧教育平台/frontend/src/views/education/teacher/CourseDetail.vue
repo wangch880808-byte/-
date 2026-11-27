@@ -17,7 +17,7 @@
         class="mb8"
       />
 
-      <el-card v-loading="loading" shadow="never" class="edu-hero">
+      <div v-loading="loading" class="edu-hero">
         <div class="edu-hero-main">
           <div class="edu-hero-title">
             <el-tag :type="statusTag(course.status)">{{ statusLabel(course.status) }}</el-tag>
@@ -29,17 +29,28 @@
             <span>{{ course.studentCount || 0 }} 名学生</span>
           </div>
         </div>
-        <div v-if="canManage" class="edu-hero-actions">
-          <el-button @click="openEdit">编辑课程</el-button>
-          <el-button :type="isActive ? 'danger' : 'success'" plain @click="toggleStatus">
+        <div v-if="canManage || course.canManageOutline || course.canManagePoints" class="edu-hero-actions">
+          <el-button v-if="canManage" @click="openEdit">编辑课程</el-button>
+          <el-button v-if="(course.canManageOutline || course.canManagePoints) && course.outlineDirty" type="warning" plain
+            :loading="publishing" @click="publishOutline">发布目录</el-button>
+          <el-button v-if="canManage" :type="isActive ? 'danger' : 'success'" plain @click="toggleStatus">
             {{ isActive ? '撤回发布' : '发布课程' }}
           </el-button>
         </div>
-      </el-card>
+      </div>
+
+      <el-alert
+        v-if="(course.canManageOutline || course.canManagePoints) && course.outlineDirty"
+        title="目录有未发布的改动，学生看到的是上次发布的版本。点击右上角「发布目录」后生效。"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="mb8"
+      />
 
       <el-tabs v-model="activeTab" class="edu-tabs">
         <el-tab-pane label="目录" name="outline">
-          <course-outline :course="course" :readonly="!canManage" @saved="load" />
+          <course-outline :course="course" :readonly="!canEditOutline" @saved="load" />
         </el-tab-pane>
 
         <el-tab-pane label="班级管理" name="classes" lazy>
@@ -57,9 +68,13 @@
           <course-team v-if="course.id" :course-id="courseId" :can-manage="canManage" />
         </el-tab-pane>
 
+        <el-tab-pane label="操作日志" name="log" lazy>
+          <course-log v-if="course.id" :course-id="courseId" />
+        </el-tab-pane>
+
         <el-tab-pane label="课程建设" name="material" lazy>
           <group3-course-section v-if="course.id && activeTab === 'material'" :course-id="courseId" :empty-message="group3Empty" v-slot="{ bindingId }">
-            <teacher-studio :key="bindingId" :context-binding-id="bindingId" :can-manage-outline="canManage" />
+            <teacher-studio :key="bindingId" :context-binding-id="bindingId" :can-manage-outline="course.canManageOutline" />
           </group3-course-section>
         </el-tab-pane>
         <el-tab-pane label="课前准备" name="prepare" lazy>
@@ -68,14 +83,10 @@
           </group3-course-section>
         </el-tab-pane>
         <el-tab-pane label="作业" name="homework">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('homework')" :image-size="80" />
-          </el-card>
+          <el-empty :description="placeholder('homework')" :image-size="80" />
         </el-tab-pane>
         <el-tab-pane label="统计" name="stat">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('stat')" :image-size="80" />
-          </el-card>
+          <el-empty :description="placeholder('stat')" :image-size="80" />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -87,12 +98,13 @@
 <script setup name="EduTeacherCourseDetail">
 import { ref, computed, defineAsyncComponent, getCurrentInstance, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getCourse, changeCourseStatus } from '@/api/education/course'
+import { getCourse, changeCourseStatus, publishCourseOutline } from '@/api/education/course'
 import { eduErrorText } from '@/api/education/http'
 import CourseOutline from '@/components/education/CourseOutline.vue'
 import CourseFormDialog from '@/components/education/CourseFormDialog.vue'
 import CourseClasses from './CourseClasses.vue'
 import CourseTeam from './CourseTeam.vue'
+import CourseLog from './CourseLog.vue'
 import Group3CourseSection from '../group3/Group3CourseSection.vue'
 
 const TeacherStudio = defineAsyncComponent(() => import('../group3/TeacherStudio.vue'))
@@ -109,7 +121,7 @@ const errorText = ref('')
 const fatal = ref(false)
 const fatalText = ref('')
 const course = ref({})
-const tabs = ['outline', 'classes', 'team', 'material', 'prepare', 'homework', 'stat']
+const tabs = ['outline', 'classes', 'team', 'log', 'material', 'prepare', 'homework', 'stat']
 const activeTab = computed({
   get() {
     const tab = { studio: 'material', discuss: 'prepare' }[route.query.tab] || route.query.tab
@@ -120,6 +132,7 @@ const activeTab = computed({
 const group3Empty = '请先添加有效教学班，并确认你拥有该班的发布权限。'
 
 const editOpen = ref(false)
+const publishing = ref(false)
 
 const STATUS = { DRAFT: '草稿', ACTIVE: '已发布', ARCHIVED: '已归档' }
 const PLACEHOLDER = {
@@ -128,6 +141,10 @@ const PLACEHOLDER = {
 }
 
 const canManage = computed(() => course.value.canManage === true && course.value.status !== 'ARCHIVED')
+const canEditOutline = computed(() =>
+  course.value.status !== 'ARCHIVED' &&
+  (course.value.canManageOutline === true || course.value.canManagePoints === true)
+)
 const isActive = computed(() => course.value.status === 'ACTIVE')
 const classes = computed(() => course.value.classes || [])
 
@@ -174,6 +191,25 @@ function openEdit() {
   editOpen.value = true
 }
 
+async function publishOutline() {
+  if (publishing.value) return
+  try {
+    await proxy.$modal.confirm('发布后，学生将看到最新的目录与章节内容。')
+  } catch (e) {
+    return
+  }
+  publishing.value = true
+  try {
+    await publishCourseOutline(courseId.value)
+    proxy.$modal.msgSuccess('目录已发布')
+    load()
+  } catch (e) {
+    proxy.$modal.msgError(eduErrorText(e))
+  } finally {
+    publishing.value = false
+  }
+}
+
 async function toggleStatus() {
   const publish = !isActive.value
   try {
@@ -199,13 +235,16 @@ watch(courseId, load, { immediate: true })
 
 <style scoped>
 .edu-hero {
-  margin-bottom: 16px;
-}
-.edu-hero :deep(.el-card__body) {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  padding: 4px 4px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 16px;
+}
+.edu-tabs > :deep(.el-tabs__header) {
+  display: none;
 }
 .edu-hero-title {
   display: flex;
@@ -214,7 +253,7 @@ watch(courseId, load, { immediate: true })
 }
 .edu-hero-title h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
   color: #303133;
 }
 .edu-hero-meta {
@@ -222,7 +261,7 @@ watch(courseId, load, { immediate: true })
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
-  font-size: 13px;
+  font-size: 14px;
   color: #606266;
 }
 .edu-hero-actions {

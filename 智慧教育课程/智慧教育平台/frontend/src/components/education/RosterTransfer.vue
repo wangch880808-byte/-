@@ -23,6 +23,7 @@ const addError = ref('')
 const file = ref(null)
 const busy = ref('')
 const result = ref('')
+const report = ref([])
 const failure = ref('')
 
 function endpoint(action) {
@@ -56,8 +57,13 @@ async function addStudent() {
   addError.value = ''
   try {
     const response = await api.post(endpoint('add'), { account: studentAccount.value.trim() }, { silent403: true })
+    const row = response.data?.rows?.[0]
+    if (row && row.status === 'error') {
+      addError.value = row.message
+      return
+    }
     addOpen.value = false
-    ElMessage.success(response.msg)
+    ElMessage.success(row?.status === 'skipped' ? row.message : '已加入本班')
     emit('imported')
   } catch (error) {
     if (!error.cancelled && !error.unauthorized) addError.value = error.message
@@ -103,7 +109,9 @@ async function importRoster() {
   data.append('file', file.value)
   try {
     const response = await api.post(endpoint('import'), data, { timeout: 120000, silent403: true })
-    result.value = response.msg
+    const payload = response.data || {}
+    result.value = payload.summary || response.msg
+    report.value = (payload.rows || []).filter(row => row.status !== 'success')
     emit('imported')
   } catch (error) {
     if (!error.cancelled && !error.unauthorized) failure.value = error.message
@@ -149,6 +157,17 @@ async function importRoster() {
     <p><input type="file" aria-label="学生名单 Excel 文件" accept=".xls,.xlsx" :disabled="!!busy || !!result" @change="chooseFile" /></p>
     <el-alert v-if="failure" :title="failure" type="error" :closable="false" show-icon />
     <el-alert v-if="result" :title="result" type="success" :closable="false" show-icon />
+    <div v-if="report.length" class="roster-report">
+      <el-table :data="report" size="small" max-height="240">
+        <el-table-column label="行号" prop="row" width="70" />
+        <el-table-column label="账号" prop="account" min-width="130" show-overflow-tooltip />
+        <el-table-column label="结果" min-width="180">
+          <template #default="{ row }">
+            <span :class="row.status === 'error' ? 'roster-fail' : 'roster-skip'">{{ row.message }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
     <template #footer>
       <el-button :disabled="!!busy" @click="open = false">{{ result ? '完成' : '取消' }}</el-button>
       <el-button v-if="!result" type="primary" :disabled="!!busy" :loading="busy === 'import'" @click="importRoster">开始导入</el-button>
@@ -160,4 +179,7 @@ async function importRoster() {
 .roster-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .roster-actions .el-button { margin-left: 0; }
 .roster-hint { color: var(--muted); margin: 0 0 12px; line-height: 1.6; }
+.roster-report { margin-top: 12px; }
+.roster-fail { color: #cf1322; }
+.roster-skip { color: #b7791f; }
 </style>

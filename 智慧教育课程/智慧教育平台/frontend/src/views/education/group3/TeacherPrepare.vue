@@ -54,7 +54,7 @@
                 <span class="panel-title">时间轴</span>
                 <div class="panel-tools">
                   <span class="edu-hint">按开放时间排列</span>
-                  <el-select v-model="filter" size="small" style="width: 140px">
+                  <el-select v-model="filter" style="width: 160px">
                     <el-option
                       v-for="item in filterOptions"
                       :key="item.value"
@@ -62,11 +62,11 @@
                       :value="item.value"
                     />
                   </el-select>
-                  <el-radio-group v-model="viewMode" size="small">
+                  <el-radio-group v-model="viewMode">
                     <el-radio-button value="timeline">时间轴</el-radio-button>
                     <el-radio-button value="list">列表</el-radio-button>
                   </el-radio-group>
-                  <el-button size="small" @click="openRemovedStages">已删除</el-button>
+                  <el-button @click="openRemovedStages">已删除</el-button>
                 </div>
               </div>
             </template>
@@ -115,6 +115,7 @@
                       @click="selectNode(node)"
                       @keyup.enter="selectNode(node)"
                     >
+                      <div class="tl-main">
                       <div class="tl-card-head">
                         <el-tag size="small" effect="plain">
                           {{ kindOf(node).icon }} {{ kindOf(node).label }}
@@ -127,6 +128,8 @@
                       </div>
                       <div class="tl-title">{{ node.title }}</div>
                       <div v-if="node.subtitle" class="tl-subtitle">{{ node.subtitle }}</div>
+                      </div>
+                      <div class="tl-side">
                       <div v-if="node.tags.length" class="tl-tags">
                         <el-tag v-for="tag in node.tags" :key="tag" size="small" type="info" effect="plain">
                           {{ tag }}
@@ -194,6 +197,7 @@
                           删除环节
                         </el-button>
                         <el-button link type="primary" @click="selectNode(node)">查看详情</el-button>
+                      </div>
                       </div>
                     </div>
                   </div>
@@ -2024,7 +2028,7 @@ function collectTeacherNodes(ov, taskList, discussionList) {
       ? 'ARCHIVED'
       : timeState(row.opensAt, row.closesAt, now)
     const tags = [`${items.length} 道题`]
-    if (row.lessonId && lessonTime.get(String(row.lessonId))) tags.push('已关联课次')
+    if (row.lessonId && (ov.lessons || []).some(item => Number(item.lessonId) === Number(row.lessonId))) tags.push('已关联课次')
     result.push(makeNode({
       key: `quiz-${row.assignmentId}`,
       kind: 'QUIZ',
@@ -3747,23 +3751,24 @@ function submitPostScore(post) {
 }
 .prepare-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
   color: #303133;
 }
 .prepare-sub {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   color: #606266;
-  font-size: 14px;
+  font-size: 15px;
 }
 .prepare-help {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   color: #909399;
-  font-size: 12px;
+  font-size: 14px;
   max-width: 760px;
+  line-height: 1.7;
 }
 .prepare-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 .stat-row {
@@ -3778,12 +3783,12 @@ function submitPostScore(post) {
   background: #fdf6ec;
 }
 .stat-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #909399;
 }
 .stat-value {
-  margin-top: 6px;
-  font-size: 24px;
+  margin-top: 8px;
+  font-size: 26px;
   font-weight: 600;
   color: #303133;
 }
@@ -3800,15 +3805,16 @@ function submitPostScore(post) {
 .panel-title {
   font-weight: 600;
   color: #303133;
+  font-size: 16px;
 }
 .panel-tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 .edu-hint {
-  font-size: 12px;
+  font-size: 14px;
   color: #909399;
 }
 .removed-hint {
@@ -3879,32 +3885,35 @@ function submitPostScore(post) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 12px;
+  margin-bottom: 12px;
   color: #303133;
-  font-size: 13px;
+  font-size: 15px;
+}
+.day-head strong {
+  font-size: 16px;
 }
 .day-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #409eff;
 }
 .day-count {
-  font-size: 12px;
+  font-size: 14px;
   color: #909399;
 }
 .day-progress {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   cursor: help;
 }
 .day-progress-bar {
-  width: 72px;
+  width: 110px;
 }
 .day-progress-text {
-  font-size: 12px;
+  font-size: 14px;
   color: #606266;
 }
 .day-progress-text.muted {
@@ -3912,21 +3921,21 @@ function submitPostScore(post) {
 }
 .tl-item {
   display: grid;
-  grid-template-columns: 58px 14px 1fr;
-  gap: 6px;
-  margin-bottom: 10px;
+  grid-template-columns: 88px 16px 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 .tl-time {
   text-align: right;
-  padding-top: 6px;
+  padding-top: 8px;
   color: #606266;
 }
 .tl-time strong {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
 }
 .tl-time span {
-  font-size: 11px;
+  font-size: 13px;
   color: #909399;
 }
 .tl-dot {
@@ -3953,13 +3962,28 @@ function submitPostScore(post) {
   background: #909399;
 }
 .tl-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
   border: 1px solid #ebeef5;
   border-left: 4px solid #c0c4cc;
-  border-radius: 6px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 14px 16px;
   background: #fff;
   cursor: pointer;
   transition: box-shadow 0.2s, border-color 0.2s;
+}
+.tl-main {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.tl-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .tl-card:hover {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
@@ -3986,25 +4010,25 @@ function submitPostScore(post) {
 .tl-card-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .tl-seq {
-  font-size: 12px;
+  font-size: 13px;
   color: #606266;
 }
 .tl-seq.muted {
   color: #c0c4cc;
 }
 .tl-title {
-  margin-top: 6px;
-  font-size: 14px;
+  margin-top: 8px;
+  font-size: 16px;
   font-weight: 600;
   color: #303133;
 }
 .tl-subtitle {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 13px;
   color: #909399;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4012,34 +4036,29 @@ function submitPostScore(post) {
 }
 .tl-tags {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-top: 6px;
 }
 .tl-ideology {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 8px;
 }
 .tl-ideology-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #b45309;
   background: #fdf6ec;
   border: 1px solid #f5dab1;
   border-radius: 4px;
-  padding: 0 6px;
-  line-height: 20px;
+  padding: 0 8px;
+  line-height: 22px;
 }
 .tl-actions {
   display: flex;
-  gap: 12px;
   flex-wrap: wrap;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed #ebeef5;
+  gap: 14px;
 }
 .stage-track {
   background: #fafafa;

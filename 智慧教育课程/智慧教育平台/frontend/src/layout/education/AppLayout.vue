@@ -17,6 +17,41 @@ const roleLabels = { admin: '管理员', teacher: '教师', student: '学生' }
 const authorized = computed(() => pages.filter(canOpen))
 const groups = computed(() => session.role === 'admin' ? buildAdminGroups(pages, canOpen) : [])
 const coursePage = computed(() => authorized.value.find(page => page.id === 'courses'))
+const courseTabsByRole = {
+  teacher: [
+    { key: 'outline', label: '目录' },
+    { key: 'classes', label: '班级管理' },
+    { key: 'team', label: '教师团队' },
+    { key: 'log', label: '操作日志' },
+    { key: 'material', label: '课程建设' },
+    { key: 'prepare', label: '课前准备' },
+    { key: 'homework', label: '作业' },
+    { key: 'stat', label: '统计' }
+  ],
+  student: [
+    { key: 'outline', label: '目录' },
+    { key: 'material', label: '课程资料' },
+    { key: 'prepare', label: '课前学习' },
+    { key: 'discuss', label: '讨论' },
+    { key: 'classroom', label: '同步课堂' },
+    { key: 'homework', label: '课后学习' }
+  ]
+}
+const courseTabs = computed(() => courseTabsByRole[session.role] || [])
+const courseSubmenuOpen = computed(() => (session.role === 'teacher' || session.role === 'student') && route.name === 'course-detail' && !!coursePage.value)
+const activeCourseTab = computed(() => {
+  const queryTab = route.query.tab
+  const tab = session.role === 'teacher'
+    ? ({ studio: 'material', discuss: 'prepare' }[queryTab] || queryTab)
+    : queryTab
+  return courseTabs.value.some(item => item.key === tab) ? tab : 'outline'
+})
+function courseTabPath(key) {
+  const params = new URLSearchParams()
+  for (const k of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[k]) params.set(k, context.current[k])
+  params.set('tab', key)
+  return '/' + session.role + '/courses/' + route.params.courseId + '?' + params.toString()
+}
 const currentPage = computed(() => route.meta.page)
 const selectedMenu = computed(() => session.role === 'admin'
   ? adminMenuItems.find(item => route.path === '/admin/' + item.path) : null)
@@ -128,6 +163,11 @@ onUnmounted(() => {
             :to="withContext('/' + session.role)" @click="navOpen = false">工作台</router-link>
           <router-link v-if="coursePage" class="menu-item" :class="{ active: route.name === 'courses' || route.name === 'course-detail' }"
             :to="withContext(pathOf(coursePage))" @click="navOpen = false">我的课程</router-link>
+          <template v-if="courseSubmenuOpen">
+            <router-link v-for="tab in courseTabs" :key="tab.key" class="menu-item menu-sub"
+              :class="{ active: activeCourseTab === tab.key }"
+              :to="courseTabPath(tab.key)" @click="navOpen = false">{{ tab.label }}</router-link>
+          </template>
         </template>
         <div v-for="group in groups" :key="group.title" class="menu-group" :class="{ collapsed: collapsedGroups.includes(group.title) }">
           <button class="menu-title menu-group-toggle" type="button" :aria-expanded="!collapsedGroups.includes(group.title)"

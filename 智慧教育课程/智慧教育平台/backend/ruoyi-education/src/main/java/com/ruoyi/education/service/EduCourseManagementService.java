@@ -35,6 +35,21 @@ public class EduCourseManagementService {
         this.portalService = portalService;
     }
 
+    /** 课程团队可分配的细粒度权限键。 */
+    public static final java.util.Set<String> PERMISSION_KEYS = java.util.Set.of(
+            "activity", "knowledgeGraph", "courseware", "lessonPlan",
+            "outline", "quizAnswers", "chapterOpen", "material");
+
+    public static boolean hasPermission(Map<String, Object> team, String key) {
+        if (team == null || key == null) return false;
+        Object raw = team.get("permissions");
+        if (raw == null) return false;
+        for (String part : String.valueOf(raw).split(",")) {
+            if (key.equals(part.strip())) return true;
+        }
+        return false;
+    }
+
     public List<Map<String, Object>> team(Long courseId) {
         requireCourse(courseId, false, false);
         return management.team(courseId);
@@ -48,13 +63,67 @@ public class EduCourseManagementService {
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
-    public void saveTeacher(Long courseId, Long userId, boolean manageStudents, boolean export) {
+    public void saveTeacher(Long courseId, Long userId, boolean manageStudents, boolean export, String permissions) {
         EduCourseSpace course = requireCourse(courseId, true, true);
-        if (course.getOwnerUserId().equals(userId)) throw new ServiceException("课程负责人已经在团队中");
+        if (course.getOwnerUserId().equals(userId)) throw new ServiceException("课程创建者已经在团队中");
         if (management.teacherCandidates(courseId, course.getOrganizationId(), null, userId).isEmpty()) {
             throw new ServiceException("请选择本校已启用的教师账号");
         }
-        management.saveTeacher(courseId, userId, manageStudents, export, SecurityUtils.getUserId());
+        String normalized = normalizePermissions(permissions);
+        management.saveTeacher(courseId, userId, "MEMBER", manageStudents, export, normalized, SecurityUtils.getUserId());
+    }
+
+    private String normalizePermissions(String permissions) {
+        if (permissions == null || permissions.isBlank()) return "";
+        List<String> keys = new ArrayList<>();
+        for (String part : permissions.split(",")) {
+            String key = part.strip();
+            if (key.isEmpty()) continue;
+            if (!PERMISSION_KEYS.contains(key)) throw new ServiceException("包含无法识别的权限项");
+            keys.add(key);
+        }
+        return String.join(",", new LinkedHashSet<>(keys));
+    }
+
+    /**
+     * 校验当前教师对课程模块的管理权限：课程创建者直接通过；协作教师需持有对应权限键。
+     * 返回课程对象；未通过时抛出异常。
+     */
+    public EduCourseSpace requireManagePermission(Long courseId, String permissionKey, String action) {
+        if (!"teacher".equals(EduActor.role()) || portal.countActiveAccountRole(SecurityUtils.getUserId(), "teacher") == 0) {
+            throw new EduForbiddenException("只有有效教师可以管理课程");
+        }
+        EduCourseSpace course = courses.selectById(courseId);
+        if (course == null) throw new ServiceException("课程不存在");
+        if ("ARCHIVED".equals(course.getStatus())) throw new ServiceException("已归档课程只允许查看");
+        Long userId = SecurityUtils.getUserId();
+        if (userId.equals(course.getOwnerUserId()) || hasPermission(management.teamAccess(courseId, userId), permissionKey)) {
+            return course;
+        }
+        throw new EduForbiddenException(action == null || action.isBlank()
+                ? "你没有该模块的管理权限" : action);
+    }
+
+    /**
+     * 校验当前教师对课程模块的管理权限：课程创建者直接通过；协作教师需持有任意一个指定权限键。
+     */
+    public EduCourseSpace requireManagePermissionAny(Long courseId, String action, String... permissionKeys) {
+        if (!"teacher".equals(EduActor.role()) || portal.countActiveAccountRole(SecurityUtils.getUserId(), "teacher") == 0) {
+            throw new EduForbiddenException("只有有效教师可以管理课程");
+        }
+        EduCourseSpace course = courses.selectById(courseId);
+        if (course == null) throw new ServiceException("课程不存在");
+        if ("ARCHIVED".equals(course.getStatus())) throw new ServiceException("已归档课程只允许查看");
+        Long userId = SecurityUtils.getUserId();
+        if (userId.equals(course.getOwnerUserId())) {
+            return course;
+        }
+        Map<String, Object> teamRow = management.teamAccess(courseId, userId);
+        for (String key : permissionKeys) {
+            if (hasPermission(teamRow, key)) return course;
+        }
+        throw new EduForbiddenException(action == null || action.isBlank()
+                ? "你没有该模块的管理权限" : action);
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)

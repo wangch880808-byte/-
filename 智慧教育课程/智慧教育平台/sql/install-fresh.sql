@@ -953,6 +953,7 @@ CREATE TABLE edu_course_space (
     learning_objectives TEXT NULL,
     cover_storage_key VARCHAR(512) NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
+    outline_dirty TINYINT(1) NOT NULL DEFAULT 0 COMMENT '目录有未发布改动',
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
@@ -1001,6 +1002,45 @@ CREATE TABLE edu_knowledge_point (
         REFERENCES edu_course_space (id),
     CONSTRAINT fk_edu_knowledge_point_unit FOREIGN KEY (unit_id, course_space_id)
         REFERENCES edu_course_unit (id, course_space_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE edu_course_unit_draft (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    parent_unit_id BIGINT NULL,
+    unit_kind VARCHAR(16) NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    content_text TEXT NULL,
+    PRIMARY KEY (id),
+    KEY idx_unit_draft_course (course_space_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE edu_knowledge_point_draft (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    unit_id BIGINT NULL,
+    code VARCHAR(60) NOT NULL,
+    name VARCHAR(160) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    content_text TEXT NULL,
+    PRIMARY KEY (id),
+    KEY idx_point_draft_course (course_space_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE edu_outline_progress (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    course_space_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    unit_id BIGINT NOT NULL,
+    learned_at DATETIME(3) NULL,
+    last_viewed_at DATETIME(3) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_progress_user_unit (course_space_id, user_id, unit_id),
+    KEY idx_progress_course_user (course_space_id, user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE edu_teaching_class (
@@ -2631,10 +2671,6 @@ CREATE TABLE IF NOT EXISTS edu_outline_attachment (
     PRIMARY KEY (id),
     KEY idx_outline_attachment_unit (unit_id, course_space_id),
     KEY idx_outline_attachment_point (point_id, course_space_id),
-    CONSTRAINT fk_outline_attachment_unit FOREIGN KEY (unit_id, course_space_id)
-        REFERENCES edu_course_unit(id, course_space_id) ON DELETE CASCADE,
-    CONSTRAINT fk_outline_attachment_point FOREIGN KEY (point_id, course_space_id)
-        REFERENCES edu_knowledge_point(id, course_space_id) ON DELETE CASCADE,
     CONSTRAINT chk_outline_attachment_target CHECK ((unit_id IS NULL) <> (point_id IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -2646,6 +2682,8 @@ CREATE TABLE IF NOT EXISTS edu_course_teacher (
     id BIGINT NOT NULL AUTO_INCREMENT,
     course_space_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
+    team_role VARCHAR(16) NOT NULL DEFAULT 'MEMBER' COMMENT '团队身份：MEMBER 协作教师 / READONLY 只读协作',
+    permissions VARCHAR(255) NOT NULL DEFAULT '' COMMENT '逗号分隔的权限键',
     can_manage_students TINYINT(1) NOT NULL DEFAULT 0,
     can_export TINYINT(1) NOT NULL DEFAULT 0,
     joined_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

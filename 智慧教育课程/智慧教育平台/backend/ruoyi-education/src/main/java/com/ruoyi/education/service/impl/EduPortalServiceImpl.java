@@ -1,9 +1,12 @@
 package com.ruoyi.education.service.impl;
 
 import com.github.pagehelper.PageHelper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
+import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.education.domain.EduClassTeacher;
@@ -15,6 +18,7 @@ import com.ruoyi.education.mapper.EduClassStudentMapper;
 import com.ruoyi.education.mapper.EduClassTeacherMapper;
 import com.ruoyi.education.mapper.EduCourseClassBindingMapper;
 import com.ruoyi.education.mapper.EduCourseSpaceMapper;
+import com.ruoyi.education.mapper.EduOutlineMapper;
 import com.ruoyi.education.mapper.EduPortalMapper;
 import com.ruoyi.education.mapper.EduCourseManagementMapper;
 import com.ruoyi.education.mapper.EduTeachingClassMapper;
@@ -58,6 +62,8 @@ public class EduPortalServiceImpl implements IEduPortalService {
     private EduClassStudentMapper classStudentMapper;
     @Autowired
     private EduClassTeacherMapper classTeacherMapper;
+    @Autowired
+    private EduOutlineMapper outlineMapper;
 
     /* ================= 身份与范围 ================= */
 
@@ -96,12 +102,28 @@ public class EduPortalServiceImpl implements IEduPortalService {
         return orgId;
     }
 
+    /** 非超管只能操作所属学校的学期。 */
+    private Map<String, Object> requireTermInScope(Long id) {
+        Map<String, Object> term = portalMapper.selectTermById(id);
+        if (term == null) {
+            throw new ServiceException("学期不存在");
+        }
+        if (!SecurityUtils.isAdmin()) {
+            Long orgId = longValue(term.get("organizationId"));
+            if (orgId == null || !orgId.equals(organizationId())) {
+                throw new EduForbiddenException("只能操作所属学校的学期");
+            }
+        }
+        return term;
+    }
+
     /* ================= 学期 ================= */
 
     @Override
     public List<Map<String, Object>> termList(String keyword) {
         requireAdmin("查看学期");
-        return portalMapper.selectTermList(keyword);
+        Long schoolScope = SecurityUtils.isAdmin() ? null : organizationId();
+        return portalMapper.selectTermList(keyword, schoolScope);
     }
 
     @Override
@@ -148,6 +170,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
     @Override
     public void updateTerm(Long id, Map<String, Object> body) {
         requireAdmin("修改学期");
+        requireTermInScope(id);
         EduTerm term = new EduTerm();
         term.setId(id);
         term.setName(optional(body, "name"));
@@ -171,9 +194,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
     @Transactional(rollbackFor = Exception.class)
     public void setCurrentTerm(Long id) {
         requireAdmin("设置当前学期");
-        if (portalMapper.selectTermById(id) == null) {
-            throw new ServiceException("学期不存在");
-        }
+        requireTermInScope(id);
         // 唯一约束只允许一行 is_current=1，先清零再置位
         portalMapper.clearCurrentTerm();
         portalMapper.markCurrentTerm(id);
@@ -304,7 +325,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public String importRoster(Long classId, Map<Integer, String> accountRows) {
+    public Map<String, Object> importRoster(Long classId, Map<Integer, String> accountRows) {
         management.lockClass(classId);
         if (!rosterPermissions(classId).get("canImport")) {
             throw new EduForbiddenException("仅开放教学班的主讲教师可以导入名单");
@@ -318,14 +339,44 @@ public class EduPortalServiceImpl implements IEduPortalService {
         for (Map<String, Object> student : portalMapper.selectRosterStudents(organizationId, uniqueAccounts)) {
             studentIds.put((String) student.get("userName"), longValue(student.get("userId")));
         }
-        for (Map.Entry<Integer, String> row : accountRows.entrySet()) {
-            if (!studentIds.containsKey(row.getValue())) {
-                throw new ServiceException("第 " + row.getKey() + " 行未匹配到本组织的有效学生账号，请核对后重试");
+        Long operatorId = currentUserId();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int success = 0, skipped = 0, failed = 0;
+        for (Map.Entry<Integer, String> entry : accountRows.entrySet()) {
+            String account = entry.getValue();
+            Long studentId = studentIds.get(account);
+            if (studentId == null) {
+                failed++;
+                rows.add(rosterRow(entry.getKey(), account, "error", "未匹配到本组织的有效学生账号"));
+                continue;
+            }
+            if (classStudentMapper.selectActive(classId, studentId) != null) {
+                skipped++;
+                rows.add(rosterRow(entry.getKey(), account, "skipped", "已在本班"));
+                continue;
+            }
+            try {
+                portalMapper.insertClassStudent(classId, studentId, operatorId);
+                success++;
+                rows.add(rosterRow(entry.getKey(), account, "success", "已加入本班"));
+            } catch (DuplicateKeyException e) {
+                skipped++;
+                rows.add(rosterRow(entry.getKey(), account, "skipped", "已在本班"));
             }
         }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", "成功 " + success + " 条，跳过 " + skipped + " 条，失败 " + failed + " 条");
+        result.put("rows", rows);
+        return result;
+    }
 
-        int added = insertRosterStudents(classId, new ArrayList<>(studentIds.values()));
-        return rosterResult(added, accountRows.size());
+    private Map<String, Object> rosterRow(Integer row, String account, String status, String message) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("row", row);
+        map.put("account", account);
+        map.put("status", status);
+        map.put("message", message);
+        return map;
     }
 
     private int insertRosterStudents(Long classId, List<Long> studentIds) {
@@ -352,6 +403,31 @@ public class EduPortalServiceImpl implements IEduPortalService {
             throw new EduForbiddenException("你没有这个教学班的名单导出权限");
         }
         return classMembers(classId);
+    }
+
+    @Override
+    public List<Map<String, Object>> userBrief(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return List.of();
+        return portalMapper.selectUserBrief(new ArrayList<>(new LinkedHashSet<>(userIds)));
+    }
+
+    @Override
+    public List<Map<String, Object>> userBriefByAccounts(List<String> accounts) {
+        if (accounts == null || accounts.isEmpty()) return List.of();
+        return portalMapper.selectUserBriefByAccounts(new ArrayList<>(new LinkedHashSet<>(accounts)));
+    }
+
+    @Override
+    public String className(Long classId) {
+        Map<String, Object> row = portalMapper.selectTeachingClassById(classId);
+        return row == null ? null : String.valueOf(row.get("name"));
+    }
+
+    @Override
+    public String bindingClassName(Long bindingId) {
+        EduCourseClassBinding binding = bindingMapper.selectById(bindingId);
+        if (binding == null) return null;
+        return className(binding.getTeachingClassId());
     }
 
     @Override
@@ -470,18 +546,18 @@ public class EduPortalServiceImpl implements IEduPortalService {
     /* ================= 课程空间 ================= */
 
     @Override
-    public List<Map<String, Object>> courseList(String keyword) {
+    public List<Map<String, Object>> courseList(String keyword, String status) {
         Long userId = currentUserId();
         if (isAdmin()) {
-            return portalMapper.selectCourseList(null, null, keyword);
+            return portalMapper.selectCourseList(null, null, keyword, status);
         }
         if (hasRole(ROLE_TEACHER)) {
-            List<Map<String,Object>> rows=portalMapper.selectCourseList(userId,null,keyword);
+            List<Map<String,Object>> rows=portalMapper.selectCourseList(userId,null,keyword,status);
             rows.forEach(row -> row.put("canDelete", userId.equals(longValue(row.get("ownerUserId")))));
             return rows;
         }
         if (hasRole(ROLE_STUDENT)) {
-            List<Map<String,Object>> courses = portalMapper.selectCourseList(null, userId, keyword);
+            List<Map<String,Object>> courses = portalMapper.selectCourseList(null, userId, keyword, status);
             for (Map<String,Object> course : courses) {
                 List<Map<String,Object>> classes = portalMapper.selectStudentCourseBindings(longValue(course.get("id")), userId);
                 course.put("className", classes.stream().map(c -> String.valueOf(c.get("name"))).collect(java.util.stream.Collectors.joining("、")));
@@ -492,6 +568,209 @@ public class EduPortalServiceImpl implements IEduPortalService {
             return courses;
         }
         throw new EduForbiddenException("当前账号没有课程访问角色");
+    }
+
+    @Override
+    public List<Map<String, Object>> studentCourseProgress() {
+        if (!hasRole(ROLE_STUDENT)) {
+            throw new EduForbiddenException("仅学生可以查看学习进度");
+        }
+        Long userId = currentUserId();
+        List<Map<String, Object>> courses = portalMapper.selectCourseList(null, userId, null, null);
+        if (courses.isEmpty()) return java.util.Collections.emptyList();
+        List<Long> ids = courses.stream().map(course -> longValue(course.get("id"))).toList();
+        return outlineMapper.courseListProgress(userId, ids);
+    }
+
+    @Override
+    public List<Map<String, Object>> courseOperations(Long courseId) {
+        requireCourseTeacher(courseId);
+        List<Map<String, Object>> rows = portalMapper.selectCourseOperations("/education/course/" + courseId, courseId);
+        rows.forEach(this::enrichGroup3Operation);
+        return rows;
+    }
+
+    /* ================= 第 3 组操作日志展示润色 =================
+     * 组3的 @Log 是静态标题（模块方向限制其无法动态记录），
+     * 日志页按请求参数 JSON 把描述补具体，只改展示不改落库。 */
+
+    private static final ObjectMapper OPER_LOG_JSON = new ObjectMapper();
+
+    private void enrichGroup3Operation(Map<String, Object> row) {
+        String url = String.valueOf(row.getOrDefault("operUrl", ""));
+        if (!url.startsWith("/education/group3/")) return;
+        String display = group3Display(url, row);
+        if (display != null) row.put("title", display);
+    }
+
+    private String group3Display(String url, Map<String, Object> row) {
+        String path = url.substring("/education/group3".length());
+        JsonNode body = null;
+        try {
+            String param = String.valueOf(row.getOrDefault("operParam", ""));
+            if (!param.isBlank()) body = OPER_LOG_JSON.readTree(param);
+        } catch (Exception ignored) { }
+        String stem = field(body, "stem");
+        String title = field(body, "title");
+        String name = field(body, "name");
+        String kind = field(body, "kind");
+        String id = field(body, "id");
+        int type = row.get("businessType") instanceof Number number ? number.intValue() : 0;
+
+        if (path.equals("/questions")) {
+            String qk = field(body, "questionKind");
+            String diff = field(body, "difficulty");
+            String kindLabel = qk == null ? "题目" : questionKindLabel(qk);
+            String suffix = diff == null || diff.isBlank() ? "" : "（" + difficultyLabel(diff) + "）";
+            return "新增" + kindLabel + "：" + quote(first(stem, title), 26) + suffix;
+        }
+        if (path.equals("/questions/library/share")) {
+            return "题库分享：发布 " + arraySize(body, "questionIds") + " 道题目到资源库";
+        }
+        if (path.equals("/questions/library/withdraw")) {
+            return "题库分享：撤回 " + arraySize(body, "shareIds") + " 道共享题目";
+        }
+        if (path.equals("/questions/compose")) return "智能组卷：" + quote(title, 26);
+        if (path.matches("/questions/\\d+/versions")) return "新增题目新版本：" + suffixId(path);
+        if (path.matches("/questions/\\d+/status")) return "变更题目状态：" + suffixId(path);
+        if (path.equals("/preview-tasks")) {
+            int q = arraySize(body, "questionVersionIds");
+            int r = arraySize(body, "resourceVersionIds");
+            StringBuilder sb = new StringBuilder("发布预习任务：").append(quote(title, 26));
+            if (q > 0 || r > 0) {
+                sb.append("（");
+                if (q > 0) sb.append(q).append(" 题");
+                if (q > 0 && r > 0) sb.append(" · ");
+                if (r > 0) sb.append(r).append(" 份资料");
+                sb.append("）");
+            }
+            return sb.toString();
+        }
+        if (path.matches("/preview-tasks/\\d+") && type == BusinessType.DELETE.ordinal()) return "删除预习任务：" + suffixId(path);
+        if (path.equals("/plans")) return "新建备课方案：" + quote(title, 26);
+        if (path.equals("/stages/update")) return "调整课前准备环节：" + stageName(kind, id);
+        if (path.equals("/stages/remove")) return "删除课前准备环节：" + stageName(kind, id);
+        if (path.equals("/stages/restore")) return "恢复课前准备环节：" + stageName(kind, id);
+        if (path.equals("/resources")) return "上传课程资料：" + quote(title, 26);
+        if (path.equals("/resources/link")) return "添加课程资料链接：" + quote(title, 26);
+        if (path.matches("/resources/\\d+/versions")) return "上传课程资料新版本：" + suffixId(path);
+        if (path.matches("/resources/\\d+/status")) return "变更课程资料状态：" + suffixId(path);
+        if (path.matches("/resources/\\d+/enhance")) return "编辑资料讲解信息：" + suffixId(path);
+        if (path.matches("/resources/\\d+") && type == BusinessType.UPDATE.ordinal()) return "编辑课程资料：" + quote(first(title, id), 26);
+        if (path.equals("/resources/import")) return "批量导入课程资料";
+        if (path.equals("/releases")) return "发布课程资料：版本#" + first(field(body, "resourceVersionId"), "-");
+        if (path.matches("/releases/\\d+/revoke")) return "撤回课程资料发布：" + suffixId(path);
+        if (path.matches("/versions/\\d+/retry-conversion")) return "资料转码重试：" + suffixId(path);
+        if (path.equals("/outline/units")) return "新增课程章节：" + quote(title, 26);
+        if (path.matches("/outline/units/\\d+/sort")) return "调整章节顺序";
+        if (path.matches("/outline/units/\\d+")) {
+            return type == BusinessType.DELETE.ordinal() ? "删除课程章节：" + suffixId(path)
+                    : "修改课程章节：" + quote(first(title, id), 26);
+        }
+        if (path.equals("/outline/knowledge-points")) return "新增知识点：" + quote(first(title, name), 26);
+        if (path.matches("/outline/knowledge-points/\\d+")) {
+            return type == BusinessType.DELETE.ordinal() ? "删除知识点：" + suffixId(path)
+                    : "修改知识点：" + quote(first(title, id), 26);
+        }
+        if (path.equals("/folders")) return "新建文件夹：" + quote(first(title, name), 26);
+        if (path.matches("/folders/\\d+") && type == BusinessType.DELETE.ordinal()) return "删除文件夹：" + suffixId(path);
+        if (path.matches("/folders/\\d+")) return "重命名文件夹：" + quote(title, 26);
+        if (path.matches("/folders/\\d+/archive")) return "归档文件夹：" + suffixId(path);
+        if (path.matches("/folders/\\d+/release")) return "上架文件夹：" + suffixId(path);
+        if (path.matches("/folders/\\d+/revoke")) return "下架文件夹：" + suffixId(path);
+        if (path.equals("/folders/move")) return "移动文件夹：" + quote(first(title, name), 26);
+        if (path.equals("/ideology/stage-points")) {
+            String sk = field(body, "stageKind");
+            String sid = field(body, "stageId");
+            List<String> names = arrayValues(body, "points", "categoryName");
+            String detail = names.isEmpty() ? "取消全部融入点" : names.size() + " 个：" + String.join("、", names);
+            return "环节思政融入点：" + stageName(sk, sid) + "（" + detail + "）";
+        }
+        return null;
+    }
+
+    private static String field(JsonNode body, String key) {
+        if (body == null) return null;
+        JsonNode node = body.get(key);
+        if (node == null || node.isNull()) return null;
+        return node.isTextual() || node.isNumber() ? node.asText() : null;
+    }
+
+    private static String suffixId(String path) {
+        String[] parts = path.split("/");
+        return "#" + parts[parts.length - 1];
+    }
+
+    private static String first(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
+    }
+
+    private static String quote(String text, int max) {
+        if (text == null || text.isBlank()) return "—";
+        String flat = text.replaceAll("\\s+", " ").trim();
+        return "《" + (flat.length() > max ? flat.substring(0, max) + "…" : flat) + "》";
+    }
+
+    private static String stageName(String kind, String id) {
+        String label = switch (kind == null ? "" : kind) {
+            case "MATERIAL" -> "资料";
+            case "QUIZ" -> "预习任务";
+            case "DISCUSSION" -> "讨论";
+            default -> kind == null ? "环节" : kind;
+        };
+        return label + (id == null ? "" : " #" + id);
+    }
+
+    private static String questionKindLabel(String kind) {
+        if (kind == null) return null;
+        return switch (kind) {
+            case "SINGLE" -> "单选题";
+            case "MULTIPLE" -> "多选题";
+            case "TRUE_FALSE" -> "判断题";
+            case "SHORT_TEXT" -> "简答题";
+            default -> kind;
+        };
+    }
+
+    private static String difficultyLabel(String difficulty) {
+        if (difficulty == null) return null;
+        return switch (difficulty) {
+            case "EASY" -> "简单";
+            case "MEDIUM" -> "中等";
+            case "HARD" -> "困难";
+            default -> difficulty;
+        };
+    }
+
+    private static int arraySize(JsonNode body, String key) {
+        if (body == null) return 0;
+        JsonNode node = body.get(key);
+        return node != null && node.isArray() ? node.size() : 0;
+    }
+
+    private static List<String> arrayValues(JsonNode body, String key, String valueField) {
+        if (body == null) return java.util.List.of();
+        JsonNode node = body.get(key);
+        if (node == null || !node.isArray()) return java.util.List.of();
+        List<String> out = new java.util.ArrayList<>();
+        for (JsonNode item : node) {
+            JsonNode v = item.get(valueField);
+            if (v != null && v.isTextual() && !v.asText().isBlank()) out.add(v.asText());
+        }
+        return out;
+    }
+
+    private void requireCourseTeacher(Long courseId) {
+        if (!hasRole(ROLE_TEACHER)) {
+            throw new EduForbiddenException("仅课程教师可以查看操作日志");
+        }
+        Map<String, Object> course = portalMapper.selectCourseById(courseId);
+        if (course == null) throw new ServiceException("课程不存在");
+        Long userId = currentUserId();
+        if (userId.equals(longValue(course.get("ownerUserId")))) return;
+        if (management.teamAccess(courseId, userId) == null) {
+            throw new EduForbiddenException("仅课程创建者和团队教师可以查看操作日志");
+        }
     }
 
     @Override
@@ -512,8 +791,9 @@ public class EduPortalServiceImpl implements IEduPortalService {
                 throw new EduForbiddenException("你没有这门课程的访问权限");
             }
         }
-        course.put("units", unitTree(portalMapper.selectCourseUnits(id)));
-        course.put("knowledgePoints", portalMapper.selectCourseKnowledgePoints(id));
+        boolean hasDraft = (admin || hasRole(ROLE_TEACHER)) && outlineMapper.draftCount(id) > 0;
+        course.put("units", unitTree(hasDraft ? outlineMapper.draftUnits(id) : portalMapper.selectCourseUnits(id)));
+        course.put("knowledgePoints", hasDraft ? outlineMapper.draftPoints(id) : portalMapper.selectCourseKnowledgePoints(id));
         course.put("classes", (!admin && hasRole(ROLE_STUDENT))
                 ? portalMapper.selectStudentCourseBindings(id, userId) : portalMapper.selectCourseBindings(id));
         if (!admin && hasRole(ROLE_STUDENT)) {
@@ -522,10 +802,23 @@ public class EduPortalServiceImpl implements IEduPortalService {
             course.put("classCount",ownClasses.size());
             course.put("className",ownClasses.stream().map(c->String.valueOf(c.get("name"))).collect(java.util.stream.Collectors.joining("、")));
             course.put("semesterName",ownClasses.isEmpty()?null:ownClasses.get(0).get("termName"));
+            course.put("learnedUnitIds", outlineMapper.learnedUnitIds(id, userId));
+            Map<String, Object> last = outlineMapper.lastViewed(id, userId);
+            course.put("lastUnitId", last == null ? null : last.get("unitId"));
+            course.put("lastUnitTitle", last == null ? null : last.get("title"));
         }
         course.put("canManage", admin || owner);
         course.put("canManageRoster", owner || (teammate && flag(management.teamAccess(id, userId).get("canManageStudents")) == 1));
         course.put("canDelete", admin || owner);
+        boolean canManageOutline = admin || owner;
+        boolean canManagePoints = admin || owner;
+        if (teammate && !admin && !owner) {
+            Map<String, Object> teamRow = management.teamAccess(id, userId);
+            canManageOutline = com.ruoyi.education.service.EduCourseManagementService.hasPermission(teamRow, "outline");
+            canManagePoints = com.ruoyi.education.service.EduCourseManagementService.hasPermission(teamRow, "knowledgeGraph");
+        }
+        course.put("canManageOutline", canManageOutline);
+        course.put("canManagePoints", canManagePoints);
         return course;
     }
 
@@ -538,6 +831,7 @@ public class EduPortalServiceImpl implements IEduPortalService {
         space.setTitle(required(body, "name", "课程名称不能为空"));
         space.setSummary(body.get("summary")==null?"":String.valueOf(body.get("summary")));
         space.setLearningObjectives(body.get("learningObjectives")==null?"":String.valueOf(body.get("learningObjectives")));
+        space.setCoverStorageKey(optional(body, "coverStorageKey"));
         space.setStatus("DRAFT");
         Long officialCourseId = longValue(body.get("officialCourseId"));
         space.setOfficialCourseId(officialCourseId);
@@ -557,6 +851,9 @@ public class EduPortalServiceImpl implements IEduPortalService {
         space.setTitle(required(body, "name", "课程名称不能为空"));
         space.setSummary(body.get("summary")==null?"":String.valueOf(body.get("summary")));
         space.setLearningObjectives(body.get("learningObjectives")==null?"":String.valueOf(body.get("learningObjectives")));
+        if (body != null && body.containsKey("coverStorageKey")) {
+            space.setCoverStorageKey(optional(body, "coverStorageKey"));
+        }
         Long officialCourseId = longValue(body.get("officialCourseId"));
         if(officialCourseId!=null && !space.getOrganizationId().equals(portalMapper.selectOrganizationIdByOfficialCourseId(officialCourseId))) throw new ServiceException("正式课程不属于当前组织");
         space.setOfficialCourseId(officialCourseId);

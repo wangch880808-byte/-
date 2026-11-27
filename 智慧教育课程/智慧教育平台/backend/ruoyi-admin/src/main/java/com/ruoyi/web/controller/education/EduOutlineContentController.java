@@ -39,7 +39,7 @@ public class EduOutlineContentController {
 
     @PutMapping
     @PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @Log(title = "课程内容", businessType = BusinessType.UPDATE, isSaveRequestData = false)
+    @Log(title = "修改课程内容", businessType = BusinessType.UPDATE, isSaveRequestData = false)
     public AjaxResult save(@PathVariable Long courseId, @PathVariable String kind, @PathVariable Long nodeId,
             @RequestBody Map<String, String> body) {
         content.save(courseId, nodeId, "points".equals(kind), body.get("contentText"));
@@ -48,7 +48,7 @@ public class EduOutlineContentController {
 
     @PostMapping("/attachments")
     @PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @Log(title = "课程附件", businessType = BusinessType.INSERT, isSaveRequestData = false)
+    @Log(title = "上传课程附件", businessType = BusinessType.INSERT, isSaveRequestData = false)
     public AjaxResult attach(@PathVariable Long courseId, @PathVariable String kind, @PathVariable Long nodeId,
             @RequestParam("file") MultipartFile file) throws IOException {
         String name = file.getOriginalFilename();
@@ -81,7 +81,7 @@ public class EduOutlineContentController {
 
     @DeleteMapping("/attachments/{fileId}")
     @PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @Log(title = "课程附件", businessType = BusinessType.DELETE)
+    @Log(title = "删除课程附件", businessType = BusinessType.DELETE)
     public AjaxResult remove(@PathVariable Long courseId, @PathVariable String kind,
             @PathVariable Long nodeId, @PathVariable Long fileId) {
         content.removeAttachment(courseId, nodeId, "points".equals(kind), fileId);

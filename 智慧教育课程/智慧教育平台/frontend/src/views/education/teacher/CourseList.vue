@@ -1,7 +1,7 @@
 <template>
   <div class="app-container group2-page">
     <el-row :gutter="10" class="mb8">
-      <el-col :span="10">
+      <el-col :span="14">
         <el-input
           v-model="queryParams.keyword"
           placeholder="按课程名称搜索"
@@ -9,8 +9,19 @@
           style="width: 300px"
           @keyup.enter="handleQuery"
         />
+        <el-select
+          v-model="queryParams.status"
+          placeholder="全部状态"
+          clearable
+          style="width: 130px; margin-left: 10px"
+          @change="handleQuery"
+        >
+          <el-option label="草稿" value="DRAFT" />
+          <el-option label="已发布" value="ACTIVE" />
+          <el-option label="已归档" value="ARCHIVED" />
+        </el-select>
       </el-col>
-      <el-col :span="14" style="text-align: right">
+      <el-col :span="10" style="text-align: right">
         <el-button type="primary" plain @click="openCreate">新建课程</el-button>
       </el-col>
     </el-row>
@@ -27,10 +38,9 @@
     <div v-loading="loading">
       <el-row v-if="list.length" :gutter="16">
         <el-col v-for="row in list" :key="row.id" :xs="24" :sm="12" :md="8" :lg="6" class="edu-col">
-          <el-card shadow="hover" class="edu-course-card" @click="openDetail(row)">
-            <div class="edu-cover" :style="coverStyle(row.id)">
+          <el-card shadow="never" class="edu-course-card" @click="openDetail(row)">
+            <div class="edu-cover" :style="coverStyle(row)">
               <el-tag :type="statusTag(row.status)" effect="dark" size="small">{{ statusLabel(row.status) }}</el-tag>
-              <div class="edu-cover-title">{{ row.name }}</div>
             </div>
             <div class="edu-course-body">
               <div class="edu-course-name">{{ row.name }}</div>
@@ -86,7 +96,7 @@ const total = ref(0)
 const formOpen = ref(false)
 const editing = ref(null)
 
-const queryParams = reactive({ pageNum: 1, pageSize: 12, keyword: '' })
+const queryParams = reactive({ pageNum: 1, pageSize: 12, keyword: '', status: '' })
 
 const STATUS = { DRAFT: '草稿', ACTIVE: '已发布', ARCHIVED: '已归档' }
 
@@ -100,11 +110,17 @@ function statusTag(value) {
   return 'warning'
 }
 
-function coverStyle(id) {
-  const hue = (Number(id) * 47) % 360
-  return {
-    background: 'linear-gradient(135deg, hsl(' + hue + ', 62%, 58%), hsl(' + ((hue + 36) % 360) + ', 58%, 46%))'
+const baseUrl = import.meta.env.VITE_APP_BASE_API
+
+function coverStyle(row) {
+  if (row && row.coverStorageKey) {
+    return {
+      backgroundImage: 'url(' + baseUrl + row.coverStorageKey + ')',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    }
   }
+  return { background: '#fff' }
 }
 
 async function getList() {
@@ -163,54 +179,54 @@ onMounted(getList)
 .edu-col {
   margin-bottom: 16px;
 }
-.edu-course-card {
+.group2-page .edu-course-card {
   cursor: pointer;
   height: 100%;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .04);
+  transition: box-shadow .2s;
+}
+.group2-page .edu-course-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
 }
 .edu-course-card :deep(.el-card__body) {
   padding: 0;
 }
 .edu-cover {
-  height: 110px;
+  height: 160px;
   padding: 10px 12px;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  align-items: flex-start;
   color: #fff;
-  border-radius: 4px 4px 0 0;
-}
-.edu-cover-title {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.4;
-  max-height: 42px;
-  overflow: hidden;
+  border-radius: 8px 8px 0 0;
 }
 .edu-course-body {
-  padding: 12px;
+  padding: 10px 12px 12px;
 }
 .edu-course-name {
   font-weight: 600;
+  font-size: 17px;
   color: #303133;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .edu-course-meta {
-  font-size: 12px;
+  font-size: 14px;
   color: #606266;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .edu-course-foot {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 14px;
   color: #909399;
   gap: 8px;
 }
 .edu-empty-hint {
-  font-size: 12px;
+  font-size: 14px;
   color: #909399;
 }
 </style>

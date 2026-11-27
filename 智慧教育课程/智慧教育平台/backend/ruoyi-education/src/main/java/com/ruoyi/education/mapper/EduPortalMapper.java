@@ -17,7 +17,7 @@ public interface EduPortalMapper {
 
     /* ---------------- 学期 ---------------- */
 
-    List<Map<String, Object>> selectTermList(@Param("keyword") String keyword);
+    List<Map<String, Object>> selectTermList(@Param("keyword") String keyword, @Param("organizationId") Long organizationId);
 
     List<Map<String, Object>> selectTermSchools(@Param("organizationId") Long organizationId);
 
@@ -105,12 +105,18 @@ public interface EduPortalMapper {
     /**
      * @param ownerUserId   非空时只查该教师创建的课程
      * @param studentUserId 非空时只查该学生所在教学班已绑定、且课程已发布的课程
+     * @param status        非空时只查该状态（DRAFT / ACTIVE / ARCHIVED）的课程
      */
     List<Map<String, Object>> selectCourseList(@Param("ownerUserId") Long ownerUserId,
                                                @Param("studentUserId") Long studentUserId,
-                                               @Param("keyword") String keyword);
+                                               @Param("keyword") String keyword,
+                                               @Param("status") String status);
 
     Map<String, Object> selectCourseById(@Param("id") Long id);
+
+    /** 课程操作日志：课程路径相关 + 课程教学班路径相关的操作记录。 */
+    List<Map<String, Object>> selectCourseOperations(@Param("coursePath") String coursePath,
+                                                     @Param("courseId") Long courseId);
 
     List<Map<String, Object>> selectCourseUnits(@Param("courseId") Long courseId);
 

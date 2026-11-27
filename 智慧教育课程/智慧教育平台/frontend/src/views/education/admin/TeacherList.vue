@@ -116,6 +116,7 @@ const current = ref({ userId: null, nickName: '' })
 
 function roleLabel(role) {
   if (role === 'LEAD') return '主讲'
+  if (role === 'CO_TEACHER') return '协同教师'
   if (role === 'ASSIST') return '助教'
   if (role === 'GUEST') return '旁听'
   return role || '—'

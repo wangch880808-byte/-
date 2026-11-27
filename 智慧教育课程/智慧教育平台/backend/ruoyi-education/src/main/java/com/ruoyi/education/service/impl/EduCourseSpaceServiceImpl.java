@@ -20,7 +20,7 @@ public class EduCourseSpaceServiceImpl implements IEduCourseSpaceService {
     private final EduCourseSpaceMapper spaces;
     private final EduCourseClassBindingMapper bindings;
     public EduCourseSpaceServiceImpl(IEduPortalService portal,EduCourseSpaceMapper spaces,EduCourseClassBindingMapper bindings){this.portal=portal;this.spaces=spaces;this.bindings=bindings;}
-    public List<EduCourseSpace> list(EduCourseSpace query){return portal.courseList(query==null?null:query.getTitle()).stream().map(row->spaces.selectById(((Number)row.get("id")).longValue())).toList();}
+    public List<EduCourseSpace> list(EduCourseSpace query){return portal.courseList(query==null?null:query.getTitle(),query==null?null:query.getStatus()).stream().map(row->spaces.selectById(((Number)row.get("id")).longValue())).toList();}
     public EduCourseSpace getById(Long id){portal.courseDetail(id);return spaces.selectById(id);}
     private Map<String,Object> body(EduCourseSpace space){Map<String,Object> body=new LinkedHashMap<>();body.put("name",space.getTitle());body.put("summary",space.getSummary());body.put("learningObjectives",space.getLearningObjectives());body.put("officialCourseId",space.getOfficialCourseId());return body;}
     public Long create(EduCourseSpace space){return portal.createCourse(body(space));}

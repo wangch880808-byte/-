@@ -48,25 +48,31 @@ public class EduRosterController {
     }
 
     @PostMapping("/import")
-    @Log(title = "教学班学生名单", businessType = BusinessType.IMPORT, isSaveRequestData = false, isSaveResponseData = false)
     public AjaxResult importRoster(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
         requireImport(id);
         ExcelImportSupport.checkFile(file);
-        return AjaxResult.success(portal.importRoster(id, readAccounts(file)));
+        Map<String, Object> result = portal.importRoster(id, readAccounts(file));
+        EduOperLog.record("导入教学班学生名单：" + result.get("summary"), BusinessType.IMPORT);
+        return AjaxResult.success(result);
     }
 
     @PostMapping("/add")
-    @Log(title = "教学班学生名单", businessType = BusinessType.INSERT, isSaveRequestData = false)
     public AjaxResult addStudent(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String account = body.getOrDefault("account", "");
         if (account == null || account.isBlank() || account.strip().length() > 30) {
             throw new ServiceException("请输入有效的学生学号或账号");
         }
-        return AjaxResult.success(portal.importRoster(id, Map.of(1, account.strip())));
+        Map<String, Object> result = portal.importRoster(id, Map.of(1, account.strip()));
+        List<Map<String, Object>> users = portal.userBriefByAccounts(List.of(account.strip()));
+        String detail = users.isEmpty() ? account.strip() : EduOperLog.student(users.get(0));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> row = ((List<Map<String, Object>>) result.get("rows")).get(0);
+        EduOperLog.record("添加教学班学生：" + detail + "（" + row.get("message") + "）", BusinessType.INSERT);
+        return AjaxResult.success(result);
     }
 
     @PostMapping("/export")
-    @Log(title = "教学班学生名单", businessType = BusinessType.EXPORT, isSaveRequestData = false)
+    @Log(title = "导出教学班学生名单", businessType = BusinessType.EXPORT, isSaveRequestData = false)
     public void export(@PathVariable Long id, HttpServletResponse response) {
         List<EduRosterRow> rows = portal.exportRoster(id).stream().map(row -> new EduRosterRow(
                 text(row, "studentNo"), text(row, "studentName"), text(row, "joinedAt"))).toList();

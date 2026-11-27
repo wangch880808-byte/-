@@ -9,7 +9,8 @@
                   AND r.role_key = 'teacher' AND r.status = '0' AND r.del_flag = '0')
     </sql>
     <select id="teamAccess" resultType="java.util.Map">
-        SELECT team.can_manage_students AS canManageStudents, team.can_export AS canExport
+        SELECT team.can_manage_students AS canManageStudents, team.can_export AS canExport,
+               team.team_role AS teamRole, team.permissions AS permissions
         FROM edu_course_teacher team
         WHERE team.course_space_id = #{courseId} AND team.user_id = #{userId}
           AND team.ended_at IS NULL AND <include refid="activeTeacherAccount"/>
@@ -28,14 +29,15 @@
     <select id="team" resultType="java.util.Map">
         SELECT course.owner_user_id AS userId, u.user_name AS userName, u.nick_name AS nickName,
                d.dept_name AS deptName, 'OWNER' AS teamRole, 1 AS canManageStudents, 1 AS canExport,
-               u.status AS status
+               '' AS permissions, DATE_FORMAT(course.created_at, '%Y-%m-%d') AS joinedAt, u.status AS status
         FROM edu_course_space course
         LEFT JOIN v_identity_user u ON u.user_id = course.owner_user_id
         LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
         WHERE course.id = #{courseId} AND course.deleted_at IS NULL
         UNION ALL
-        SELECT team.user_id, u.user_name, u.nick_name, d.dept_name, 'TEACHER',
-               team.can_manage_students, team.can_export, u.status
+        SELECT team.user_id, u.user_name, u.nick_name, d.dept_name, team.team_role,
+               team.can_manage_students, team.can_export, team.permissions,
+               DATE_FORMAT(team.joined_at, '%Y-%m-%d') AS joinedAt, u.status
         FROM edu_course_teacher team
         LEFT JOIN v_identity_user u ON u.user_id = team.user_id
         LEFT JOIN v_identity_dept d ON d.dept_id = u.dept_id
@@ -59,9 +61,10 @@
         ORDER BY u.user_name, u.user_id
     </select>
     <insert id="saveTeacher">
-        INSERT INTO edu_course_teacher(course_space_id, user_id, can_manage_students, can_export, added_by_user_id)
-        VALUES (#{courseId}, #{userId}, #{manageStudents}, #{export}, #{operatorId})
-        ON DUPLICATE KEY UPDATE can_manage_students = #{manageStudents}, can_export = #{export}
+        INSERT INTO edu_course_teacher(course_space_id, user_id, team_role, can_manage_students, can_export, permissions, added_by_user_id)
+        VALUES (#{courseId}, #{userId}, #{role}, #{manageStudents}, #{export}, #{permissions}, #{operatorId})
+        ON DUPLICATE KEY UPDATE team_role = #{role}, can_manage_students = #{manageStudents},
+            can_export = #{export}, permissions = #{permissions}
     </insert>
     <update id="removeTeacher">
         UPDATE edu_course_teacher

@@ -22,6 +22,9 @@
           <el-option v-for="item in officialCourses" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
       </el-form-item>
+      <el-form-item label="课程封面">
+        <image-upload v-model="form.coverStorageKey" :limit="1" :is-show-tip="false" />
+      </el-form-item>
       <el-form-item label="课程简介">
         <el-input v-model="form.summary" type="textarea" :rows="3" maxlength="500" show-word-limit />
       </el-form-item>
@@ -53,7 +56,7 @@ const { proxy } = getCurrentInstance()
 const submitting = ref(false)
 const officialCourses = ref([])
 const formRef = ref()
-const form = reactive({ id: null, name: '', officialCourseId: null, summary: '', learningObjectives: '' })
+const form = reactive({ id: null, name: '', officialCourseId: null, summary: '', learningObjectives: '', coverStorageKey: '' })
 
 const rules = {
   name: [{ required: true, message: '课程名称不能为空', trigger: 'blur' }]
@@ -69,7 +72,8 @@ watch(
       name: source ? source.name || '' : '',
       officialCourseId: source ? source.officialCourseId || null : null,
       summary: source ? source.summary || '' : '',
-      learningObjectives: source ? source.learningObjectives || '' : ''
+      learningObjectives: source ? source.learningObjectives || '' : '',
+      coverStorageKey: source ? source.coverStorageKey || '' : ''
     })
   }
 )
@@ -91,7 +95,8 @@ function submit() {
         name: form.name.trim(),
         officialCourseId: form.officialCourseId || null,
         summary: form.summary || null,
-        learningObjectives: form.learningObjectives || null
+        learningObjectives: form.learningObjectives || null,
+        coverStorageKey: form.coverStorageKey || null
       }
       if (form.id) {
         await updateCourse(form.id, payload)

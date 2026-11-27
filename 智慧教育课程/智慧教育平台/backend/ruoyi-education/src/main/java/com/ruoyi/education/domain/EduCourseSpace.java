@@ -10,6 +10,7 @@ public class EduCourseSpace extends BaseEntity {
     private String title;
     private String summary;
     private String learningObjectives;
+    private String coverStorageKey;
     private String status;
 
     public Long getId() { return id; }
@@ -26,6 +27,8 @@ public class EduCourseSpace extends BaseEntity {
     public void setSummary(String summary) { this.summary = summary; }
     public String getLearningObjectives() { return learningObjectives; }
     public void setLearningObjectives(String learningObjectives) { this.learningObjectives = learningObjectives; }
+    public String getCoverStorageKey() { return coverStorageKey; }
+    public void setCoverStorageKey(String coverStorageKey) { this.coverStorageKey = coverStorageKey; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 }

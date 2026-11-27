@@ -17,7 +17,7 @@
         class="mb8"
       />
 
-      <el-card v-loading="loading" shadow="never" class="edu-hero">
+      <div v-loading="loading" class="edu-hero">
         <div class="edu-hero-main">
           <div class="edu-hero-title">
             <el-tag type="success">在修</el-tag>
@@ -26,9 +26,10 @@
           <div class="edu-hero-meta">
             <span>{{ course.teacherName || '教师' }}</span>
             <span>{{ course.className || '本班' }}</span>
+            <span v-if="totalUnits">已学 {{ learnedCount }}/{{ totalUnits }}</span>
           </div>
         </div>
-      </el-card>
+      </div>
 
       <el-tabs v-model="activeTab" class="edu-tabs">
         <el-tab-pane label="目录" name="outline">
@@ -50,14 +51,10 @@
           </group3-course-section>
         </el-tab-pane>
         <el-tab-pane label="同步课堂" name="classroom">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('classroom')" :image-size="80" />
-          </el-card>
+          <el-empty :description="placeholder('classroom')" :image-size="80" />
         </el-tab-pane>
         <el-tab-pane label="课后学习" name="homework">
-          <el-card shadow="never">
-            <el-empty :description="placeholder('homework')" :image-size="80" />
-          </el-card>
+          <el-empty :description="placeholder('homework')" :image-size="80" />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -100,6 +97,9 @@ const PLACEHOLDER = {
   homework: '该功能尚未开放。'
 }
 
+const totalUnits = computed(() => (course.value.units || []).reduce((sum, unit) => sum + 1 + (unit.children || []).length, 0))
+const learnedCount = computed(() => (course.value.learnedUnitIds || []).length)
+
 function placeholder(tab) {
   return PLACEHOLDER[tab] || '该模块尚未开放。'
 }
@@ -133,7 +133,12 @@ watch(courseId, load, { immediate: true })
 
 <style scoped>
 .edu-hero {
+  padding: 4px 4px 16px;
+  border-bottom: 1px solid #f0f0f0;
   margin-bottom: 16px;
+}
+.edu-tabs > :deep(.el-tabs__header) {
+  display: none;
 }
 .edu-hero-title {
   display: flex;

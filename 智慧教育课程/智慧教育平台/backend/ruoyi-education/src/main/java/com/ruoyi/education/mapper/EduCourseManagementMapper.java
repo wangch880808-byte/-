@@ -12,7 +12,8 @@ public interface EduCourseManagementMapper {
             @Param("organizationId") Long organizationId, @Param("keyword") String keyword,
             @Param("userId") Long userId);
     int saveTeacher(@Param("courseId") Long courseId, @Param("userId") Long userId,
-            @Param("manageStudents") boolean manageStudents, @Param("export") boolean export,
+            @Param("role") String role, @Param("manageStudents") boolean manageStudents,
+            @Param("export") boolean export, @Param("permissions") String permissions,
             @Param("operatorId") Long operatorId);
     int removeTeacher(@Param("courseId") Long courseId, @Param("userId") Long userId,
             @Param("operatorId") Long operatorId);

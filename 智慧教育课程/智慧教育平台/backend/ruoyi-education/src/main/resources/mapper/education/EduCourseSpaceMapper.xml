@@ -11,12 +11,13 @@
         <result property="title"              column="title"/>
         <result property="summary"            column="summary"/>
         <result property="learningObjectives" column="learning_objectives"/>
+        <result property="coverStorageKey"   column="cover_storage_key"/>
         <result property="status"             column="status"/>
     </resultMap>
 
     <sql id="selectVo">
         SELECT id, organization_id, official_course_id, owner_user_id,
-        title, summary, learning_objectives, status
+        title, summary, learning_objectives, cover_storage_key, status
         FROM edu_course_space
     </sql>
 
@@ -53,9 +54,9 @@
     <insert id="insert" parameterType="com.ruoyi.education.domain.EduCourseSpace"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO edu_course_space(organization_id, official_course_id, owner_user_id,
-        title, summary, learning_objectives, status)
+        title, summary, learning_objectives, cover_storage_key, status)
         VALUES (#{organizationId}, #{officialCourseId}, #{ownerUserId},
-        #{title}, #{summary}, #{learningObjectives}, #{status})
+        #{title}, #{summary}, #{learningObjectives}, #{coverStorageKey}, #{status})
     </insert>
 
     <update id="update" parameterType="com.ruoyi.education.domain.EduCourseSpace">
@@ -65,6 +66,7 @@
             official_course_id = #{officialCourseId},
             <if test="summary != null">summary = #{summary},</if>
             <if test="learningObjectives != null">learning_objectives = #{learningObjectives},</if>
+            cover_storage_key = #{coverStorageKey},
             <if test="status != null">status = #{status},</if>
         </set>
         WHERE id = #{id} AND deleted_at IS NULL

@@ -27,15 +27,20 @@
     <div v-loading="loading">
       <el-row v-if="list.length" :gutter="16">
         <el-col v-for="row in list" :key="row.id" :xs="24" :sm="12" :md="8" :lg="6" class="edu-col">
-          <el-card shadow="hover" class="edu-course-card" @click="openDetail(row)">
-            <div class="edu-cover" :style="coverStyle(row.id)">
-              <div class="edu-cover-title">{{ row.name }}</div>
-            </div>
+          <el-card shadow="never" class="edu-course-card" @click="openDetail(row)">
+            <div class="edu-cover" :style="coverStyle(row)"></div>
             <div class="edu-course-body">
               <div class="edu-course-name">{{ row.name }}</div>
-              <div class="edu-course-meta">{{ row.teacherName || '教师' }} · {{ row.className || '在修课程' }}</div>
+              <div class="edu-course-meta">
+                {{ row.teacherName || '教师' }} · {{ row.className || '在修课程' }}
+                <template v-if="row.progress && row.progress.totalUnits">
+                  · 已学 {{ row.progress.learnedCount }}/{{ row.progress.totalUnits }}
+                </template>
+              </div>
               <div class="edu-course-foot">
-                <span>{{ row.className || '本班' }}</span>
+                <span>
+                  {{ row.progress && row.progress.lastUnitTitle ? '上次学到 ' + row.progress.lastUnitTitle : (row.className || '本班') }}
+                </span>
                 <span>更新 {{ row.updatedAt || '—' }}</span>
               </div>
             </div>
@@ -61,7 +66,7 @@
 <script setup name="EduStudentCourseList">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { listCourse } from '@/api/education/course'
+import { listCourse, listCourseProgress } from '@/api/education/course'
 import { eduErrorText } from '@/api/education/http'
 
 const router = useRouter()
@@ -72,11 +77,17 @@ const list = ref([])
 const total = ref(0)
 const queryParams = reactive({ pageNum: 1, pageSize: 12, keyword: '' })
 
-function coverStyle(id) {
-  const hue = (Number(id) * 47) % 360
-  return {
-    background: 'linear-gradient(135deg, hsl(' + hue + ', 55%, 55%), hsl(' + ((hue + 36) % 360) + ', 52%, 42%))'
+const baseUrl = import.meta.env.VITE_APP_BASE_API
+
+function coverStyle(row) {
+  if (row && row.coverStorageKey) {
+    return {
+      backgroundImage: 'url(' + baseUrl + row.coverStorageKey + ')',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    }
   }
+  return { background: '#fff' }
 }
 
 async function getList() {
@@ -86,12 +97,24 @@ async function getList() {
     const res = await listCourse(queryParams)
     list.value = res.rows || []
     total.value = Number(res.total) || 0
+    loadProgress()
   } catch (e) {
     list.value = []
     total.value = 0
     errorText.value = eduErrorText(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadProgress() {
+  try {
+    const res = await listCourseProgress()
+    const progress = {}
+    for (const row of res.data || []) progress[row.courseId] = row
+    for (const course of list.value) course.progress = progress[course.id] || null
+  } catch (e) {
+    /* 进度加载失败不阻塞列表 */
   }
 }
 
@@ -111,48 +134,45 @@ onMounted(getList)
 .edu-col {
   margin-bottom: 16px;
 }
-.edu-course-card {
+.group2-page .edu-course-card {
   cursor: pointer;
   height: 100%;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .04);
+  transition: box-shadow .2s;
+}
+.group2-page .edu-course-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
 }
 .edu-course-card :deep(.el-card__body) {
   padding: 0;
 }
 .edu-cover {
-  height: 110px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  color: #fff;
-}
-.edu-cover-title {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.4;
-  max-height: 42px;
-  overflow: hidden;
+  height: 160px;
+  border-radius: 8px 8px 0 0;
 }
 .edu-course-body {
-  padding: 12px;
+  padding: 10px 12px 12px;
 }
 .edu-course-name {
   font-weight: 600;
+  font-size: 16px;
   color: #303133;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .edu-course-meta {
-  font-size: 12px;
+  font-size: 13px;
   color: #606266;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .edu-course-foot {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 13px;
   color: #909399;
   gap: 8px;
 }

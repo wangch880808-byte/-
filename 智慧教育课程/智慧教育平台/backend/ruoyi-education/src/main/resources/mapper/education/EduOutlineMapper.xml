@@ -50,6 +50,10 @@
       content_text=#{contentText,jdbcType=VARCHAR}
     WHERE course_space_id=#{courseId} AND id=#{id}
   </update>
+  <update id="updateUnitOrder">
+    UPDATE edu_course_unit SET parent_unit_id=#{parentUnitId,jdbcType=BIGINT},sort_order=#{sortOrder}
+    WHERE course_space_id=#{courseId} AND id=#{id}
+  </update>
   <delete id="deleteUnit">DELETE FROM edu_course_unit WHERE course_space_id=#{courseId} AND id=#{id}</delete>
   <insert id="insertPoint" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO edu_knowledge_point(course_space_id,unit_id,code,name,content_text)
@@ -61,4 +65,160 @@
     WHERE course_space_id=#{courseId} AND id=#{id}
   </update>
   <delete id="deletePoint">DELETE FROM edu_knowledge_point WHERE course_space_id=#{courseId} AND id=#{id}</delete>
+
+  <!-- ==================== 目录草稿 ==================== -->
+  <select id="draftUnits" resultType="java.util.Map">
+    SELECT id, parent_unit_id AS parentUnitId, unit_kind AS unitKind, title, sort_order AS sortOrder
+    FROM edu_course_unit_draft
+    WHERE course_space_id = #{courseId}
+    ORDER BY sort_order, id
+  </select>
+  <select id="draftPoints" resultType="java.util.Map">
+    SELECT id, unit_id AS unitId, code, name
+    FROM edu_knowledge_point_draft
+    WHERE course_space_id = #{courseId}
+    ORDER BY code, id
+  </select>
+  <select id="draftCount" resultType="int">
+    SELECT (SELECT COUNT(*) FROM edu_course_unit_draft WHERE course_space_id=#{courseId})
+         + (SELECT COUNT(*) FROM edu_knowledge_point_draft WHERE course_space_id=#{courseId})
+  </select>
+  <insert id="copyPublishedUnitsToDraft">
+    INSERT INTO edu_course_unit_draft(id, course_space_id, parent_unit_id, unit_kind, title, sort_order, content_text)
+    SELECT id, course_space_id, parent_unit_id, unit_kind, title, sort_order, content_text
+    FROM edu_course_unit WHERE course_space_id = #{courseId}
+  </insert>
+  <insert id="copyPublishedPointsToDraft">
+    INSERT INTO edu_knowledge_point_draft(id, course_space_id, unit_id, code, name, content_text)
+    SELECT id, course_space_id, unit_id, code, name, content_text
+    FROM edu_knowledge_point WHERE course_space_id = #{courseId}
+  </insert>
+  <select id="nextUnitId" resultType="java.lang.Long">
+    SELECT GREATEST(
+      COALESCE((SELECT MAX(id) FROM edu_course_unit_draft), 0),
+      COALESCE((SELECT MAX(id) FROM edu_course_unit), 0)
+    ) + 1
+  </select>
+  <insert id="insertUnitDraft">
+    INSERT INTO edu_course_unit_draft(id,course_space_id,parent_unit_id,unit_kind,title,sort_order,content_text)
+    VALUES(#{id},#{courseId},#{parentUnitId},#{unitKind},#{title},#{sortOrder},#{contentText,jdbcType=VARCHAR})
+  </insert>
+  <update id="updateUnitDraft">
+    UPDATE edu_course_unit_draft SET parent_unit_id=#{parentUnitId},unit_kind=#{unitKind},title=#{title},sort_order=#{sortOrder},
+      content_text=#{contentText,jdbcType=VARCHAR}
+    WHERE course_space_id=#{courseId} AND id=#{id}
+  </update>
+  <update id="updateUnitOrderDraft">
+    UPDATE edu_course_unit_draft SET parent_unit_id=#{parentUnitId,jdbcType=BIGINT},sort_order=#{sortOrder}
+    WHERE course_space_id=#{courseId} AND id=#{id}
+  </update>
+  <delete id="deleteUnitDraft">DELETE FROM edu_course_unit_draft WHERE course_space_id=#{courseId} AND id=#{id}</delete>
+  <select id="nextPointId" resultType="java.lang.Long">
+    SELECT GREATEST(
+      COALESCE((SELECT MAX(id) FROM edu_knowledge_point_draft), 0),
+      COALESCE((SELECT MAX(id) FROM edu_knowledge_point), 0)
+    ) + 1
+  </select>
+  <insert id="insertPointDraft">
+    INSERT INTO edu_knowledge_point_draft(id,course_space_id,unit_id,code,name,content_text)
+    VALUES(#{id},#{courseId},#{unitId},#{code},#{name},#{contentText,jdbcType=VARCHAR})
+  </insert>
+  <update id="updatePointDraft">
+    UPDATE edu_knowledge_point_draft SET unit_id=#{unitId},code=#{code},name=#{name},
+      content_text=#{contentText,jdbcType=VARCHAR}
+    WHERE course_space_id=#{courseId} AND id=#{id}
+  </update>
+  <delete id="deletePointDraft">DELETE FROM edu_knowledge_point_draft WHERE course_space_id=#{courseId} AND id=#{id}</delete>
+  <select id="contentDraft" resultType="java.util.Map">
+    SELECT id, COALESCE(content_text, '') AS contentText FROM
+    <choose><when test="point">edu_knowledge_point_draft</when><otherwise>edu_course_unit_draft</otherwise></choose>
+    WHERE course_space_id = #{courseId} AND id = #{id}
+  </select>
+  <update id="saveContentDraft">
+    UPDATE <choose><when test="point">edu_knowledge_point_draft</when><otherwise>edu_course_unit_draft</otherwise></choose>
+    SET content_text = #{content}
+    WHERE course_space_id = #{courseId} AND id = #{id}
+  </update>
+  <delete id="deletePointsOfUnitDraft">
+    DELETE FROM edu_knowledge_point_draft WHERE course_space_id = #{courseId} AND unit_id = #{unitId}
+  </delete>
+  <delete id="publishDeleteMissingUnits">
+    DELETE FROM edu_course_unit WHERE course_space_id = #{courseId} AND unit_kind = 'CHAPTER'
+      AND id NOT IN (SELECT id FROM edu_course_unit_draft WHERE course_space_id = #{courseId})
+  </delete>
+  <delete id="publishDeleteMissingSections">
+    DELETE FROM edu_course_unit WHERE course_space_id = #{courseId} AND unit_kind = 'SECTION'
+      AND id NOT IN (SELECT id FROM edu_course_unit_draft WHERE course_space_id = #{courseId})
+  </delete>
+  <insert id="publishUpsertUnits">
+    INSERT INTO edu_course_unit(id, course_space_id, parent_unit_id, unit_kind, title, sort_order, content_text)
+    SELECT id, course_space_id, parent_unit_id, unit_kind, title, sort_order, content_text
+    FROM edu_course_unit_draft WHERE course_space_id = #{courseId} AND unit_kind = 'CHAPTER'
+    ON DUPLICATE KEY UPDATE parent_unit_id = VALUES(parent_unit_id), unit_kind = VALUES(unit_kind),
+        title = VALUES(title), sort_order = VALUES(sort_order), content_text = VALUES(content_text)
+  </insert>
+  <insert id="publishUpsertSections">
+    INSERT INTO edu_course_unit(id, course_space_id, parent_unit_id, unit_kind, title, sort_order, content_text)
+    SELECT id, course_space_id, parent_unit_id, unit_kind, title, sort_order, content_text
+    FROM edu_course_unit_draft WHERE course_space_id = #{courseId} AND unit_kind = 'SECTION'
+    ON DUPLICATE KEY UPDATE parent_unit_id = VALUES(parent_unit_id), unit_kind = VALUES(unit_kind),
+        title = VALUES(title), sort_order = VALUES(sort_order), content_text = VALUES(content_text)
+  </insert>
+  <delete id="publishDeleteMissingPoints">
+    DELETE FROM edu_knowledge_point WHERE course_space_id = #{courseId}
+      AND id NOT IN (SELECT id FROM edu_knowledge_point_draft WHERE course_space_id = #{courseId})
+  </delete>
+  <delete id="deleteAttachmentsOfMissingPoints">
+    DELETE FROM edu_outline_attachment WHERE course_space_id = #{courseId} AND point_id IS NOT NULL
+      AND point_id IN (SELECT id FROM edu_knowledge_point WHERE course_space_id = #{courseId}
+        AND id NOT IN (SELECT id FROM edu_knowledge_point_draft WHERE course_space_id = #{courseId}))
+  </delete>
+  <delete id="deleteAttachmentsOfMissingUnits">
+    DELETE FROM edu_outline_attachment WHERE course_space_id = #{courseId} AND unit_id IS NOT NULL
+      AND unit_id IN (SELECT id FROM edu_course_unit WHERE course_space_id = #{courseId}
+        AND id NOT IN (SELECT id FROM edu_course_unit_draft WHERE course_space_id = #{courseId}))
+  </delete>
+  <insert id="publishUpsertPoints">
+    INSERT INTO edu_knowledge_point(id, course_space_id, unit_id, code, name, content_text)
+    SELECT id, course_space_id, unit_id, code, name, content_text
+    FROM edu_knowledge_point_draft WHERE course_space_id = #{courseId}
+    ON DUPLICATE KEY UPDATE unit_id = VALUES(unit_id), code = VALUES(code),
+        name = VALUES(name), content_text = VALUES(content_text)
+  </insert>
+  <update id="setOutlineDirty">
+    UPDATE edu_course_space SET outline_dirty = #{dirty} WHERE id = #{courseId}
+  </update>
+
+  <!-- ==================== 学习进度 ==================== -->
+  <select id="learnedUnitIds" resultType="java.lang.Long">
+    SELECT unit_id FROM edu_outline_progress
+    WHERE course_space_id=#{courseId} AND user_id=#{userId} AND learned_at IS NOT NULL
+  </select>
+  <select id="lastViewed" resultType="java.util.Map">
+    SELECT p.unit_id AS unitId, u.title AS title
+    FROM edu_outline_progress p
+    JOIN edu_course_unit u ON u.id = p.unit_id AND u.course_space_id = p.course_space_id
+    WHERE p.course_space_id=#{courseId} AND p.user_id=#{userId} AND p.last_viewed_at IS NOT NULL
+    ORDER BY p.last_viewed_at DESC LIMIT 1
+  </select>
+  <insert id="markViewed">
+    INSERT INTO edu_outline_progress(course_space_id,user_id,unit_id,learned_at,last_viewed_at)
+    VALUES(#{courseId},#{userId},#{unitId},NOW(3),NOW(3))
+    ON DUPLICATE KEY UPDATE last_viewed_at=NOW(3), learned_at=COALESCE(learned_at,NOW(3))
+  </insert>
+  <update id="clearLearned">
+    UPDATE edu_outline_progress SET learned_at=NULL
+    WHERE course_space_id=#{courseId} AND user_id=#{userId} AND unit_id=#{unitId}
+  </update>
+  <select id="courseListProgress" resultType="java.util.Map">
+    SELECT cs.id AS courseId,
+      (SELECT COUNT(*) FROM edu_course_unit u WHERE u.course_space_id=cs.id) AS totalUnits,
+      (SELECT COUNT(*) FROM edu_outline_progress p WHERE p.course_space_id=cs.id AND p.user_id=#{userId} AND p.learned_at IS NOT NULL) AS learnedCount,
+      (SELECT p.unit_id FROM edu_outline_progress p WHERE p.course_space_id=cs.id AND p.user_id=#{userId} AND p.last_viewed_at IS NOT NULL ORDER BY p.last_viewed_at DESC LIMIT 1) AS lastUnitId,
+      (SELECT u.title FROM edu_outline_progress p JOIN edu_course_unit u ON u.id=p.unit_id
+        WHERE p.course_space_id=cs.id AND p.user_id=#{userId} AND p.last_viewed_at IS NOT NULL ORDER BY p.last_viewed_at DESC LIMIT 1) AS lastUnitTitle
+    FROM edu_course_space cs
+    WHERE cs.deleted_at IS NULL AND cs.id IN
+    <foreach collection="courseIds" item="cid" open="(" close=")" separator=",">#{cid}</foreach>
+  </select>
 </mapper>

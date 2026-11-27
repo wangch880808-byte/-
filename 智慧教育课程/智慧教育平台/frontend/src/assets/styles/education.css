@@ -66,7 +66,7 @@ button { font: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; color: #1f2d3d; }
 .brand img { width: 30px; height: 30px; object-fit: contain; }
-.header-right { display: flex; align-items: center; gap: 14px; color: #666; font-size: 13px; }
+.header-right { display: flex; align-items: center; gap: 14px; color: #555; font-size: 15px; }
 .header-right .role-tag { padding: 2px 8px; border-radius: 10px; background: #e6f4ff; color: var(--primary); }
 .nav-toggle { display: none; border: none; background: transparent; font-size: 18px; cursor: pointer; }
 
@@ -77,7 +77,7 @@ button { font: inherit; }
   overflow-y: auto; padding: 8px 0 20px;
 }
 .menu-title {
-  padding: 10px 16px; font-size: 13px; color: #333; font-weight: 600;
+  padding: 10px 16px; font-size: 16px; color: #333; font-weight: 600;
   display: flex; align-items: center; justify-content: space-between;
   cursor: pointer; user-select: none;
 }
@@ -85,7 +85,7 @@ button { font: inherit; }
 .menu-group.collapsed .arrow { transform: rotate(-90deg); }
 .menu-item {
   display: block; text-decoration: none;
-  padding: 9px 16px 9px 34px; font-size: 13px; color: #555;
+  padding: 9px 16px 9px 34px; font-size: 16px; color: #444;
   cursor: pointer; user-select: none; position: relative;
 }
 .menu-item:hover { color: #1890ff; background: #f0f5ff; }
@@ -94,6 +94,7 @@ button { font: inherit; }
   content: ''; position: absolute; left: 0; top: 0; bottom: 0;
   width: 3px; background: #1890ff;
 }
+.menu-item.menu-sub { padding-left: 52px; font-size: 15px; color: #555; }
 .menu-empty { padding: 18px 16px; color: var(--muted); font-size: 13px; }
 
 .app-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -101,10 +102,10 @@ button { font: inherit; }
   height: 44px; flex-shrink: 0; background: #fff;
   border-bottom: 1px solid #f0f0f0;
   display: flex; align-items: center; gap: 6px;
-  padding: 0 20px; font-size: 13px; color: #999;
+  padding: 0 20px; font-size: 15px; color: #666;
 }
 .breadcrumb .current { color: #333; }
-.page { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.page { flex: 1; min-height: 0; overflow: auto; padding: 0; background: #fff; }
 .alert { margin: 12px 16px 0; padding: 10px 14px; border-radius: 6px; font-size: 13px; }
 .alert.warn { background: #fff8ec; border: 1px solid #fdeccd; color: #b7791f; }
 .alert.danger { background: #fff1f0; border: 1px solid #ffa39e; color: #cf1322; }
@@ -202,11 +203,11 @@ button { font: inherit; }
 
 .workspace-context, .workspace-shortcuts { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .workspace-context .ui-select { max-width: 220px; }
-.workspace-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 14px; padding: 4px 0; }
+.workspace-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0; padding: 0 0 0 16px; background: #fff; }
 .workspace-tabs > span { display: inline-flex; flex-shrink: 0; align-items: center; border: 1px solid #d9dfe8; border-radius: 6px; background: white; }
-.workspace-tabs a { color: #52647c; text-decoration: none; padding: 6px 10px; }
+.workspace-tabs a { color: #43526b; text-decoration: none; padding: 11px 10px; font-size: 16px; font-weight: 500; }
 .workspace-tabs .selected { border-color: #1890ff; background: #e6f7ff; }
-.workspace-tabs button { border: 0; background: transparent; padding: 6px 8px; cursor: pointer; }
+.workspace-tabs button { border: 0; background: transparent; padding: 11px 6px; cursor: pointer; }
 .notice-count { background: #cf1322; color: white; border-radius: 10px; padding: 0 5px; margin-left: 4px; font-size: 12px; }
 .app-body { position: relative; }
 .nav-scrim { display: none; }

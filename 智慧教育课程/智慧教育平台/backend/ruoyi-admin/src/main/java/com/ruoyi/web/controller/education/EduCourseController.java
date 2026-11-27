@@ -27,9 +27,15 @@ public class EduCourseController extends BaseController {
 
     @GetMapping("/list")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:list')")
-    public TableDataInfo list(String keyword) {
+    public TableDataInfo list(String keyword, String status) {
         startPage();
-        return getDataTable(portalService.courseList(keyword));
+        return getDataTable(portalService.courseList(keyword, status));
+    }
+
+    @GetMapping("/list/progress")
+    @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:list')")
+    public AjaxResult studentCourseProgress() {
+        return success(portalService.studentCourseProgress());
     }
 
     @GetMapping("/{id}")
@@ -40,14 +46,14 @@ public class EduCourseController extends BaseController {
 
     @PostMapping
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:add')")
-    @com.ruoyi.common.annotation.Log(title="教学组织与课程",businessType=com.ruoyi.common.enums.BusinessType.INSERT)
+    @com.ruoyi.common.annotation.Log(title="新建课程",businessType=com.ruoyi.common.enums.BusinessType.INSERT)
     public AjaxResult add(@RequestBody Map<String, Object> body) {
         return success(portalService.createCourse(body));
     }
 
     @PutMapping("/{id}")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @com.ruoyi.common.annotation.Log(title="教学组织与课程",businessType=com.ruoyi.common.enums.BusinessType.UPDATE)
+    @com.ruoyi.common.annotation.Log(title="修改课程信息",businessType=com.ruoyi.common.enums.BusinessType.UPDATE)
     public AjaxResult edit(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         portalService.updateCourse(id, body);
         return success();
@@ -55,7 +61,7 @@ public class EduCourseController extends BaseController {
 
     @DeleteMapping("/{id}")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @com.ruoyi.common.annotation.Log(title="课程空间",businessType=com.ruoyi.common.enums.BusinessType.DELETE)
+    @com.ruoyi.common.annotation.Log(title="删除课程",businessType=com.ruoyi.common.enums.BusinessType.DELETE)
     public AjaxResult delete(@PathVariable Long id) {
         portalService.deleteCourse(id);
         return success();
@@ -63,7 +69,7 @@ public class EduCourseController extends BaseController {
 
     @PutMapping("/{id}/status")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:publish')")
-    @com.ruoyi.common.annotation.Log(title="教学组织与课程",businessType=com.ruoyi.common.enums.BusinessType.UPDATE)
+    @com.ruoyi.common.annotation.Log(title="变更课程状态",businessType=com.ruoyi.common.enums.BusinessType.UPDATE)
     public AjaxResult changeStatus(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         portalService.updateCourseStatus(id, body == null ? null : String.valueOf(body.get("status")));
         return success();
@@ -71,9 +77,9 @@ public class EduCourseController extends BaseController {
 
     @PostMapping("/{courseId}/teaching-classes")
     @PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @Log(title = "课程教学班", businessType = BusinessType.INSERT)
     public AjaxResult createCourseClass(@PathVariable Long courseId, @RequestBody CreateCourseClass body) {
         Long classId = portalService.createCourseClass(courseId, body.name(), body.termId());
+        EduOperLog.record("新建教学班：" + body.name(), BusinessType.INSERT);
         return success(Map.of("teachingClassId", classId));
     }
 
@@ -105,12 +111,16 @@ public class EduCourseController extends BaseController {
 
     @PostMapping("/{courseId}/teaching-classes/{classId}/students")
     @PreAuthorize("@ss.hasPermi('education:course:edit')")
-    @Log(title = "课程教学班学生名单", businessType = BusinessType.INSERT, isSaveRequestData = false)
     public AjaxResult addCourseRosterStudents(@PathVariable Long courseId, @PathVariable Long classId,
             @RequestBody AddCourseRosterStudents body) {
-        return AjaxResult.success((Object) portalService.addCourseRosterStudents(
+        String result = portalService.addCourseRosterStudents(
                 courseId, classId, body.userIds(), body.sourceCourseId(), body.sourceClassId(),
-                body.sourceDeptId(), body.includeDescendants(), body.wholeClass()));
+                body.sourceDeptId(), body.includeDescendants(), body.wholeClass());
+        String detail = body.wholeClass()
+                ? "整班引入，" + result
+                : EduOperLog.students(portalService.userBrief(body.userIds()));
+        EduOperLog.record("添加教学班学生：" + detail, BusinessType.INSERT);
+        return AjaxResult.success((Object) result);
     }
 
     public record CreateCourseClass(String name, Long termId) {}
@@ -120,19 +130,21 @@ public class EduCourseController extends BaseController {
 
     @PostMapping("/{id}/classes")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:bind')")
-    @com.ruoyi.common.annotation.Log(title="教学组织与课程",businessType=com.ruoyi.common.enums.BusinessType.INSERT)
     public AjaxResult bindClass(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         Long classId = body == null || body.get("classId") == null ? null : Long.valueOf(String.valueOf(body.get("classId")));
         String publishedAt = body == null || body.get("publishedAt") == null ? null : String.valueOf(body.get("publishedAt"));
         portalService.bindClass(id, classId, publishedAt);
+        String name = classId == null ? null : portalService.className(classId);
+        EduOperLog.record("绑定教学班" + (name == null ? "" : "：" + name), BusinessType.INSERT);
         return success();
     }
 
     @DeleteMapping("/{id}/classes/{bindingId}")
     @org.springframework.security.access.prepost.PreAuthorize("@ss.hasPermi('education:course:bind')")
-    @com.ruoyi.common.annotation.Log(title="教学组织与课程",businessType=com.ruoyi.common.enums.BusinessType.DELETE)
     public AjaxResult unbindClass(@PathVariable Long id, @PathVariable Long bindingId) {
+        String name = portalService.bindingClassName(bindingId);
         portalService.unbindClass(id, bindingId);
+        EduOperLog.record("解绑教学班" + (name == null ? "" : "：" + name), BusinessType.DELETE);
         return success();
     }
 }

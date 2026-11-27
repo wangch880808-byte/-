@@ -71,7 +71,7 @@ class Group3AccessServiceTest
         when(access.classesOfTeacher(USER_ID)).thenReturn(List.of(openClass));
         when(access.activeBindings(CLASS_ID)).thenReturn(List.of(new EduClassBindingRef(BINDING_ID, CLASS_ID, COURSE_ID, null)));
         when(access.membership(CLASS_ID, USER_ID)).thenReturn(membership(true, true));
-        when(portal.courseList(null)).thenReturn(List.of(course()));
+        when(portal.courseList(null, null)).thenReturn(List.of(course()));
 
         List<Map<String, Object>> contexts = service.contexts();
 

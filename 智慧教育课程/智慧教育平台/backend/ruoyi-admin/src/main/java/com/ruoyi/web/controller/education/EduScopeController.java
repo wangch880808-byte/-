@@ -63,9 +63,11 @@ public class EduScopeController extends BaseController {
     public AjaxResult myClasses() {
         Long userId = getUserId();
         Map<Long, Map<String, Object>> merged = new LinkedHashMap<>();
+        boolean canTeach = EduActor.admin() || EduActor.assigned("teacher");
+        boolean canLearn = EduActor.admin() || EduActor.assigned("student");
 
         for (Map<String, Object> row : portalMapper.selectTeachingClassByTeacher(userId)) {
-            if (!"teacher".equals(EduActor.role()) && !EduActor.admin()) continue;
+            if (!canTeach) continue;
             Map<String, Object> item = classMap(row, number(row.get("id")));
             item.put("teacher", true);
             item.put("student", false);
@@ -77,7 +79,7 @@ public class EduScopeController extends BaseController {
         }
 
         for (Map<String, Object> row : portalMapper.selectStudentClasses(userId)) {
-            if ((!"student".equals(EduActor.role()) && !EduActor.admin()) || !"ACTIVE".equals(row.get("status")) || !"ACTIVE".equals(row.get("classStatus"))) continue;
+            if (!canLearn || !"ACTIVE".equals(row.get("status")) || !"ACTIVE".equals(row.get("classStatus"))) continue;
             Object classId = number(row.get("classId"));
             if (classId == null) {
                 continue;

@@ -16,6 +16,9 @@
         FROM edu_term t
         LEFT JOIN v_identity_dept s ON s.dept_id = t.organization_id
         <where>
+            <if test="organizationId != null">
+                AND t.organization_id = #{organizationId}
+            </if>
             <if test="keyword != null and keyword != ''">
                 AND (t.name LIKE concat('%', #{keyword}, '%') OR t.code LIKE concat('%', #{keyword}, '%'))
             </if>
@@ -577,8 +580,10 @@
         cs.title AS name,
         cs.title,
         cs.status,
+        cs.outline_dirty AS outlineDirty,
         cs.summary,
         cs.learning_objectives AS learningObjectives,
+        cs.cover_storage_key AS coverStorageKey,
         cs.official_course_id AS officialCourseId,
         cs.owner_user_id AS ownerUserId,
         oc.name AS officialCourseName,
@@ -610,6 +615,9 @@
         LEFT JOIN v_identity_user u ON u.user_id = cs.owner_user_id
         <where>
             cs.deleted_at IS NULL
+            <if test="status != null and status != ''">
+                AND cs.status = #{status}
+            </if>
             <if test="ownerUserId != null">
                 AND (cs.owner_user_id = #{ownerUserId} OR EXISTS (
                     SELECT 1 FROM edu_course_teacher team WHERE team.course_space_id = cs.id
@@ -633,6 +641,24 @@
             </if>
         </where>
         ORDER BY cs.updated_at DESC, cs.id DESC
+    </select>
+
+    <select id="selectCourseOperations" resultType="java.util.Map">
+        SELECT oper_id AS operId, title, business_type AS businessType, oper_name AS operName,
+               oper_url AS operUrl, oper_ip AS operIp, oper_param AS operParam, status,
+               DATE_FORMAT(oper_time, '%Y-%m-%d %H:%i:%s') AS operTime
+        FROM sys_oper_log
+        WHERE oper_url = #{coursePath}
+           OR oper_url LIKE CONCAT(#{coursePath}, '/%')
+           OR EXISTS (SELECT 1 FROM edu_course_class_binding b
+                       WHERE b.course_space_id = #{courseId}
+                         AND (oper_url = CONCAT('/education/teaching-class/', b.teaching_class_id)
+                              OR oper_url LIKE CONCAT('/education/teaching-class/', b.teaching_class_id, '/%')))
+           OR (oper_url LIKE '/education/group3/%'
+               AND EXISTS (SELECT 1 FROM edu_course_class_binding gb
+                            WHERE gb.course_space_id = #{courseId}
+                              AND oper_param REGEXP CONCAT('"bindingId"\\s*:\\s*"?', gb.id, '"?[,}]')))
+        ORDER BY oper_time DESC, oper_id DESC
     </select>
 
     <select id="selectCourseById" resultType="java.util.Map">

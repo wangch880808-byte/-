@@ -10,6 +10,8 @@
 | 复现 2026-11-20 后录入的数据 | [后录入数据交接](#后录入数据交接) | 先在独立空库执行 `install-fresh.sql`，再导入增量。 |
 | 升级已经接入若依和教学表的对接库 | [upgrade-group12.sql](upgrade-group12.sql) → [upgrade-course-content.sql](upgrade-course-content.sql) | 先备份并核对源库版本。前者补学期、身份视图和菜单权限，后者补课程内容字段与附件表。 |
 | 已在用的对接库，增加课程教师团队 | [upgrade-course-team.sql](upgrade-course-team.sql) | 新建 edu_course_teacher，记录课程协作教师及学生管理、名单导出权限。可重复执行。 |
+| 已在用的对接库，增加教师团队只读身份与目录草稿 | [upgrade-course-team-readonly.sql](upgrade-course-team-readonly.sql) → [upgrade-p0-batch2.sql](upgrade-p0-batch2.sql) | 前者补 `edu_course_teacher.team_role`；后者补 `permissions`、`edu_course_space.outline_dirty`，并新建 `edu_course_unit_draft`、`edu_knowledge_point_draft`、`edu_outline_progress` 三张表。两个脚本均可重复执行，需按顺序执行。 |
+| 已在用的对接库，放宽章节/知识点附件外键 | [upgrade-outline-attachment-fk.sql](upgrade-outline-attachment-fk.sql) | 删除 `edu_outline_attachment` 指向正式表的两条组合外键，使草稿节点（未发布）也能上传附件。可重复执行。 |
 | 已在用的对接库，只升级学校、学院和班级导入 | [upgrade-organization-types.sql](upgrade-organization-types.sql) | 在已有项目库运行。脚本添加组织类型列并更新组织视图。 |
 | 已在用的对接库，更新行政班列表、组织导入和花名册 | [upgrade-administrative-class.sql](upgrade-administrative-class.sql) | 在原有项目库运行，前置脚本为组织类型升级。 |
 | 已在用的第三组库，补公共教学资源库、题库文件夹归档、题目资源库或学生笔记 | [upgrade-public-resource-library.sql](upgrade-public-resource-library.sql) → [upgrade-question-folder-archive.sql](upgrade-question-folder-archive.sql) → [upgrade-question-library.sql](upgrade-question-library.sql) → [upgrade-student-note.sql](upgrade-student-note.sql) | 四个脚本均可重复执行。公共资源库首次新增 5 张表；题库文件夹归档依赖 `edu_question_folder`；题目资源库新增共享表与引入来源字段；学生笔记表首次新增 1 张表。 |
@@ -215,6 +217,19 @@ Quartz JDBC 持久化表快照。它重建以下 11 张 `QRTZ_*` 表，负责调
 | `edu_outline_attachment` | 章节或知识点附件。保存课程空间、单元 ID 或知识点 ID、文件名、字节数和 `MEDIUMBLOB` 内容。 |
 
 一条附件只能归属一个单元或一个知识点，两个归属字段必须恰好一个有值。复合外键校验其归属同一课程，父单元或知识点被物理删除时，该附件随外键级联删除。课程逻辑删除只标记课程时间。
+
+### 教师团队只读身份与目录草稿
+
+针对第二组课程教师团队与目录草稿的升级，需按顺序执行 [upgrade-course-team-readonly.sql](upgrade-course-team-readonly.sql) 与 [upgrade-p0-batch2.sql](upgrade-p0-batch2.sql)。两个脚本均可重复执行。
+
+- `upgrade-course-team-readonly.sql`：为 `edu_course_teacher` 增加 `team_role`，区分 `MEMBER` 协作教师 / `READONLY` 只读协作；负责人 `OWNER` 由 `edu_course_space.owner_user_id` 推导，不在此列存储。
+- `upgrade-p0-batch2.sql`：为 `edu_course_teacher` 增加 `permissions`（逗号分隔的权限键，如 `outline,knowledgeGraph,material`），为 `edu_course_space` 增加 `outline_dirty`（目录有未发布改动），并新建 `edu_course_unit_draft`、`edu_knowledge_point_draft`、`edu_outline_progress` 三张表。
+
+草稿表供教师编辑目录草稿，学生始终读取已发布的正式表。全新环境请直接使用 `install-fresh.sql`，其中已包含上述全部结构。
+
+### 章节/知识点附件外键放宽
+
+[upgrade-outline-attachment-fk.sql](upgrade-outline-attachment-fk.sql) 删除 `edu_outline_attachment` 指向 `edu_course_unit`、`edu_knowledge_point` 的两条组合外键。目录编辑采用草稿表，新建章节/知识点在正式表尚未落库时上传附件会因外键校验失败；草稿表与正式表沿用同一 ID，附件按 ID 归属，无需外键。删除节点的附件由目录发布流程显式清理。全新环境请直接使用 `install-fresh.sql`，其中附件表已不含这两条外键。
 
 ### 第三组课程建设与课前学习
 

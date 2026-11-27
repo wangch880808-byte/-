@@ -43,8 +43,16 @@ public interface IEduPortalService {
 
     List<Map<String, Object>> classMembers(Long classId);
     Map<String, Boolean> rosterPermissions(Long classId);
-    String importRoster(Long classId, Map<Integer, String> accountRows);
+    Map<String, Object> importRoster(Long classId, Map<Integer, String> accountRows);
     List<Map<String, Object>> exportRoster(Long classId);
+
+    List<Map<String, Object>> userBrief(List<Long> userIds);
+
+    List<Map<String, Object>> userBriefByAccounts(List<String> accounts);
+
+    String className(Long classId);
+
+    String bindingClassName(Long bindingId);
 
     void addMember(Long classId, Map<String, Object> body);
 
@@ -72,9 +80,15 @@ public interface IEduPortalService {
 
     /* ---------------- 课程空间 ---------------- */
 
-    List<Map<String, Object>> courseList(String keyword);
+    List<Map<String, Object>> courseList(String keyword, String status);
+
+    /** 学生可见课程的学习进度汇总（课程列表页使用）。 */
+    List<Map<String, Object>> studentCourseProgress();
 
     Map<String, Object> courseDetail(Long id);
+
+    /** 课程操作日志（仅课程创建者与团队教师可看）。 */
+    List<Map<String, Object>> courseOperations(Long courseId);
 
     Long createCourse(Map<String, Object> body);
 

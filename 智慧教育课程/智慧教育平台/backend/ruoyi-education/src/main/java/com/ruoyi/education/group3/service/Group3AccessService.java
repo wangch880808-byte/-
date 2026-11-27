@@ -55,7 +55,7 @@ public class Group3AccessService
             return List.of();
         }
         Map<Long, Map<String, Object>> visibleCourses = new HashMap<>();
-        for (Map<String, Object> course : portal.courseList(null))
+        for (Map<String, Object> course : portal.courseList(null, null))
         {
             if (usableCourse(course, teacher))
             {
