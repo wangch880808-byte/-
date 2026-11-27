@@ -1,12 +1,17 @@
 package com.ruoyi.education.course.service;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.Statement;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
@@ -14,11 +19,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.ruoyi.education.course.api.EduMembershipTimelineService;
+import com.ruoyi.education.course.api.EduStudentBindingAccess;
+import com.ruoyi.education.course.api.EduStudentMemberSegment;
+import com.ruoyi.education.course.authorization.MembershipTimelineStudentAnnouncementAuthorizationAdapter;
 import com.ruoyi.education.course.authorization.StudentAnnouncementAccess;
 import com.ruoyi.education.course.authorization.StudentAnnouncementAuthorizationPort;
 import com.ruoyi.education.course.authorization.StudentAnnouncementMember;
@@ -197,6 +208,69 @@ class AnnouncementNoticeFanoutServiceTest
 
         assertEquals(0, inserted);
         assertEquals(0, countRows());
+    }
+
+    @Test
+    void realAdapterWithInactiveProbeKeepsFanOutFailingClosed()
+    {
+        Instant point = AT.toInstant(ZoneOffset.UTC);
+        EduMembershipTimelineService source = mock(EduMembershipTimelineService.class);
+        when(source.studentsInBinding(BINDING_ID, point)).thenReturn(List.of(
+                new EduStudentMemberSegment(9101L, CLASS_ID, 9001L, "student", "学生",
+                        point.minusSeconds(86_400), null)));
+        when(source.studentInBinding(BINDING_ID, 9001L, point)).thenReturn(
+                new EduStudentBindingAccess(BINDING_ID, CLASS_ID, 77L, 9001L, true, true,
+                        false, null, null));
+        AnnouncementNoticeFanoutService realAdapterService = new AnnouncementNoticeFanoutService(
+                new MembershipTimelineStudentAnnouncementAuthorizationAdapter(
+                        providerOf(source)), mapper);
+
+        assertThrows(NoticeAuthorizationUnavailableException.class,
+                () -> transactionTemplate.execute(
+                        status -> realAdapterService.fanOutAnnouncement(announcement(), AT)));
+        assertEquals(0, countRows());
+    }
+
+    @Test
+    void realAdapterWithFailingOrMissingSourceKeepsFanOutFailingClosed()
+    {
+        Instant point = AT.toInstant(ZoneOffset.UTC);
+        EduMembershipTimelineService failingSource = mock(EduMembershipTimelineService.class);
+        when(failingSource.studentsInBinding(BINDING_ID, point))
+                .thenThrow(new IllegalStateException("来源故障"));
+        AnnouncementNoticeFanoutService failingService = new AnnouncementNoticeFanoutService(
+                new MembershipTimelineStudentAnnouncementAuthorizationAdapter(
+                        providerOf(failingSource)), mapper);
+
+        assertThrows(NoticeAuthorizationUnavailableException.class,
+                () -> transactionTemplate.execute(
+                        status -> failingService.fanOutAnnouncement(announcement(), AT)));
+
+        try (AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext())
+        {
+            context.register(MembershipTimelineStudentAnnouncementAuthorizationAdapter.class);
+            assertDoesNotThrow(context::refresh);
+            StudentAnnouncementAuthorizationPort portWithoutSource =
+                    context.getBean(StudentAnnouncementAuthorizationPort.class);
+            AnnouncementNoticeFanoutService missingSourceService =
+                    new AnnouncementNoticeFanoutService(portWithoutSource, mapper);
+
+            assertThrows(NoticeAuthorizationUnavailableException.class,
+                    () -> transactionTemplate.execute(
+                            status -> missingSourceService.fanOutAnnouncement(
+                                    announcement(), AT)));
+        }
+        assertEquals(0, countRows());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<EduMembershipTimelineService> providerOf(
+            EduMembershipTimelineService source)
+    {
+        ObjectProvider<EduMembershipTimelineService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(source);
+        return provider;
     }
 
     private void resetSchema(DataSource dataSource) throws Exception
