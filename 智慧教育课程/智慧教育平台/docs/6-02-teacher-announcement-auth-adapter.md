@@ -2,7 +2,7 @@
 
 日期：2026-11-27
 
-状态：**本地实现与隔离验证完成；未推送、未创建或修改 PR。**
+状态：**教师公告授权适配器实现与隔离验证完成；发布与审阅状态以对应 Draft PR 记录为准。**
 
 基线：origin/main `eee6883ee461bcfc957129e540d2a4ea70bfade4`；#42 契约修复版本 `99f50ad495021dbe47b29502ba5516e043979d6c` 已合入 main。
 
@@ -33,7 +33,8 @@
 
 | 来源 `EduTeacherBindingAccess` | 公告 `TeacherAnnouncementAuthority` | 说明 |
 |---|---|---|
-| `bindingId`、`teachingClassId` | 同名快照字段 | 必须与请求一致、为正数且非空 |
+| `bindingId` | 同名快照字段 | 必须与请求一致且为正数 |
+| `teachingClassId` | 同名快照字段 | 方法未接收该值，只校验非空且为正数，不与请求比较 |
 | `currentTeacher` | `currentTeacher` | 独立保留，不因绑定结束而清除 |
 | `canPublish` | `canPublish` | 只取契约值；非任课教师的 null 归一为 false |
 | `bindingActive` | `bindingActive` | 独立保留，不与其他标志做蕴含推导 |
@@ -55,7 +56,7 @@
 - 不重新读取当前时间，不使用客户端时间。
 - 返回的 `bindingPublishedAt` 必须非空；`bindingEndedAt` 允许为真正 null，存在时必须晚于发布时间。
 - 适配器按半开区间 `[publishedAt, endedAt)` 独立复核 `bindingActive`，与来源标志矛盾时失败关闭。
-- 返回 `bindingId`/`userId` 必须与请求一致且为正数；`teachingClassId`、`courseSpaceId` 必须存在且为正数。
+- 返回 `bindingId`/`userId` 必须与请求一致且为正数；`teachingClassId`、`courseSpaceId` 必须存在且为正数。当前方法没有传入 `teachingClassId`，因此该字段只校验非空、正数，不与请求比较。
 - 空结果、跨用户、跨绑定、非法标识、缺失发布时间、错误区间、权限组合矛盾均抛运行时异常，不返回假授权。
 
 ## 5. 失败语义
@@ -70,7 +71,11 @@
 
 不按异常文案猜 403/404，不为创建草稿新增 404/409。
 
+说明：表中“输入非法”映射 503 仅指适配器及公告服务调用链的失败语义；不改变 Controller 现有请求参数校验及其 400 行为。
+
 ## 6. 测试与验证
+
+以下验证证据对应实现提交 `fc6e9ae8caf70a4109b0fd8c1146d7f89e4c60e4`；本次仅文档澄清，未重跑长回归。
 
 测试替身说明：适配器测试与集成测试中的第 2 组来源服务使用手工测试替身；集成测试的公告 Mapper 使用 H2 内存库。未连接真实 MySQL、真实登录、HTTP 或第 2 组 Mapper。
 
@@ -87,4 +92,4 @@
 - 真实 MySQL、真实登录、HTTP 权限拦截、审计和目标库联调未执行。
 - #40 学生授权适配器仍为 Draft；本轮只接通教师公告授权，教师发布到学生通知的完整生产链路仍未端到端联调。
 - 生产 `sys_menu`、角色授权、部署配置未变更。
-- 本轮未推送、未创建或修改 PR。
+- 发布与审阅状态以对应 Draft PR 记录为准。
