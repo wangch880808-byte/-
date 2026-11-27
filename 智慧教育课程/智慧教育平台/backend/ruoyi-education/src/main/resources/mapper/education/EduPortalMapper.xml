@@ -291,6 +291,20 @@
           <foreach collection="accounts" item="account" open="(" separator="," close=")">#{account}</foreach>
     </select>
 
+    <select id="selectUserBrief" resultType="java.util.Map">
+        SELECT u.user_id AS userId, u.user_name AS userName, u.nick_name AS nickName
+        FROM v_identity_user u
+        WHERE u.user_id IN
+          <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="selectUserBriefByAccounts" resultType="java.util.Map">
+        SELECT u.user_id AS userId, u.user_name AS userName, u.nick_name AS nickName
+        FROM v_identity_user u
+        WHERE u.user_name IN
+          <foreach collection="accounts" item="account" open="(" separator="," close=")">#{account}</foreach>
+    </select>
+
     <select id="selectCourseRosterSources" resultType="java.util.Map">
         SELECT c.id AS courseId, c.title AS courseTitle, tc.id AS teachingClassId,
                tc.name AS className, t.name AS termName

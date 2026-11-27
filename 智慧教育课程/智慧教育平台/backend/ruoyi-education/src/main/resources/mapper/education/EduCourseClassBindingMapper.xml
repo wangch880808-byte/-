@@ -28,10 +28,11 @@
 
     <select id="selectById" resultMap="BindingResult"><include refid="selectVo"/> WHERE id=#{id}</select>
 
-    <!-- 查某门课绑定了哪些班（半开区间：未到 ended_at 仍有效） -->
+    <!-- 查某门课绑定了哪些班（半开区间：已发布且未到 ended_at） -->
     <select id="selectByCourseId" resultMap="BindingResult">
         <include refid="selectVo"/>
-        WHERE course_space_id = #{courseId} AND (ended_at IS NULL OR ended_at &gt; NOW(3))
+        WHERE course_space_id = #{courseId} AND published_at &lt;= NOW(3)
+          AND (ended_at IS NULL OR ended_at &gt; NOW(3))
         ORDER BY id DESC
     </select>
 

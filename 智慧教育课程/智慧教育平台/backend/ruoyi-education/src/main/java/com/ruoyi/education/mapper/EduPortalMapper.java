@@ -52,6 +52,10 @@ public interface EduPortalMapper {
     List<Map<String, Object>> selectRosterStudents(@Param("organizationId") Long organizationId,
             @Param("accounts") List<String> accounts);
 
+    List<Map<String, Object>> selectUserBrief(@Param("userIds") List<Long> userIds);
+
+    List<Map<String, Object>> selectUserBriefByAccounts(@Param("accounts") List<String> accounts);
+
     List<Map<String, Object>> selectCourseRosterSources(@Param("organizationId") Long organizationId,
             @Param("teacherId") Long teacherId, @Param("classId") Long classId,
             @Param("sourceCourseId") Long sourceCourseId, @Param("sourceClassId") Long sourceClassId);

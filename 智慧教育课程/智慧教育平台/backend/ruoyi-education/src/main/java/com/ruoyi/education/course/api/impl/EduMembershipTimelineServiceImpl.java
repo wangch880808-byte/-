@@ -142,7 +142,7 @@ public class EduMembershipTimelineServiceImpl implements EduMembershipTimelineSe
         boolean currentTeacher = teacherRow != null || teamTeacher;
         String teacherRole = teacherRow != null ? text(teacherRow.get("teacher_role"))
                 : (teamTeacher ? "CO_TEACHER" : null);
-        Boolean canPublish = teacherRow != null ? truthy(teacherRow.get("can_publish"))
+        Boolean canPublish = teacherRow != null ? Boolean.valueOf(truthy(teacherRow.get("can_publish")))
                 : (teamTeacher ? Boolean.FALSE : null);
 
         return new EduTeacherBindingAccess(

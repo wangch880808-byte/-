@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.sql.Timestamp;
@@ -23,7 +25,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.education.course.api.EduStudentBindingAccess;
 import com.ruoyi.education.course.api.EduStudentMemberSegment;
+import com.ruoyi.education.course.api.EduTeacherBindingAccess;
 import com.ruoyi.education.mapper.EduMembershipTimelineMapper;
+import com.ruoyi.education.mapper.EduPortalMapper;
 
 class EduMembershipTimelineServiceImplTest
 {
@@ -31,14 +35,17 @@ class EduMembershipTimelineServiceImplTest
     private static final Instant DELIVERY_AT = Instant.parse("2026-11-20T11:00:00Z");
 
     private EduMembershipTimelineMapper mapper;
+    private EduPortalMapper portalMapper;
     private EduMembershipTimelineServiceImpl service;
 
     @BeforeEach
     void setUp()
     {
         mapper = mock(EduMembershipTimelineMapper.class);
+        portalMapper = mock(EduPortalMapper.class);
         service = new EduMembershipTimelineServiceImpl();
         ReflectionTestUtils.setField(service, "mapper", mapper);
+        ReflectionTestUtils.setField(service, "portalMapper", portalMapper);
     }
 
     private static Timestamp ts(int hour, int minute)
@@ -51,6 +58,8 @@ class EduMembershipTimelineServiceImplTest
         Map<String, Object> row = new HashMap<>();
         row.put("binding_id", bindingId);
         row.put("teaching_class_id", 1L);
+        row.put("teaching_class_name", "演示教学班 A");
+        row.put("teaching_class_code", "DEMO-A");
         row.put("course_space_id", 10L);
         row.put("teaching_class_status", status);
         row.put("published_at", publishedAt);
@@ -64,6 +73,37 @@ class EduMembershipTimelineServiceImplTest
         row.put("member_id", 7L);
         row.put("joined_at", joinedAt);
         row.put("left_at", leftAt);
+        return row;
+    }
+
+    private static Map<String, Object> teacherSegment(String role, Object canPublish,
+            Timestamp validFrom, Timestamp validTo)
+    {
+        Map<String, Object> row = new HashMap<>();
+        row.put("teacher_id", 21L);
+        row.put("teacher_role", role);
+        row.put("can_publish", canPublish);
+        row.put("valid_from", validFrom);
+        row.put("valid_to", validTo);
+        return row;
+    }
+
+    private static Map<String, Object> teamSegment(Timestamp joinedAt, Timestamp endedAt)
+    {
+        Map<String, Object> row = new HashMap<>();
+        row.put("team_id", 31L);
+        row.put("team_role", "TEACHER");
+        row.put("joined_at", joinedAt);
+        row.put("ended_at", endedAt);
+        return row;
+    }
+
+    private static Map<String, Object> userRow(String userName, String nickName)
+    {
+        Map<String, Object> row = new HashMap<>();
+        row.put("userId", 8001L);
+        row.put("userName", userName);
+        row.put("nickName", nickName);
         return row;
     }
 
@@ -236,5 +276,108 @@ class EduMembershipTimelineServiceImplTest
         when(mapper.selectStudentSegmentsInBinding(eq(100L), eq(9001L), any())).thenReturn(List.of(row));
 
         assertThrows(ServiceException.class, () -> service.studentInBinding(100L, 9001L, EVENT_AT));
+    }
+
+    @Test
+    void teacherInBindingReportsClassTeacherWithPublishFlag()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(8001L), any()))
+                .thenReturn(List.of(teacherSegment("LEAD", 1, ts(8, 0), null)));
+        when(portalMapper.selectUserBrief(eq(List.of(8001L)))).thenReturn(List.of(userRow("t8001", "教师一")));
+
+        EduTeacherBindingAccess access = service.teacherInBinding(100L, 8001L, EVENT_AT);
+        assertTrue(access.bindingActive());
+        assertTrue(access.classOpen());
+        assertTrue(access.currentTeacher());
+        assertEquals("LEAD", access.teacherRole());
+        assertEquals(Boolean.TRUE, access.canPublish());
+        assertEquals("演示教学班 A", access.teachingClassName());
+        assertEquals("DEMO-A", access.teachingClassCode());
+        assertEquals("t8001", access.userName());
+        assertEquals("教师一", access.nickName());
+        assertEquals(Instant.parse("2026-11-20T08:00:00Z"), access.bindingPublishedAt());
+        assertNull(access.bindingEndedAt());
+        verify(mapper, never()).selectTeamSegmentsInBinding(any(), any(), any());
+    }
+
+    @Test
+    void teacherInBindingFallsBackToCourseTeamWithoutPublishPermission()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(8004L), any())).thenReturn(List.of());
+        when(mapper.selectTeamSegmentsInBinding(eq(100L), eq(8004L), any()))
+                .thenReturn(List.of(teamSegment(ts(8, 0), null)));
+        when(portalMapper.selectUserBrief(eq(List.of(8004L)))).thenReturn(List.of(userRow("t8004", "团队教师")));
+
+        EduTeacherBindingAccess access = service.teacherInBinding(100L, 8004L, EVENT_AT);
+        assertTrue(access.currentTeacher());
+        assertEquals("CO_TEACHER", access.teacherRole());
+        assertEquals(Boolean.FALSE, access.canPublish());
+    }
+
+    @Test
+    void teacherInBindingReportsNonTeacher()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(9001L), any())).thenReturn(List.of());
+        when(mapper.selectTeamSegmentsInBinding(eq(100L), eq(9001L), any())).thenReturn(List.of());
+        when(portalMapper.selectUserBrief(eq(List.of(9001L)))).thenReturn(List.of(userRow("u9001", "学生一")));
+
+        EduTeacherBindingAccess access = service.teacherInBinding(100L, 9001L, EVENT_AT);
+        assertFalse(access.currentTeacher());
+        assertNull(access.teacherRole());
+        assertNull(access.canPublish());
+        assertTrue(access.bindingActive());
+    }
+
+    @Test
+    void teacherInBindingRejectsOverlappingTeacherOrTeamRows()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(8001L), any()))
+                .thenReturn(List.of(teacherSegment("LEAD", 1, ts(7, 0), null),
+                        teacherSegment("CO_TEACHER", 0, ts(8, 30), null)));
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(100L, 8001L, EVENT_AT));
+
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(8004L), any())).thenReturn(List.of());
+        when(mapper.selectTeamSegmentsInBinding(eq(100L), eq(8004L), any()))
+                .thenReturn(List.of(teamSegment(ts(7, 0), null), teamSegment(ts(8, 30), null)));
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(100L, 8004L, EVENT_AT));
+    }
+
+    @Test
+    void teacherInBindingThrowsOnMissingUserOrMissingInputs()
+    {
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), null));
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(8001L), any())).thenReturn(List.of());
+        when(mapper.selectTeamSegmentsInBinding(eq(100L), eq(8001L), any())).thenReturn(List.of());
+        when(portalMapper.selectUserBrief(eq(List.of(8001L)))).thenReturn(List.of());
+
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(100L, 8001L, EVENT_AT));
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(100L, null, EVENT_AT));
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(100L, 8001L, null));
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(null, 8001L, EVENT_AT));
+        assertThrows(ServiceException.class, () -> service.teacherInBinding(999L, 8001L, EVENT_AT));
+    }
+
+    @Test
+    void teacherInBindingBindingActiveUsesHalfOpenBoundaries()
+    {
+        when(mapper.selectTeacherSegmentsInBinding(eq(100L), eq(8001L), any()))
+                .thenReturn(List.of(teacherSegment("LEAD", 1, ts(9, 0), null)));
+        when(portalMapper.selectUserBrief(eq(List.of(8001L)))).thenReturn(List.of(userRow("t8001", "教师一")));
+
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(9, 0), null));
+        assertTrue(service.teacherInBinding(100L, 8001L, EVENT_AT).bindingActive());
+
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "ACTIVE", ts(8, 0), ts(9, 0)));
+        assertFalse(service.teacherInBinding(100L, 8001L, EVENT_AT).bindingActive());
+
+        when(mapper.selectBindingWithClass(100L)).thenReturn(binding(100L, "DRAFT", ts(8, 0), null));
+        EduTeacherBindingAccess access = service.teacherInBinding(100L, 8001L, EVENT_AT);
+        assertTrue(access.bindingActive());
+        assertTrue(access.currentTeacher());
+        assertFalse(access.classOpen());
     }
 }

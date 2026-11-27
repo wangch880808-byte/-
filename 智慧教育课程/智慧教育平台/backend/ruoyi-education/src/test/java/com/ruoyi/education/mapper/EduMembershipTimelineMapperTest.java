@@ -67,12 +67,19 @@ class EduMembershipTimelineMapperTest
             try (Statement statement = connection.createStatement())
             {
                 statement.execute("DROP TABLE IF EXISTS edu_class_student");
+                statement.execute("DROP TABLE IF EXISTS edu_class_teacher");
+                statement.execute("DROP TABLE IF EXISTS edu_course_teacher");
                 statement.execute("DROP TABLE IF EXISTS edu_course_class_binding");
                 statement.execute("DROP TABLE IF EXISTS edu_teaching_class");
+                statement.execute("DROP TABLE IF EXISTS edu_course_space");
+                statement.execute("DROP TABLE IF EXISTS v_identity_user_role");
+                statement.execute("DROP TABLE IF EXISTS v_identity_role");
                 statement.execute("DROP TABLE IF EXISTS v_identity_user");
                 statement.execute("""
                         CREATE TABLE edu_teaching_class (
                             id BIGINT PRIMARY KEY,
+                            name VARCHAR(100) NOT NULL DEFAULT '',
+                            code VARCHAR(64) NOT NULL DEFAULT '',
                             status VARCHAR(16) NOT NULL
                         )
                         """);
@@ -95,15 +102,61 @@ class EduMembershipTimelineMapperTest
                         )
                         """);
                 statement.execute("""
+                        CREATE TABLE edu_class_teacher (
+                            id BIGINT PRIMARY KEY,
+                            teaching_class_id BIGINT NOT NULL,
+                            user_id BIGINT NOT NULL,
+                            teacher_role VARCHAR(20) NOT NULL,
+                            can_publish INTEGER NOT NULL DEFAULT 0,
+                            can_grade INTEGER NOT NULL DEFAULT 0,
+                            can_export INTEGER NOT NULL DEFAULT 0,
+                            valid_from TIMESTAMP(3) NOT NULL,
+                            valid_to TIMESTAMP(3)
+                        )
+                        """);
+                statement.execute("""
+                        CREATE TABLE edu_course_teacher (
+                            id BIGINT PRIMARY KEY,
+                            course_space_id BIGINT NOT NULL,
+                            user_id BIGINT NOT NULL,
+                            team_role VARCHAR(20),
+                            joined_at TIMESTAMP(3) NOT NULL,
+                            ended_at TIMESTAMP(3)
+                        )
+                        """);
+                statement.execute("""
+                        CREATE TABLE edu_course_space (
+                            id BIGINT PRIMARY KEY,
+                            deleted_at TIMESTAMP(3),
+                            status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'
+                        )
+                        """);
+                statement.execute("""
                         CREATE TABLE v_identity_user (
                             user_id BIGINT PRIMARY KEY,
                             user_name VARCHAR(64),
-                            nick_name VARCHAR(64)
+                            nick_name VARCHAR(64),
+                            status VARCHAR(1) NOT NULL DEFAULT '0',
+                            del_flag VARCHAR(1) NOT NULL DEFAULT '0'
+                        )
+                        """);
+                statement.execute("""
+                        CREATE TABLE v_identity_role (
+                            role_id BIGINT PRIMARY KEY,
+                            role_key VARCHAR(32),
+                            status VARCHAR(1) NOT NULL DEFAULT '0',
+                            del_flag VARCHAR(1) NOT NULL DEFAULT '0'
+                        )
+                        """);
+                statement.execute("""
+                        CREATE TABLE v_identity_user_role (
+                            user_id BIGINT NOT NULL,
+                            role_id BIGINT NOT NULL
                         )
                         """);
             }
-            insertClass(connection, 1L, "ACTIVE");
-            insertClass(connection, 2L, "DRAFT");
+            insertClass(connection, 1L, "ACTIVE", "演示教学班 A", "DEMO-A");
+            insertClass(connection, 2L, "DRAFT", "演示教学班 B", "DEMO-B");
             insertBinding(connection, 100L, 1L, 10L, ts(8, 0), null);
             insertBinding(connection, 101L, 1L, 11L, ts(10, 0), null);
             insertBinding(connection, 102L, 2L, 12L, ts(8, 0), ts(9, 0));
@@ -113,6 +166,28 @@ class EduMembershipTimelineMapperTest
             insertStudent(connection, 3L, 2L, 9001L, ts(7, 0), null);
             insertUser(connection, 9001L, "u9001", "学生一");
             insertUser(connection, 9002L, "u9002", "学生二");
+
+            insertCourseSpace(connection, 10L, null, "ACTIVE");
+            insertCourseSpace(connection, 11L, null, "ARCHIVED");
+            insertClassTeacher(connection, 1L, 1L, 8001L, "LEAD", 1, 1, 1, ts(8, 0), null);
+            insertClassTeacher(connection, 2L, 1L, 8002L, "CO_TEACHER", 0, 0, 0, ts(7, 0), ts(9, 0));
+            insertClassTeacher(connection, 3L, 1L, 8003L, "CO_TEACHER", 1, 0, 0, ts(9, 0), null);
+            insertCourseTeacher(connection, 1L, 10L, 8004L, "TEACHER", ts(8, 0), null);
+            insertCourseTeacher(connection, 2L, 10L, 8005L, "TEACHER", ts(8, 0), ts(9, 0));
+            insertCourseTeacher(connection, 3L, 11L, 8004L, "TEACHER", ts(8, 0), null);
+            insertCourseTeacher(connection, 4L, 10L, 8006L, "TEACHER", ts(8, 0), null);
+            insertUser(connection, 8001L, "t8001", "教师一");
+            insertUser(connection, 8002L, "t8002", "教师二");
+            insertUser(connection, 8003L, "t8003", "教师三");
+            insertUser(connection, 8004L, "t8004", "团队教师");
+            insertUser(connection, 8005L, "t8005", "过期团队教师");
+            insertUser(connection, 8006L, "t8006", "无教师角色账号");
+            insertRole(connection, 1L, "teacher");
+            insertRole(connection, 2L, "student");
+            insertUserRole(connection, 8001L, 1L);
+            insertUserRole(connection, 8004L, 1L);
+            insertUserRole(connection, 8005L, 1L);
+            insertUserRole(connection, 8006L, 2L);
         }
     }
 
@@ -121,13 +196,89 @@ class EduMembershipTimelineMapperTest
         return Timestamp.from(LocalDateTime.of(2026, 11, 20, hour, minute).toInstant(ZoneOffset.UTC));
     }
 
-    private static void insertClass(Connection connection, Long id, String status) throws Exception
+    private static void insertClass(Connection connection, Long id, String status, String name, String code)
+            throws Exception
     {
         try (PreparedStatement ps = connection.prepareStatement(
-                "INSERT INTO edu_teaching_class(id, status) VALUES (?, ?)"))
+                "INSERT INTO edu_teaching_class(id, status, name, code) VALUES (?, ?, ?, ?)"))
         {
             ps.setLong(1, id);
             ps.setString(2, status);
+            ps.setString(3, name);
+            ps.setString(4, code);
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertCourseSpace(Connection connection, Long id, Timestamp deletedAt, String status)
+            throws Exception
+    {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO edu_course_space(id, deleted_at, status) VALUES (?, ?, ?)"))
+        {
+            ps.setLong(1, id);
+            ps.setTimestamp(2, deletedAt);
+            ps.setString(3, status);
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertClassTeacher(Connection connection, Long id, Long classId, Long userId,
+            String role, int canPublish, int canGrade, int canExport, Timestamp validFrom, Timestamp validTo)
+            throws Exception
+    {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO edu_class_teacher(id, teaching_class_id, user_id, teacher_role, can_publish,"
+                        + " can_grade, can_export, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+        {
+            ps.setLong(1, id);
+            ps.setLong(2, classId);
+            ps.setLong(3, userId);
+            ps.setString(4, role);
+            ps.setInt(5, canPublish);
+            ps.setInt(6, canGrade);
+            ps.setInt(7, canExport);
+            ps.setTimestamp(8, validFrom);
+            ps.setTimestamp(9, validTo);
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertCourseTeacher(Connection connection, Long id, Long courseId, Long userId,
+            String role, Timestamp joinedAt, Timestamp endedAt) throws Exception
+    {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO edu_course_teacher(id, course_space_id, user_id, team_role, joined_at, ended_at)"
+                        + " VALUES (?, ?, ?, ?, ?, ?)"))
+        {
+            ps.setLong(1, id);
+            ps.setLong(2, courseId);
+            ps.setLong(3, userId);
+            ps.setString(4, role);
+            ps.setTimestamp(5, joinedAt);
+            ps.setTimestamp(6, endedAt);
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertRole(Connection connection, Long roleId, String roleKey) throws Exception
+    {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO v_identity_role(role_id, role_key) VALUES (?, ?)"))
+        {
+            ps.setLong(1, roleId);
+            ps.setString(2, roleKey);
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertUserRole(Connection connection, Long userId, Long roleId) throws Exception
+    {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO v_identity_user_role(user_id, role_id) VALUES (?, ?)"))
+        {
+            ps.setLong(1, userId);
+            ps.setLong(2, roleId);
             ps.executeUpdate();
         }
     }
@@ -286,6 +437,70 @@ class EduMembershipTimelineMapperTest
             List<Map<String, Object>> atEleven = mapper.selectStudentBindings(9001L, ts(11, 0));
             assertEquals(1, atEleven.size());
             assertEquals(103L, atEleven.get(0).get("binding_id"));
+        }
+    }
+
+    @Test
+    void selectBindingWithClassReturnsNameAndCode()
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            EduMembershipTimelineMapper mapper = session.getMapper(EduMembershipTimelineMapper.class);
+
+            Map<String, Object> binding = mapper.selectBindingWithClass(100L);
+            assertEquals("演示教学班 A", binding.get("teaching_class_name"));
+            assertEquals("DEMO-A", binding.get("teaching_class_code"));
+            assertEquals("演示教学班 B", mapper.selectBindingWithClass(103L).get("teaching_class_name"));
+        }
+    }
+
+    @Test
+    void selectTeacherSegmentsInBindingHonorsHalfOpenInterval()
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            EduMembershipTimelineMapper mapper = session.getMapper(EduMembershipTimelineMapper.class);
+
+            List<Map<String, Object>> atNine = mapper.selectTeacherSegmentsInBinding(100L, 8001L, ts(9, 0));
+            assertEquals(1, atNine.size());
+            assertEquals("LEAD", atNine.get(0).get("teacher_role"));
+            assertEquals(1, atNine.get(0).get("can_publish"));
+
+            assertEquals(0, mapper.selectTeacherSegmentsInBinding(100L, 8001L, ts(7, 0)).size());
+            assertEquals(0, mapper.selectTeacherSegmentsInBinding(100L, 8002L, ts(9, 0)).size());
+            assertEquals(1, mapper.selectTeacherSegmentsInBinding(100L, 8003L, ts(9, 0)).size());
+            assertEquals(0, mapper.selectTeacherSegmentsInBinding(100L, 9001L, ts(9, 0)).size());
+        }
+    }
+
+    @Test
+    void selectTeamSegmentsInBindingFiltersNonTeacherRoleAndCourseState() throws Exception
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            insertBinding(session.getConnection(), 104L, 1L, 10L, ts(7, 0), ts(9, 0));
+            EduMembershipTimelineMapper mapper = session.getMapper(EduMembershipTimelineMapper.class);
+
+            assertEquals(1, mapper.selectTeamSegmentsInBinding(100L, 8004L, ts(9, 0)).size());
+            assertEquals(0, mapper.selectTeamSegmentsInBinding(100L, 8005L, ts(9, 0)).size());
+            assertEquals(0, mapper.selectTeamSegmentsInBinding(100L, 8006L, ts(9, 0)).size());
+            assertEquals(0, mapper.selectTeamSegmentsInBinding(100L, 8004L, ts(7, 0)).size());
+            assertEquals(0, mapper.selectTeamSegmentsInBinding(101L, 8004L, ts(11, 0)).size());
+            assertEquals(0, mapper.selectTeamSegmentsInBinding(104L, 8004L, ts(9, 0)).size());
+        }
+    }
+
+    @Test
+    void teacherSegmentsOverlapReturnsAllRows() throws Exception
+    {
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            insertClassTeacher(session.getConnection(), 9L, 1L, 8001L, "LEAD", 0, 0, 0, ts(8, 30), null);
+            insertCourseTeacher(session.getConnection(), 9L, 10L, 8004L, "TEACHER", ts(8, 30), null);
+            EduMembershipTimelineMapper mapper = session.getMapper(EduMembershipTimelineMapper.class);
+
+            assertEquals(2, mapper.selectTeacherSegmentsInBinding(100L, 8001L, ts(9, 0)).size());
+            assertEquals(2, mapper.selectTeamSegmentsInBinding(100L, 8004L, ts(9, 0)).size());
         }
     }
 }
