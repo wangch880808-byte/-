@@ -669,6 +669,30 @@ async function text(page) {
   return page.locator('body').innerText()
 }
 
+/**
+ * 点击 Element Plus 可清空下拉的清除按钮。
+ *
+ * 清除图标只在悬停或聚焦时显示；先悬停目标下拉，再点击其清除图标，
+ * 模拟真实用户清空课程/教学班的操作。
+ *
+ * @param {import('playwright').Page} page 页面
+ * @param {number} index 教学上下文内第几个 el-select
+ * @returns {Promise<void>} 清除操作完成
+ */
+async function clearSelect(page, index) {
+  const select = page.locator('.teaching-context .el-select').nth(index)
+  await select.hover()
+  const clear = select.locator('.el-select__clear')
+  await clear.waitFor({ state: 'visible', timeout: 5000 })
+  await clear.click()
+}
+
+/** 读取地址栏 hash 查询参数，用于核对上下文参数是否被旧路由写回。 */
+async function hashQuery(page) {
+  const hash = await page.evaluate(() => location.hash)
+  return new URLSearchParams(hash.split('?')[1] || '')
+}
+
 const results = []
 async function run(name, fn) {
   try {
@@ -3104,6 +3128,211 @@ await run('教师大整数公告 ID 发布路径保持字符串', async () => {
   assert.equal(actions.length, 1)
   assert.equal(actions[0].teacherAnnouncementActionId, largeId)
   assert.equal(actions[0].path, `/education/teacher/announcements/${largeId}/publish`)
+  await context.close()
+})
+
+await run('学生清空范围后页签往返仍为全部范围', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.notice-item', { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelector('.notice-item')?.innerText.includes('通知-9001'), null, { timeout: 15000 })
+
+  await clearSelect(page, 0)
+  await page.waitForFunction(() => document.querySelector('.context-note')?.textContent.includes('全部当前可见通知'), null, { timeout: 10000 })
+  await page.waitForFunction(() => document.querySelector('.notice-item')?.innerText.includes('通知-ALL'), null, { timeout: 15000 })
+
+  // 操作前记录请求起点，只核对切页签之后产生的请求。
+  const startToAnnouncements = requests.length
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.student-announcements .ann-main', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const announcementRequests = requests.slice(startToAnnouncements)
+    .filter(item => item.path === '/education/student/announcements')
+  assert.ok(announcementRequests.length > 0, '切到课程公告应请求公告列表')
+  assert.ok(announcementRequests.every(item => !new URLSearchParams(item.query).has('bindingId')),
+    '清空范围后公告列表不得带旧 bindingId')
+  assert.equal((await hashQuery(page)).has('bindingId'), false, '切页签后地址栏不得恢复旧 bindingId')
+
+  const startToNotices = requests.length
+  await page.getByRole('tab', { name: '学习通知' }).click()
+  await page.waitForSelector('.notice-item', { timeout: 15000 })
+  await page.waitForTimeout(500)
+  const scopedNoticeRequests = requests.slice(startToNotices)
+    .filter(item => item.path === '/education/student/notices')
+    .filter(item => new URLSearchParams(item.query).has('bindingId'))
+  assert.equal(scopedNoticeRequests.length, 0, '清空范围后切回通知不得按旧班级重发列表')
+  assert.equal((await hashQuery(page)).has('bindingId'), false, '切回通知后地址栏不得恢复旧范围')
+  assert.match(await page.locator('.context-note').innerText(), /全部当前可见通知/)
+  assert.match(await page.locator('.student-notices').innerText(), /通知-ALL/)
+  await context.close()
+})
+
+await run('学生清空范围后公告来源、顶栏跳转和刷新不恢复旧范围', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.notice-item', { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelector('.notice-item')?.innerText.includes('通知-9001'), null, { timeout: 15000 })
+  await clearSelect(page, 0)
+  await page.waitForFunction(() => document.querySelector('.notice-item')?.innerText.includes('通知-ALL'), null, { timeout: 15000 })
+
+  // 清空后的公告来源跳转：仍按一次性 sourceId 打开公告，但不得恢复旧班级。
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const startToSource = requests.length
+  await page.locator('.detail-link', { hasText: '查看公告' }).click()
+  await page.waitForSelector('.student-announcements .ann-dialog', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const sourceListRequests = requests.slice(startToSource)
+    .filter(item => item.path === '/education/student/announcements')
+  assert.ok(sourceListRequests.length > 0, '公告来源跳转应请求公告列表')
+  assert.ok(sourceListRequests.every(item => !new URLSearchParams(item.query).has('bindingId')),
+    '清空后公告来源跳转不得带旧 bindingId')
+  assert.equal((await hashQuery(page)).has('bindingId'), false, '公告来源跳转后地址栏不得恢复旧 bindingId')
+  assert.match(await page.locator('.student-announcements .ann-dialog').innerText(),
+    new RegExp(`公告-${ANNOUNCEMENT_ID}`))
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('.ann-dialog'), null, { timeout: 10000 })
+
+  // 清空后的顶栏跳转：通知入口按未经核验的空上下文生成链接。
+  const startToHeader = requests.length
+  await page.locator('.header-right button', { hasText: '通知' }).first().click()
+  await page.waitForSelector('.student-notices .notice-item', { timeout: 15000 })
+  await page.waitForTimeout(500)
+  const headerListRequests = requests.slice(startToHeader)
+    .filter(item => item.path === '/education/student/notices')
+  assert.ok(headerListRequests.every(item => !new URLSearchParams(item.query).has('bindingId')),
+    '清空后顶栏跳转不得带旧 bindingId')
+  assert.equal((await hashQuery(page)).has('bindingId'), false, '顶栏跳转后地址栏不得恢复旧范围')
+  assert.match(await page.locator('.context-note').innerText(), /全部当前可见通知/)
+
+  // 清空后的刷新：地址栏和会话存储均不得残留旧范围。
+  const startToReload = requests.length
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.student-notices .notice-item', { timeout: 15000 })
+  await page.waitForTimeout(800)
+  const reloadListRequests = requests.slice(startToReload)
+    .filter(item => item.path === '/education/student/notices')
+  assert.ok(reloadListRequests.length > 0, '刷新后应加载通知列表')
+  assert.ok(reloadListRequests.every(item => !new URLSearchParams(item.query).has('bindingId')),
+    '清空后刷新不得恢复旧班级参数')
+  assert.equal((await hashQuery(page)).has('bindingId'), false, '刷新后地址栏不得恢复旧范围')
+  assert.match(await page.locator('.context-note').innerText(), /全部当前可见通知/)
+  assert.match(await page.locator('.student-notices').innerText(), /通知-ALL/)
+  await context.close()
+})
+
+await run('有效范围下页签与公告来源跳转保留当前范围', async () => {
+  const context = await newContext(browser)
+  const page = await context.newPage()
+  const requests = await installFixture(page)
+  await openHash(page, '/student/notices?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.notice-item', { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelector('.notice-item')?.innerText.includes('通知-9001'), null, { timeout: 15000 })
+
+  const startToAnnouncements = requests.length
+  await page.getByRole('tab', { name: '课程公告' }).click()
+  await page.waitForSelector('.student-announcements .ann-main', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const announcementRequests = requests.slice(startToAnnouncements)
+    .filter(item => item.path === '/education/student/announcements')
+  assert.equal(announcementRequests.length, 1)
+  assert.equal(new URLSearchParams(announcementRequests[0].query).get('bindingId'), '9001')
+  const tabQuery = await hashQuery(page)
+  assert.equal(tabQuery.get('courseSpaceId'), '101')
+  assert.equal(tabQuery.get('classId'), '201')
+  assert.equal(tabQuery.get('bindingId'), '9001')
+  assert.equal(tabQuery.get('tab'), 'announcements')
+
+  const startToNotices = requests.length
+  await page.getByRole('tab', { name: '学习通知' }).click()
+  await page.waitForSelector('.notice-item', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const wrongBindingRequests = requests.slice(startToNotices)
+    .filter(item => item.path === '/education/student/notices')
+    .filter(item => new URLSearchParams(item.query).get('bindingId') !== '9001')
+  assert.equal(wrongBindingRequests.length, 0, '有效范围下切回通知不得改变 bindingId')
+  assert.equal((await hashQuery(page)).get('bindingId'), '9001')
+
+  // 通知详情 -> 查看公告：来源跳转仍保留已核验的当前范围。
+  await page.locator('.notice-main').first().click()
+  await page.waitForSelector('.detail-dialog', { timeout: 10000 })
+  const startToSource = requests.length
+  await page.locator('.detail-link', { hasText: '查看公告' }).click()
+  await page.waitForSelector('.student-announcements .ann-dialog', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const sourceListRequests = requests.slice(startToSource)
+    .filter(item => item.path === '/education/student/announcements')
+  assert.ok(sourceListRequests.length > 0)
+  assert.ok(sourceListRequests.every(item => new URLSearchParams(item.query).get('bindingId') === '9001'),
+    '有效范围下公告来源跳转应保留 9001')
+  const sourceQuery = await hashQuery(page)
+  assert.equal(sourceQuery.get('courseSpaceId'), '101')
+  assert.equal(sourceQuery.get('classId'), '201')
+  assert.equal(sourceQuery.get('bindingId'), '9001')
+  await context.close()
+})
+
+await run('教师清空教学班后不再请求公告，重新选择仍正常', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  const requests = await installFixture(page, {
+    role: 'teacher',
+    permissions: TEACHER_WRITE_PERMISSIONS,
+    teacherAnnouncementList: bindingId => ({
+      code: 200,
+      msg: '查询成功',
+      total: 1,
+      rows: [teacherAnnouncementRow(TEACHER_ANNOUNCEMENT_ID, bindingId || '9001', 'DRAFT',
+        `教师公告-${bindingId || 'ALL'}`)]
+    })
+  })
+  await openHash(page, '/teacher/announcements?courseSpaceId=101&classId=201&bindingId=9001')
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements .ann-item')?.innerText.includes('教师公告-9001'), null, { timeout: 15000 })
+
+  const startToClear = requests.length
+  await clearSelect(page, 1)
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements')?.innerText.includes('请先选择有效教学班'), null, { timeout: 10000 })
+  await page.waitForTimeout(400)
+  const afterClear = requests.slice(startToClear)
+  assert.equal(afterClear.filter(item => item.teacherAnnouncementBindingId !== undefined).length, 0,
+    '清空教学班后不得再请求公告列表')
+  assert.equal(afterClear.filter(item => item.method === 'POST' || item.method === 'PUT').length, 0,
+    '清空教学班后不得发送公告写请求')
+  assert.match(await page.locator('.teacher-announcements').innerText(), /请先选择有效教学班/)
+  const clearedQuery = await hashQuery(page)
+  assert.equal(clearedQuery.has('courseSpaceId'), false, '清空后地址栏不得保留 courseSpaceId')
+  assert.equal(clearedQuery.has('classId'), false, '清空后地址栏不得保留 classId')
+  assert.equal(clearedQuery.has('bindingId'), false, '清空后地址栏不得保留 bindingId')
+  assert.match(await page.locator('.teaching-context [role="status"]').innerText(), /请选择课程与教学班/)
+  assert.equal(await page.locator('.teacher-announcements .ann-create').count(), 0, '未选班时不得显示新建入口')
+
+  // 重新选择课程后控制器按既有规则选首个教学班，列表恢复正常。
+  const startToReselect = requests.length
+  await page.locator('.teaching-context .el-select').nth(0).click()
+  await page.locator('.el-select-dropdown:visible .el-select-dropdown__item').filter({ hasText: '课程一' }).first().click()
+  await page.waitForSelector('.teacher-announcements .ann-main', { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements .ann-item')?.innerText.includes('教师公告-9001'), null, { timeout: 15000 })
+  const reselectListRequests = requests.slice(startToReselect)
+    .filter(item => item.path === '/education/teacher/announcements')
+    .filter(item => item.teacherAnnouncementBindingId !== undefined)
+  assert.ok(reselectListRequests.length > 0, '重新选择课程后应请求公告列表')
+  assert.ok(reselectListRequests.every(item => item.teacherAnnouncementBindingId === '9001'))
+
+  // 再切换其他教学班仍按新 bindingId 请求。
+  const startToSwitchClass = requests.length
+  await page.locator('.teaching-context .el-select').nth(1).click()
+  await page.locator('.el-select-dropdown:visible .el-select-dropdown__item').filter({ hasText: '二班' }).first().click()
+  await page.waitForFunction(() => document.querySelector('.teacher-announcements .ann-item')?.innerText.includes('教师公告-9002'), null, { timeout: 15000 })
+  const switchListRequests = requests.slice(startToSwitchClass)
+    .filter(item => item.path === '/education/teacher/announcements')
+    .filter(item => item.teacherAnnouncementBindingId !== undefined)
+  assert.ok(switchListRequests.length > 0)
+  assert.ok(switchListRequests.every(item => item.teacherAnnouncementBindingId === '9002'))
   await context.close()
 })
 

@@ -17,7 +17,13 @@ const user=useUserStore()
 const loading=computed(()=>['loading','checking'].includes(context.status))
 const current=computed(()=>context.courses.find(item=>item.courseSpaceId===context.current?.courseSpaceId))
 function course(id){id?contexts.select(id):contexts.clear()}
-function klass(id){contexts.select(context.current?.courseSpaceId,id)}
+/**
+ * 切换教学班。清空时不能调用 select：控制器在未提供 classId 时会回退到
+ * 上一个班级或课程的第一个班级，清空会立即被自动选回。这里复用 clear，
+ * 同时清空课程与班级，进入真正未选班状态；页面按空 bindingId 关闭旧详情/
+ * 表单并停止公告列表与写请求。
+ */
+function klass(id){id?contexts.select(context.current?.courseSpaceId,id):contexts.clear()}
 </script>
 <style>
 /* 学生页的通知页签使用较高 z-index；上下文下拉必须在其之上，避免选项被遮挡。 */

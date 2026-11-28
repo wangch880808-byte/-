@@ -530,6 +530,26 @@ function cancelNoticeRequests() {
 }
 
 /**
+ * 用当前已核验的上下文生成页签/跳转查询参数。
+ *
+ * contexts 通过 history.replaceState 直接同步地址栏，vue-router 的 route.query
+ * 不会随之更新。若直接展开 route.query，就会把清空前残留的旧班级参数写回
+ * 路由，路由守卫再按旧参数重新核验并恢复旧范围。因此先移除三个上下文参数，
+ * 只从 context.current 写回已核验的值；当前上下文为空时不写回，保持清空后
+ * 的全部可见范围。其余合法查询参数（如 tab）原样保留。
+ *
+ * @returns {object} 供 router.replace 使用的查询对象
+ */
+function contextQuery() {
+  const query = { ...route.query }
+  for (const key of ['courseSpaceId', 'classId', 'bindingId']) delete query[key]
+  for (const key of ['courseSpaceId', 'classId', 'bindingId']) {
+    if (context.current?.[key]) query[key] = String(context.current[key])
+  }
+  return query
+}
+
+/**
  * 切换「学习通知 / 课程公告」页签。
  *
  * 切页签会关闭通知详情和全部已读确认，并中止当前页签在途请求；公告子页签
@@ -546,7 +566,8 @@ async function switchTab(tab) {
     cancelNoticeRequests()
   }
   clearPendingAnnouncementId()
-  const query = { ...route.query, tab }
+  const query = contextQuery()
+  query.tab = tab
   delete query.announcementId
   await router.replace({ path: route.path, query })
 }
@@ -567,7 +588,9 @@ async function openAnnouncementFromNotice() {
   resetReadAllState()
   cancelNoticeRequests()
   setPendingAnnouncementId(sourceId)
-  const query = { ...route.query, tab: 'announcements' }
+  // 来源跳转同样只写已核验的上下文，清空后的旧参数不得随路由恢复。
+  const query = contextQuery()
+  query.tab = 'announcements'
   delete query.announcementId
   await router.replace({ path: route.path, query })
 }
