@@ -15,9 +15,13 @@ import com.ruoyi.education.course.exception.EducationException;
  *
  * <p>前端按 HTTP 200 + {@code code} 处理 400/403/404/409/503；
  * 不使用另建 Controller，也不改变若依其他异常的既有行为。</p>
+ *
+ * <p>总览的局部 {@code OverviewExceptionHandler} 优先级更高，只接管
+ * {@code OverviewController} 的异常；本类继续处理其余 EducationException，
+ * 两者职责按控制器作用域和异常类型明确分离。</p>
  */
 @RestControllerAdvice
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class AnnouncementExceptionHandler
 {
     private static final Logger log = LoggerFactory.getLogger(AnnouncementExceptionHandler.class);
