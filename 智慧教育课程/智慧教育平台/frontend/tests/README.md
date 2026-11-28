@@ -1,6 +1,6 @@
 # 6-04 通知 / 公告与 6-03 总览 Vue 夹具
 
-本目录是 6-04 学生通知、学生公告、教师公告，以及 6-03 教师/学生总览前端原型的浏览器夹具，不连接后端、不写数据库。
+本目录是 6-04 学生通知、学生公告、教师公告，以及 6-03 教师/学生/管理员总览前端原型的浏览器夹具，不连接后端、不写数据库。
 
 ## 运行
 
@@ -13,13 +13,40 @@ NOTICE_TEST_BASE=http://127.0.0.1:4174 node tests/notice-vue.spec.mjs
 OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
 ```
 
+管理员总览/待办组件隔离入口，不经过生产路由或管理员菜单：
+
+```bash
+cd frontend
+npx vite --host 127.0.0.1 --port 4175
+# 另开终端
+ADMIN_OVERVIEW_BASE=http://127.0.0.1:4175/tests/admin-overview.html   node tests/admin-overview.spec.mjs
+```
+
+管理员实际入口回归使用生产构建和 `serve-dist.mjs`，驱动实际 Vue Router、公共
+`permission.js` 守卫、canOpen 和管理员侧边栏；接口只由 Playwright 夹具提供：
+
+```bash
+cd frontend
+corepack pnpm install --frozen-lockfile
+corepack pnpm build
+node tests/serve-dist.mjs
+# 另开终端
+ADMIN_ENTRY_TEST_BASE=http://127.0.0.1:4174 node tests/admin-entry.spec.mjs
+```
+
+管理员截图默认跳过；设置仓库外目录后输出：
+
+```bash
+ADMIN_OVERVIEW_SCREENSHOT_DIR="$HOME/admin-overview-shots" ADMIN_OVERVIEW_BASE=http://127.0.0.1:4175/tests/admin-overview.html   node tests/admin-overview.spec.mjs
+```
+
 总览截图默认跳过。需要留档时设置仓库外目录：
 
 ```bash
 OVERVIEW_SCREENSHOT_DIR="$HOME/overview-shots" OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
 ```
 
-截图目录由 `OVERVIEW_SCREENSHOT_DIR` 决定，不依赖固定盘符。浏览器上下文固定
+截图目录由 `OVERVIEW_SCREENSHOT_DIR` / `ADMIN_OVERVIEW_SCREENSHOT_DIR` 决定，不依赖固定盘符。浏览器上下文固定
 `timezoneId: 'Asia/Shanghai'`；输入和显示按本机时区，请求中的 `from/to` 转为 UTC。
 
 `playwright` 使用本机 Edge 通道；未写入 `package.json`，按需临时安装：
@@ -75,14 +102,24 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 6-03 教师 6 指标、学生 4 指标按 metricCode 渲染，真实零、NO_DATA、UNAVAILABLE 和混合三态分开；
 - 缺项、重复、非法 status/value、unit 非 COUNT、source 不匹配只降级对应卡片；
 - 顶层 data/items/asOf/window 异常显示响应异常，不伪装空数据；
-- 工作台入口和独立入口均按角色/权限/服务端路由门控，登录核验前零总览请求；
+- 工作台快捷入口和独立入口均按角色/权限/服务端路由门控，登录核验前零总览请求；
 - 教师仅发送 from/to/可选字符串 classId，学生仅发送 from/to，不携带身份或班级上下文；
 - 默认服务端窗口、from/to 成对/顺序校验、UTC 转换、筛选乱序和排队后失效；
 - 401 登录跳转，403 清除旧数据并提示无权限，网络/业务错误和刷新失败不保留旧值；
 - classId 以 Long 字符串边界校验，Long.MAX_VALUE 合法，MAX+1/超长/0/负数/非法格式零请求；
 - asOf、window.startsAt、window.endsAt 校验真实日历日期，非法日期不因 Date.parse 归一化而显示；
 - 合法闰日、Z、偏移和不同小数秒精度可展示；单卡违约不影响其余合法卡片；
-- 390px 总览单列无横向溢出，离开总览后页面恢复。
+- 390px 总览单列无横向溢出，离开总览后页面恢复；
+- 管理员总览 5 指标、管理员待办固定 NO_DATA、两个端点只发送 from/to；
+- 管理员实际入口：侧边栏和直达 `/admin/teaching-metrics`、`/admin/todos`，`/admin/todos` 不再重定向到第一组组织待办；
+- 管理员第一组 `/admin/overview` 仍调用 `/education/overview`，不混用第 6 组管理员指标；
+- 管理员缺权限、缺目标 serviceRoute、登录后撤权稳定落到 `/admin/forbidden`，无跳转循环、不调用对应总览；
+- 教师/学生直达管理员页面被公共守卫拒绝且不发管理员请求；教师教学总览仍可注册和打开；
+- 管理员待办 NO_DATA、503 和 390px 布局保留原表现；
+- 管理员实际入口每次导航/点击只断言本次新增的精确 GET 端点，历史请求不能满足断言；
+- 管理员待办非法来源/value/actionPath/状态/sampleCount 不落入固定空态；
+- 管理员顶层异常、401/403/503/网络失败、刷新失败、筛选乱序、卸载迟到响应和 390px 布局；
+- 未知 endpoint 报错并停止请求。
 
 ## 说明
 
@@ -92,5 +129,8 @@ npm install --no-save --no-package-lock playwright@1.65.1
 GET 详情、POST 创建、PUT 编辑、POST 发布和 POST 归档。`overview-vue.spec.mjs`
 另行提供 `/education/teacher/overview`、`/education/student/today-todos` 的夹具。
 生产环境仍需 `education:notice:list`、`education:announcement:list/add/edit/publish/archive`
-以及 `education:overview:teacher/student` 的菜单、角色授权和对应服务端路由；
-当前 `sys_menu` 尚未配置。夹具响应不代表真实后端、权限或数据库联调通过。
+以及 `education:overview:teacher/student/admin` 的菜单、角色授权和对应服务端路由。
+第 1 组 #41@549ef8e 已提供四个总览锚点脚本并报告其环境真实账号验证；本轮组合分支
+包含这些脚本，但未在本轮目标库执行 SQL，也未做真实账号联调。管理员组件隔离入口
+不进入生产构建；`admin-entry.spec.mjs` 加载实际生产构建，但所有接口仍是 Playwright
+夹具，不能证明真实登录、HTTP、服务端授权、审计或数据库联调通过。

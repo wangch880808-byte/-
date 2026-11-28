@@ -12,7 +12,6 @@ const placeholderRoutes = adminMenuItems
   .map(item => ({ path: item.path, name: placeholderName(item),
     component: () => import('@/views/education/admin/BlankAdminView.vue'), meta: { adminPlaceholder: item } }))
 const mergedAdminRoutes = [
-  { path: '/admin/todos', redirect: { path: '/admin/overview', hash: '#overview-tasks' } },
   { path: '/admin/admin-dashboard', redirect: '/admin/overview' },
   { path: '/admin/operations', redirect: '/admin/monitoring' }
 ]
