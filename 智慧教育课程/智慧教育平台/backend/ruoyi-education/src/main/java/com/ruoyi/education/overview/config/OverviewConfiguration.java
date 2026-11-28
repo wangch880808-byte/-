@@ -10,6 +10,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutor;
 import com.ruoyi.education.overview.port.AssignmentTodoPort;
 import com.ruoyi.education.overview.port.CourseScopePort;
 import com.ruoyi.education.overview.port.GradeTodoPort;
@@ -74,6 +75,11 @@ public class OverviewConfiguration
     /**
      * 数据源守卫。
      *
+     * <p>生产适配器会调用仍然依赖认证上下文的公开服务（例如 6-02 学生通知服务）。
+     * 源任务运行在独立线程池，必须传播请求线程的真实 SecurityContext；这里使用
+     * Spring Security 提供的 {@link DelegatingSecurityContextExecutor} 按任务捕获
+     * 上下文，不手工构造或伪造认证对象，也不绕过来源服务自身的权限检查。</p>
+     *
      * @param executor 源执行器
      * @return 单源超时守卫
      */
@@ -81,7 +87,8 @@ public class OverviewConfiguration
     public OverviewSourceGuard overviewSourceGuard(
             @Qualifier("overviewSourceExecutor") Executor executor)
     {
-        return new OverviewSourceGuard(executor, Duration.ofMillis(SOURCE_TIMEOUT_MS));
+        return new OverviewSourceGuard(new DelegatingSecurityContextExecutor(executor),
+                Duration.ofMillis(SOURCE_TIMEOUT_MS));
     }
 
     /**
@@ -131,7 +138,8 @@ public class OverviewConfiguration
                 gradeTodoPort.getIfAvailable(),
                 noticeSummaryPort.getIfAvailable(),
                 sourceGuard,
-                aggregationExecutor,
+                // 聚合线程也是请求线程的派生线程：先传播真实上下文，源守卫再向源线程传播。
+                new DelegatingSecurityContextExecutor(aggregationExecutor),
                 Duration.ofMillis(OVERALL_TIMEOUT_MS),
                 clock);
     }
