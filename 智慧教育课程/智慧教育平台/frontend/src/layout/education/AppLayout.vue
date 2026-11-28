@@ -69,6 +69,22 @@ function withContext(path) {
   for (const key of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[key]) params.set(key, context.current[key])
   return path + (params.size ? '?' + params : '')
 }
+/**
+ * 顶栏入口目标。
+ *
+ * headerEntry.tab 是显式页签意图（例如通知固定回「学习通知」），必须写入
+ * route query，不能依赖 sessionStorage 旧选择；这样即使已经停在同路径、
+ * 只是页签不同，导航也能明确切回目标页签。
+ *
+ * @param {object} page 已注册业务页
+ * @returns {{path: string, query: object}} Vue Router 目标
+ */
+function notificationTarget(page) {
+  const query = {}
+  for (const key of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[key]) query[key] = context.current[key]
+  if (page.headerEntry?.tab) query.tab = page.headerEntry.tab
+  return { path: pathOf(page), query }
+}
 watch(() => [route.path, session.ready], () => {
   if (!session.ready) return
   workspace.tabs = workspace.tabs.filter(tab => !tab.page || canOpen(tab.page))
@@ -136,7 +152,7 @@ onUnmounted(() => {
         <img :src="logoUrl" alt="校徽" /><span>知教·智慧教育课程平台</span>
       </div>
       <div class="header-right">
-        <button v-for="entry in workspace.notifications" :key="entry.id" class="ui-btn" type="button" @click="router.push(withContext(pathOf(entry.page)))">
+        <button v-for="entry in workspace.notifications" :key="entry.id" class="ui-btn" type="button" @click="router.push(notificationTarget(entry.page))">
           {{ entry.title }}<span v-if="entry.count > 0" class="notice-count">{{ entry.count > 99 ? '99+' : entry.count }}</span>
           <span v-if="entry.status === 'unavailable'" class="hint">（暂不可用）</span>
         </button>
