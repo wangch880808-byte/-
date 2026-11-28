@@ -78,6 +78,8 @@ function clearPendingAnnouncementId() {
   }
 }
 const activeTab = computed(() => route.query.tab === 'announcements' ? 'announcements' : 'notices')
+// 从总览未读通知入口进入时固定本人全部范围；不沿用之前选择的教学班。
+const allScope = computed(() => route.query.scope === 'all')
 const requestedAnnouncementId = ref(readPendingAnnouncementId())
 
 let listSeq = 0
@@ -97,12 +99,14 @@ let disposed = false
  * 保持字符串，不经过 Number()，避免 19 位 ID 精度丢失。
  */
 const bindingId = computed(() => {
+  if (allScope.value) return ''
   const value = context.current?.bindingId
   return value === undefined || value === null || value === '' ? '' : String(value)
 })
 
-/** 当前范围名称；无选择时明确表示全部当前可见范围。 */
+/** 当前范围名称；无选择或全部范围时明确表示全部当前可见范围。 */
 const scopeLabel = computed(() => {
+  if (allScope.value) return '全部当前可见通知（不按教学班）'
   if (!bindingId.value) return '全部当前可见通知'
   const course = context.current?.courseTitle
   const className = context.current?.className
@@ -543,6 +547,11 @@ function cancelNoticeRequests() {
 function contextQuery() {
   const query = { ...route.query }
   for (const key of ['courseSpaceId', 'classId', 'bindingId']) delete query[key]
+  if (allScope.value) {
+    // 全部范围是入口的显式意图，页签往返和来源跳转不得恢复旧教学班参数。
+    query.scope = 'all'
+    return query
+  }
   for (const key of ['courseSpaceId', 'classId', 'bindingId']) {
     if (context.current?.[key]) query[key] = String(context.current[key])
   }
@@ -677,7 +686,8 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="student-notices" aria-label="学习通知与课程公告">
-    <TeachingContext />
+    <TeachingContext v-if="!allScope" />
+    <p v-else class="all-scope-note" role="status">全部当前可见通知：不按之前选择的教学班收窄。</p>
     <div class="notice-tabs" role="tablist" aria-label="学习通知与课程公告">
       <button
         type="button"
@@ -876,6 +886,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .student-notices { padding: 20px; background: #fff; border-radius: 8px; }
+.all-scope-note { margin: 0 0 14px; padding: 9px 12px; border-radius: 6px; background: #f4f8ff; color: #536780; font-size: 13px; }
 /* 通知页签的既有 z-index 高于默认弹窗；局部抬高确认/详情弹窗，保证可操作。 */
 .student-notices :deep(.modal-mask) { z-index: 4000; }
 .notice-tabs { position: relative; z-index: 3100; display: flex; gap: 8px; margin-bottom: 18px; border-bottom: 1px solid #ebeef5; }

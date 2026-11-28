@@ -11,6 +11,7 @@ node tests/serve-dist.mjs
 # 另开终端
 NOTICE_TEST_BASE=http://127.0.0.1:4174 node tests/notice-vue.spec.mjs
 OVERVIEW_TEST_BASE=http://127.0.0.1:4174 node tests/overview-vue.spec.mjs
+OVERVIEW_SOURCE_TEST_BASE=http://127.0.0.1:4174 node tests/overview-source.spec.mjs
 ```
 
 管理员总览/待办组件隔离入口，不经过生产路由或管理员菜单：
@@ -100,6 +101,7 @@ npm install --no-save --no-package-lock playwright@1.65.1
 - 大整数公告 ID 发布路径保持字符串；
 - 通知与公告详情弹窗打开聚焦、Esc 关闭、关闭后焦点归还触发按钮；
 - 6-03 教师 6 指标、学生 4 指标按 metricCode 渲染，真实零、NO_DATA、UNAVAILABLE 和混合三态分开；
+- 已接通四项指标的来源入口：学生通知 `scope=all` 忽略旧班级、教师/学生范围明细与卡片同口径、真实零、缺权限/缺路由隐藏、UNAVAILABLE 无入口、403 和离开页面后的迟到响应；
 - 缺项、重复、非法 status/value、unit 非 COUNT、source 不匹配只降级对应卡片；
 - 顶层 data/items/asOf/window 异常显示响应异常，不伪装空数据；
 - 工作台快捷入口和独立入口均按角色/权限/服务端路由门控，登录核验前零总览请求；

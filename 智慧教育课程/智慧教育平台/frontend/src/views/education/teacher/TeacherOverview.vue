@@ -25,7 +25,10 @@ const config = Object.freeze({
       note: '按授权范围计数，未按教学班去重',
       source: 'course',
       unitLabel: '个',
-      windowed: false
+      windowed: false,
+      scopeDetail: 'teacher',
+      scopeDetailPermission: 'education:overview:teacher',
+      scopeDetailShowsStudents: true
     },
     {
       code: 'teacher.student.count',
@@ -34,7 +37,10 @@ const config = Object.freeze({
       note: '各范围学生数求和，未跨班去重',
       source: 'course',
       unitLabel: '人',
-      windowed: false
+      windowed: false,
+      scopeDetail: 'teacher',
+      scopeDetailPermission: 'education:overview:teacher',
+      scopeDetailShowsStudents: true
     },
     {
       code: 'teacher.session.running',

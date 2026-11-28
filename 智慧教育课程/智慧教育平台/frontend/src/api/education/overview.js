@@ -148,6 +148,52 @@ export function getStudentTodayTodos(query = {}, options = {}) {
 }
 
 /**
+ * 查询教师授权范围明细。
+ *
+ * 身份由服务端认证上下文取得；只发送可选 classId，且保持 Long 字符串。
+ * 该端点用于解释总览中的班级数、学生数，不替代课程/教学班业务页面。
+ *
+ * @param {{classId?: string|number}} [query] 可选教学班过滤
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: object}>} 范围明细响应
+ */
+export function getTeacherScopeDetail(query = {}, options = {}) {
+  let params
+  try {
+    const classId = normalizeClassId(query?.classId)
+    params = classId ? { classId } : {}
+  } catch (error) {
+    return Promise.reject(error)
+  }
+  return edu({
+    url: '/education/teacher/overview/scopes',
+    method: 'get',
+    params,
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
+ * 查询学生授权范围明细。
+ *
+ * 不发送 userId、classId、bindingId 或教学班上下文；范围只由服务端认证
+ * 身份决定。
+ *
+ * @param {object} [_query] 保留统一调用签名，不发送任何查询参数
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: object}>} 范围明细响应
+ */
+export function getStudentScopeDetail(_query = {}, options = {}) {
+  return edu({
+    url: '/education/student/today-todos/scopes',
+    method: 'get',
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
  * 查询管理员管理总览。
  *
  * 只发送可选 from/to。组织范围由服务端认证上下文中的 deptId 决定，前端

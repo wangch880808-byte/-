@@ -25,7 +25,9 @@ const config = Object.freeze({
       note: '按授权范围计数，未按教学班去重',
       source: 'course',
       unitLabel: '个',
-      windowed: false
+      windowed: false,
+      scopeDetail: 'student',
+      scopeDetailPermission: 'education:overview:student'
     },
     {
       code: 'student.session.active',
@@ -49,10 +51,13 @@ const config = Object.freeze({
       code: 'student.notice.unread',
       group: 'notice',
       title: '未读通知',
-      note: '本人全部未读；通知页按当前班级上下文显示',
+      note: '本人全部未读；进入后保持全部范围，不按旧教学班收窄',
       source: 'notice',
       unitLabel: '条',
-      windowed: false
+      windowed: false,
+      sourcePageId: 'student-notices',
+      sourceQuery: { scope: 'all', tab: 'notices' },
+      sourceLabel: '查看通知'
     }
   ]
 })

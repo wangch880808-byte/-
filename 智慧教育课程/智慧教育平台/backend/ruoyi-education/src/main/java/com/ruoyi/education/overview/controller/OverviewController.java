@@ -73,6 +73,27 @@ public class OverviewController
     }
 
     /**
+     * 教师授权范围明细。
+     *
+     * <p>身份来自服务端认证上下文；classId 只用于在已授权范围内过滤，
+     * 不允许借此读取其他教师或班级。权限与教师总览相同。</p>
+     *
+     * @param classId 可选教学班过滤；非正整数返回 400，非本人范围返回 403
+     * @return 统一响应体，data 为范围明细响应
+     */
+    @PreAuthorize("@ss.hasPermi('education:overview:teacher')")
+    @GetMapping("/teacher/overview/scopes")
+    public AjaxResult teacherScopeDetail(@RequestParam(required = false) Long classId)
+    {
+        if (classId != null && classId <= 0L)
+        {
+            throw new OverviewValidationException("classId 必须为正整数");
+        }
+        Long userId = identityProvider.currentUserId();
+        return AjaxResult.success(queryService.teacherScopeDetail(userId, classId));
+    }
+
+    /**
      * 学生今日待办。
      *
      * @param from 可选开始时间，RFC 3339 UTC
@@ -87,6 +108,22 @@ public class OverviewController
         OverviewWindow window = windowFactory.fromQuery(from, to);
         Long userId = identityProvider.currentUserId();
         return AjaxResult.success(queryService.studentTodayTodos(userId, window));
+    }
+
+    /**
+     * 学生授权范围明细。
+     *
+     * <p>身份来自服务端认证上下文；不接收 userId、classId 或 bindingId。
+     * 权限与学生总览相同。</p>
+     *
+     * @return 统一响应体，data 为范围明细响应
+     */
+    @PreAuthorize("@ss.hasPermi('education:overview:student')")
+    @GetMapping("/student/today-todos/scopes")
+    public AjaxResult studentScopeDetail()
+    {
+        Long userId = identityProvider.currentUserId();
+        return AjaxResult.success(queryService.studentScopeDetail(userId));
     }
 
     /**

@@ -45,6 +45,8 @@ import com.ruoyi.education.overview.dto.OverviewItem;
 import com.ruoyi.education.overview.dto.OverviewResponse;
 import com.ruoyi.education.overview.dto.OverviewStatus;
 import com.ruoyi.education.overview.dto.OverviewWindow;
+import com.ruoyi.education.overview.dto.ScopeDetailResponse;
+import com.ruoyi.education.overview.dto.ScopeRangeResponse;
 import com.ruoyi.education.overview.exception.OverviewAccessDeniedException;
 import com.ruoyi.education.overview.security.OverviewIdentityProvider;
 import com.ruoyi.education.overview.service.OverviewQueryService;
@@ -136,6 +138,75 @@ class OverviewControllerTest
                 .andExpect(jsonPath("$.data.items[0].status").value("OK"))
                 .andExpect(jsonPath("$.data.items[1].status").value("NO_DATA"))
                 .andExpect(jsonPath("$.data.items[2].status").value("UNAVAILABLE"));
+    }
+
+    @Test
+    void teacherScopeDetailReturnsServerRanges() throws Exception
+    {
+        when(identityProvider.currentUserId()).thenReturn(7L);
+        when(queryService.teacherScopeDetail(eq(7L), isNull())).thenReturn(
+                new ScopeDetailResponse(AS_OF, OverviewStatus.OK, 1L, 3L,
+                        List.of(new ScopeRangeResponse("11", "100", "200",
+                                "演示教学班", "演示课程", 3L))));
+
+        mockMvc.perform(get("/education/teacher/overview/scopes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("OK"))
+                .andExpect(jsonPath("$.data.classCount").value(1))
+                .andExpect(jsonPath("$.data.studentCount").value(3))
+                .andExpect(jsonPath("$.data.ranges[0].teachingClassId").value("11"))
+                .andExpect(jsonPath("$.data.ranges[0].bindingId").value("100"))
+                .andExpect(jsonPath("$.data.ranges[0].studentCount").value(3));
+
+        verify(queryService).teacherScopeDetail(7L, null);
+    }
+
+    @Test
+    void teacherScopeDetailPassesClassFilterAndRejectsNonPositive() throws Exception
+    {
+        when(identityProvider.currentUserId()).thenReturn(7L);
+        when(queryService.teacherScopeDetail(eq(7L), eq(11L))).thenReturn(
+                new ScopeDetailResponse(AS_OF, OverviewStatus.OK, 1L, 3L,
+                        List.of(new ScopeRangeResponse("11", "100", "200",
+                                "演示教学班", "演示课程", 3L))));
+
+        mockMvc.perform(get("/education/teacher/overview/scopes").param("classId", "11"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.classCount").value(1));
+
+        mockMvc.perform(get("/education/teacher/overview/scopes").param("classId", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void studentScopeDetailReturnsNoStudentTotal() throws Exception
+    {
+        when(identityProvider.currentUserId()).thenReturn(9L);
+        when(queryService.studentScopeDetail(9L)).thenReturn(
+                new ScopeDetailResponse(AS_OF, OverviewStatus.OK, 1L, null,
+                        List.of(new ScopeRangeResponse("12", "101", "200",
+                                "演示教学班", null, null))));
+
+        mockMvc.perform(get("/education/student/today-todos/scopes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.classCount").value(1))
+                .andExpect(jsonPath("$.data.studentCount").doesNotExist())
+                .andExpect(jsonPath("$.data.ranges[0].teachingClassId").value("12"));
+    }
+
+    @Test
+    void scopeDetailUnauthorizedMapsTo403() throws Exception
+    {
+        when(identityProvider.currentUserId()).thenReturn(7L);
+        when(queryService.teacherScopeDetail(eq(7L), eq(99L)))
+                .thenThrow(new OverviewAccessDeniedException("无权查看该教学班范围"));
+
+        mockMvc.perform(get("/education/teacher/overview/scopes").param("classId", "99"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(403));
     }
 
     @Test
@@ -243,7 +314,11 @@ class OverviewControllerTest
     {
         assertPermission("teacherOverview", new Class<?>[] { String.class, String.class,
                 Long.class }, "@ss.hasPermi('education:overview:teacher')");
+        assertPermission("teacherScopeDetail", new Class<?>[] { Long.class },
+                "@ss.hasPermi('education:overview:teacher')");
         assertPermission("studentTodayTodos", new Class<?>[] { String.class, String.class },
+                "@ss.hasPermi('education:overview:student')");
+        assertPermission("studentScopeDetail", new Class<?>[] {},
                 "@ss.hasPermi('education:overview:student')");
         assertPermission("adminOverview", new Class<?>[] { String.class, String.class },
                 "@ss.hasPermi('education:overview:admin')");
