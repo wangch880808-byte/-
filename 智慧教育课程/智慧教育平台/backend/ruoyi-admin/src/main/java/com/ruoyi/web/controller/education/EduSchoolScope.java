@@ -33,6 +33,30 @@ class EduSchoolScope {
         }
     }
 
+    /**
+     * 返回数据权限明确覆盖的学校节点。
+     *
+     * <p>只保留本身可见且满足根学校条件的部门，不把学院、专业或班级的
+     * 可见性回溯成其根学校。这样学院级数据权限不会被扩大成整校授权；
+     * 若授权只覆盖学院，结果为空，由调用方映射为 NO_DATA。</p>
+     *
+     * @param permission 用于部门数据权限裁剪的权限串
+     * @return 去重、按排序号排列的明确授权学校
+     */
+    List<SysDept> authorizedSchools(String permission) {
+        Map<Long, SysDept> unique = new LinkedHashMap<>();
+        for (SysDept department : visibleDepartments(permission)) {
+            if (department != null && activeSchool(department)) {
+                unique.putIfAbsent(department.getDeptId(), department);
+            }
+        }
+        return unique.values().stream()
+                .sorted(Comparator.comparing(SysDept::getOrderNum,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(SysDept::getDeptId))
+                .toList();
+    }
+
     List<SysDept> schools(Collection<SysDept> visible) {
         Map<Long, SysDept> byId = new LinkedHashMap<>();
         visible.forEach(department -> byId.putIfAbsent(department.getDeptId(), department));
