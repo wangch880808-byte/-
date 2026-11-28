@@ -7,9 +7,10 @@ import { registerBusinessPage } from './ui-pages'
  * 同时满足才显示/可直达；服务端 @PreAuthorize 仍会逐请求复核。
  *
  * 第 1 组 #41@549ef8e 已提供四个总览菜单锚点，并在其环境报告真实账号验证；
- * serviceRoute 值已双方确认。本轮组合分支包含这些菜单脚本，但没有在本轮
- * 目标库执行 SQL，也没有做真实账号联调。正式 #37@97460b2 仍未注册生产
- * 入口；本地 proto 分支已注册两个管理员页面。
+ * serviceRoute 值已双方确认。管理员的“管理员教学指标”“管理员待办”已在
+ * 本文件注册为生产业务页，分别对应 `/admin/teaching-metrics` 和
+ * `/admin/todos`；目标环境的真实访问仍以 getRouters、权限数据和服务端
+ * @PreAuthorize 为准，不能把业务页注册本身当作真实联调结论。
  *
  * TODO(6-03-overview-menu)：目标环境仍需执行第一组菜单脚本并复核
  * education/teacher/overview、education/student/today-todos、

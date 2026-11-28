@@ -80,9 +80,14 @@ function withContext(path) {
  * @returns {{path: string, query: object}} Vue Router 目标
  */
 function notificationTarget(page) {
+  const keepAllScope = page.id === 'student-notices' && route.query.scope === 'all'
   const query = {}
-  for (const key of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[key]) query[key] = context.current[key]
+  if (!keepAllScope) {
+    for (const key of ['courseSpaceId', 'classId', 'bindingId']) if (context.current?.[key]) query[key] = context.current[key]
+  }
   if (page.headerEntry?.tab) query.tab = page.headerEntry.tab
+  // 从总览来源进入的全范围通知页，顶栏“通知”入口不得把旧班级重新带回。
+  if (keepAllScope) query.scope = 'all'
   return { path: pathOf(page), query }
 }
 watch(() => [route.path, session.ready], () => {
@@ -124,7 +129,9 @@ async function refreshHeader() {
     if (!page.headerEntry.getUnreadCount) return
     const entry = workspace.notifications.find(item => item.id === page.id)
     try {
-      const count = await page.headerEntry.getUnreadCount(context.current ? Object.freeze({ ...context.current }) : null,
+      const allScope = page.id === 'student-notices' && route.query.scope === 'all'
+      const headerContext = allScope ? null : (context.current ? Object.freeze({ ...context.current }) : null)
+      const count = await page.headerEntry.getUnreadCount(headerContext,
         { signal, request: (path, options) => api.get(path, { ...options, scope: 'header', signal, silent403: true }) })
       if (signal.aborted || run !== headerVersion || epoch !== workspace.epoch) return
       if (!Number.isSafeInteger(count) || count < 0) throw new Error('未读数格式不正确')
@@ -136,7 +143,8 @@ async function refreshHeader() {
     }
   }))
 }
-watch(() => [session.ready, workspace.epoch, context.current, pages.length], refreshHeader, { immediate: true })
+watch(() => [session.ready, workspace.epoch, context.current, pages.length, route.query.scope],
+  refreshHeader, { immediate: true })
 onMounted(() => window.addEventListener('edu:refresh-header', refreshHeader))
 onUnmounted(() => {
   headerVersion++; headerController?.abort(); cancelRequests('header')

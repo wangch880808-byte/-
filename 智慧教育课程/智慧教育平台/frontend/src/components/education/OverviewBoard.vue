@@ -1,12 +1,17 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   getAdminOverview,
   getAdminTodos,
+  getStudentScopeDetail,
   getStudentTodayTodos,
   getTeacherOverview,
+  getTeacherScopeDetail,
   isPositiveLongString
 } from '@/api/education/overview'
+import { pages } from '@/education/ui-pages'
+import { canOpen, hasPermission, session } from '@/education/session'
 
 /**
  * 教师/学生总览共享展示组件。
@@ -69,6 +74,27 @@ const ENDPOINT_LOADERS = Object.freeze({
 // 管理员配置误发到学生接口。
 const loader = ENDPOINT_LOADERS[props.config?.endpoint]
 
+const SCOPE_DETAIL_LOADERS = Object.freeze({
+  teacher: getTeacherScopeDetail,
+  student: getStudentScopeDetail
+})
+
+const router = useRouter()
+const sourceNotice = ref('')
+const scopeOpen = ref(false)
+const scopeState = ref('idle')
+const scopeMessage = ref('')
+const scopeTitle = ref('')
+const scopeRows = ref([])
+const scopeClassCount = ref(null)
+const scopeStudentCount = ref(null)
+const scopeShowsStudents = ref(false)
+const scopeDialog = ref(null)
+const scopeCloseButton = ref(null)
+const scopeTrigger = ref(null)
+
+let scopeSeq = 0
+let scopeController = null
 
 const hasCustomWindow = computed(() => Boolean(appliedFrom.value && appliedTo.value))
 const windowHint = computed(() => hasCustomWindow.value
@@ -268,6 +294,7 @@ async function load() {
   const current = new AbortController()
   controller = current
   loading.value = true
+  sourceNotice.value = ''
   pageState.value = 'loading'
   pageMessage.value = ''
   filterError.value = ''
@@ -454,6 +481,200 @@ function handleError(error) {
   pageMessage.value = error.message || '总览读取失败，请稍后重试。'
 }
 
+function positiveIdString(value) {
+  return typeof value === 'string' && /^[1-9]\d*$/.test(value)
+}
+
+function nullableIdString(value) {
+  return value === null || value === undefined || positiveIdString(value)
+}
+
+function nullableText(value) {
+  return value === null || value === undefined || typeof value === 'string'
+}
+
+/**
+ * 解析来源页面。只允许已注册业务页面和 canOpen 同时通过，绝不读取后端
+ * actionPath 或外部 URL；权限或服务端路由缺失时返回 null，不渲染入口。
+ *
+ * @param {object} metric 页面指标配置
+ * @returns {{page: object, path: string, query: object}|null} 可导航目标
+ */
+function sourceTarget(metric) {
+  if (!metric?.sourcePageId || !session.ready) return null
+  const page = pages.find(item => item.id === metric.sourcePageId
+    && item.roles.includes(session.role))
+  if (!page || !canOpen(page)) return null
+  return {
+    page,
+    path: '/' + session.role + '/' + page.path,
+    query: { ...(metric.sourceQuery || {}) }
+  }
+}
+
+/**
+ * 打开已注册来源页面。点击时再次执行 canOpen，避免登录后撤权或路由变化
+ * 使旧入口仍可导航。
+ *
+ * @param {object} metric 页面指标配置
+ * @returns {void}
+ */
+function openSource(metric) {
+  const target = sourceTarget(metric)
+  if (!target) {
+    sourceNotice.value = '来源页面未注册、缺少服务端路由或当前没有访问权限，未打开。'
+    return
+  }
+  if (!canOpen(target.page)) {
+    sourceNotice.value = '当前账号没有来源页面的访问权限，未打开。'
+    return
+  }
+  sourceNotice.value = ''
+  router.push({ path: target.path, query: target.query })
+}
+
+function canShowScopeDetail(row) {
+  return row.status === STATUS_OK && !!row.config.scopeDetail
+    && hasPermission(row.config.scopeDetailPermission)
+}
+
+function validateScopeRange(range) {
+  if (!range || typeof range !== 'object') return false
+  if (!positiveIdString(range.teachingClassId)) return false
+  if (!nullableIdString(range.bindingId) || !nullableIdString(range.courseSpaceId)) return false
+  if (!nullableText(range.className) || !nullableText(range.courseName)) return false
+  return range.studentCount === null || isNonNegativeInteger(range.studentCount)
+}
+
+/**
+ * 应用范围明细响应。计数只使用服务端返回的 classCount/studentCount，
+ * 不在前端按行数或行内学生数重新统计。
+ *
+ * @param {object} body 统一响应体
+ * @param {object} row 触发明细的卡片行
+ * @returns {void}
+ */
+function applyScopeDetail(body, row) {
+  if (!body || Number(body.code) !== 200 || !body.data || typeof body.data !== 'object') {
+    scopeState.value = 'contract-error'
+    scopeMessage.value = '范围明细响应不完整，未展示任何数字。'
+    return
+  }
+  const data = body.data
+  if (![STATUS_OK, STATUS_NO_DATA, STATUS_UNAVAILABLE].includes(data.status)
+      || !isRfc3339(data.asOf) || !Array.isArray(data.ranges)) {
+    scopeState.value = 'contract-error'
+    scopeMessage.value = '范围明细状态、时间或列表不合法。'
+    return
+  }
+  if (data.status === STATUS_OK) {
+    if (!isNonNegativeInteger(data.classCount) || data.classCount !== data.ranges.length
+        || (data.studentCount !== null && !isNonNegativeInteger(data.studentCount))
+        || !data.ranges.every(validateScopeRange)) {
+      scopeState.value = 'contract-error'
+      scopeMessage.value = '范围明细计数或字段与契约不一致。'
+      return
+    }
+    scopeRows.value = data.ranges
+    scopeClassCount.value = data.classCount
+    scopeStudentCount.value = data.studentCount
+    scopeShowsStudents.value = row.config.scopeDetailShowsStudents === true
+    scopeState.value = 'ready'
+    return
+  }
+  if (data.classCount !== null || data.studentCount !== null || data.ranges.length !== 0) {
+    scopeState.value = 'contract-error'
+    scopeMessage.value = '无数据或不可用状态不得携带计数或范围列表。'
+    return
+  }
+  scopeRows.value = []
+  scopeClassCount.value = null
+  scopeStudentCount.value = null
+  scopeState.value = data.status === STATUS_NO_DATA ? 'empty' : 'unavailable'
+  scopeMessage.value = data.status === STATUS_NO_DATA ? '当前没有授权范围。' : '范围来源暂不可用。'
+}
+
+/**
+ * 打开范围明细。只使用配置中的端点，不接受 actionPath 或外部地址；
+ * 当前请求序号和卸载状态防止迟到响应覆盖新页面。打开后把焦点移入
+ * 弹窗关闭按钮，使直接按 Esc 即可关闭。
+ *
+ * @param {object} row 卡片行
+ * @param {Event} [event] 触发按钮事件，用于关闭后归还焦点
+ * @returns {void}
+ */
+function openScopeDetail(row, event) {
+  if (!canShowScopeDetail(row)) {
+    sourceNotice.value = '当前没有查看范围明细的权限或来源未配置。'
+    return
+  }
+  const detailLoader = SCOPE_DETAIL_LOADERS[row.config.scopeDetail]
+  if (typeof detailLoader !== 'function') {
+    sourceNotice.value = '范围明细来源未配置。'
+    return
+  }
+  scopeTrigger.value = event?.currentTarget instanceof HTMLElement
+    ? event.currentTarget
+    : (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  scopeSeq++
+  scopeController?.abort()
+  const current = new AbortController()
+  scopeController = current
+  const seq = scopeSeq
+  scopeOpen.value = true
+  scopeState.value = 'loading'
+  scopeMessage.value = ''
+  scopeTitle.value = row.config.title
+  scopeRows.value = []
+  scopeClassCount.value = null
+  scopeStudentCount.value = null
+  scopeShowsStudents.value = row.config.scopeDetailShowsStudents === true
+  const query = {}
+  if (row.config.scopeDetail === 'teacher' && appliedClassId.value) {
+    query.classId = appliedClassId.value
+  }
+  nextTick(() => {
+    if (disposed || !scopeOpen.value) return
+    const target = scopeCloseButton.value || scopeDialog.value
+    target?.focus()
+  })
+  detailLoader(query, { signal: current.signal }).then(body => {
+    if (disposed || seq !== scopeSeq || current.signal.aborted) return
+    applyScopeDetail(body, row)
+  }).catch(error => {
+    if (disposed || seq !== scopeSeq || error?.cancelled) return
+    if (error?.forbidden || Number(error?.code) === 403) {
+      scopeState.value = 'forbidden'
+      scopeMessage.value = error.message || '没有查看范围明细的权限。'
+    } else if (Number(error?.code) === 503 || Number(error?.status) === 503) {
+      scopeState.value = 'unavailable'
+      scopeMessage.value = error.message || '范围来源暂不可用。'
+    } else {
+      scopeState.value = 'error'
+      scopeMessage.value = error?.message || '范围明细读取失败，请稍后重试。'
+    }
+  })
+}
+
+function closeScopeDetail() {
+  const trigger = scopeTrigger.value
+  scopeTrigger.value = null
+  scopeSeq++
+  scopeController?.abort()
+  scopeController = null
+  scopeOpen.value = false
+  scopeState.value = 'idle'
+  scopeMessage.value = ''
+  scopeRows.value = []
+  scopeClassCount.value = null
+  scopeStudentCount.value = null
+  nextTick(() => {
+    if (!disposed && trigger?.isConnected && typeof trigger.focus === 'function') {
+      trigger.focus()
+    }
+  })
+}
+
 function badgeClass(row) {
   if (row.contract) return 'badge-error'
   if (row.status === STATUS_OK) return 'badge-ok'
@@ -484,6 +705,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   disposed = true
+  scopeSeq++
+  scopeController?.abort()
+  scopeController = null
+  scopeTrigger.value = null
   invalidateRequest()
 })
 </script>
@@ -521,6 +746,7 @@ onBeforeUnmount(() => {
       <p class="ov-hint">{{ windowHint }}</p>
     </form>
     <p v-if="filterError" class="ov-filter-error" role="alert">{{ filterError }}</p>
+    <p v-if="sourceNotice" class="ov-source-notice" role="status">{{ sourceNotice }}</p>
 
     <div v-if="pageState === 'loading'" class="ov-state" role="status">正在读取总览…</div>
 
@@ -587,10 +813,81 @@ onBeforeUnmount(() => {
               <span>来源：{{ sourceLabel(row.config.source) }}</span>
               <span>{{ row.config.windowed ? '按时间窗' : '当前快照' }}</span>
             </footer>
+            <div v-if="row.status === STATUS_OK && !row.contract
+              && (canShowScopeDetail(row) || sourceTarget(row.config))" class="ov-card-actions">
+              <button v-if="canShowScopeDetail(row)" type="button" class="ov-detail-link"
+                @click="openScopeDetail(row, $event)">查看范围明细</button>
+              <button v-if="sourceTarget(row.config)" type="button" class="ov-source-link"
+                @click="openSource(row.config)">{{ row.config.sourceLabel || '查看来源' }}</button>
+            </div>
           </article>
         </div>
       </section>
     </template>
+
+    <Teleport to="body">
+      <div v-if="scopeOpen" class="ov-overlay" @click.self="closeScopeDetail">
+        <section ref="scopeDialog" class="ov-dialog" role="dialog" aria-modal="true"
+          aria-labelledby="ov-scope-title" tabindex="-1"
+          @keydown.esc.stop.prevent="closeScopeDetail">
+          <header class="ov-dialog-head">
+            <div>
+              <h3 id="ov-scope-title">范围明细</h3>
+              <p class="ov-dialog-sub">{{ scopeTitle }}</p>
+            </div>
+            <button ref="scopeCloseButton" type="button" class="ov-btn"
+              @click="closeScopeDetail">关闭</button>
+          </header>
+
+          <div v-if="scopeState === 'loading'" class="ov-state" role="status">正在读取范围明细…</div>
+          <div v-else-if="scopeState === 'forbidden'" class="ov-state error" role="alert">
+            <strong>无权查看范围明细</strong><span>{{ scopeMessage }}</span>
+          </div>
+          <div v-else-if="scopeState === 'unavailable'" class="ov-state warn" role="status">
+            <strong>范围来源暂不可用</strong><span>{{ scopeMessage }}</span>
+          </div>
+          <div v-else-if="scopeState === 'contract-error'" class="ov-state error" role="alert">
+            <strong>范围明细响应异常</strong><span>{{ scopeMessage }}</span>
+          </div>
+          <div v-else-if="scopeState === 'error'" class="ov-state error" role="alert">
+            <strong>范围明细读取失败</strong><span>{{ scopeMessage }}</span>
+          </div>
+          <div v-else-if="scopeState === 'empty'" class="ov-state" role="status">
+            <strong>暂无范围</strong><span>{{ scopeMessage }}</span>
+          </div>
+          <template v-else-if="scopeState === 'ready'">
+            <p class="ov-scope-summary">
+              范围 <b>{{ scopeClassCount }}</b> 条
+              <span v-if="scopeShowsStudents && scopeStudentCount !== null">· 学生合计 <b>{{ scopeStudentCount }}</b> 人</span>
+              <span v-else-if="scopeShowsStudents">· 学生合计 —（来源未提供完整学生数）</span>
+            </p>
+            <p class="ov-scope-hint">按授权范围逐条展示，未按教学班去重；合计口径与上方卡片一致。</p>
+            <div v-if="scopeRows.length" class="ov-scope-table-wrap">
+              <table class="ov-scope-table">
+                <thead>
+                  <tr>
+                    <th>教学班</th>
+                    <th>课程</th>
+                    <th v-if="scopeShowsStudents">学生数</th>
+                    <th>教学班 ID</th>
+                    <th>绑定 ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="range in scopeRows" :key="range.teachingClassId + ':' + (range.bindingId || '')">
+                    <td>{{ range.className || '—' }}</td>
+                    <td>{{ range.courseName || (range.courseSpaceId ? '课程 ' + range.courseSpaceId : '课程未绑定') }}</td>
+                    <td v-if="scopeShowsStudents">{{ range.studentCount === null ? '—' : range.studentCount + ' 人' }}</td>
+                    <td class="ov-id">{{ range.teachingClassId }}</td>
+                    <td class="ov-id">{{ range.bindingId || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </section>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -635,10 +932,29 @@ onBeforeUnmount(() => {
 .ov-state-text.error { color: #c45656; }
 .ov-note { margin: 0; color: #909399; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .ov-card-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid #f5f5f5; color: #909399; font-size: 12px; flex-wrap: wrap; }
+.ov-source-notice { margin: 0 0 12px; padding: 8px 10px; border-radius: 4px; background: #fdf6ec; color: #b88230; font-size: 13px; }
+.ov-card-actions { display: flex; gap: 14px; flex-wrap: wrap; padding-top: 2px; }
+.ov-detail-link, .ov-source-link { padding: 0; border: 0; background: none; color: #409eff; cursor: pointer; font: inherit; font-size: 13px; }
+.ov-detail-link:hover, .ov-source-link:hover { color: #1f6fd0; text-decoration: underline; }
+.ov-overlay { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0, 0, 0, .45); }
+.ov-dialog { box-sizing: border-box; width: min(780px, 100%); max-height: 88vh; overflow: auto; padding: 18px; border-radius: 10px; background: #fff; box-shadow: 0 12px 36px rgba(0, 0, 0, .2); outline: none; }
+.ov-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ov-dialog-head h3 { margin: 0; font-size: 18px; color: #1f2d3d; }
+.ov-dialog-sub { margin: 4px 0 0; color: #909399; font-size: 13px; }
+.ov-scope-summary { margin: 0 0 4px; color: #303133; font-size: 14px; }
+.ov-scope-hint { margin: 0 0 12px; color: #909399; font-size: 12px; line-height: 1.5; }
+.ov-scope-table-wrap { overflow: auto; border: 1px solid #ebeef5; border-radius: 6px; }
+.ov-scope-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ov-scope-table th, .ov-scope-table td { padding: 8px 10px; border-bottom: 1px solid #f0f2f5; text-align: left; white-space: nowrap; }
+.ov-scope-table th { background: #fafafa; color: #606266; font-weight: 600; }
+.ov-scope-table tr:last-child td { border-bottom: 0; }
+.ov-id { color: #606266; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
 @media (max-width: 560px) {
   .ov-field { flex: 1 1 100%; min-width: 0; }
   .ov-filter-actions { width: 100%; }
   .ov-filter-actions .ov-btn { flex: 1; }
   .ov-grid { grid-template-columns: minmax(0, 1fr); }
+  .ov-overlay { padding: 8px; }
+  .ov-dialog { padding: 14px; }
 }
 </style>

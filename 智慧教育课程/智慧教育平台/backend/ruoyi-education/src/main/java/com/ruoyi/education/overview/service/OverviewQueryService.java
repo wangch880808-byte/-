@@ -3,6 +3,7 @@ package com.ruoyi.education.overview.service;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -32,6 +33,8 @@ import com.ruoyi.education.overview.dto.OverviewItem;
 import com.ruoyi.education.overview.dto.OverviewResponse;
 import com.ruoyi.education.overview.dto.OverviewStatus;
 import com.ruoyi.education.overview.dto.OverviewWindow;
+import com.ruoyi.education.overview.dto.ScopeDetailResponse;
+import com.ruoyi.education.overview.dto.ScopeRangeResponse;
 import com.ruoyi.education.overview.exception.OverviewAccessDeniedException;
 import com.ruoyi.education.overview.exception.OverviewValidationException;
 import com.ruoyi.education.overview.port.AssignmentTodoPort;
@@ -192,22 +195,9 @@ public class OverviewQueryService
         validateClassId(classId);
 
         RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
-        OverviewSourceResult<Map<Long, List<CourseScope>>> scopeResult = awaitSingle(
-                SOURCE_COURSE, () -> courseScopePort.findTeacherScopes(List.of(teacherUserId)),
-                budget);
-        ScopeView scopeView = userScopeView(scopeResult, teacherUserId);
-        Set<Long> authorizedBindingIds = bindingIds(scopeView.scopes());
-        if (classId != null && scopeView.status() == OverviewStatus.OK)
-        {
-            List<CourseScope> filtered = scopeView.scopes().stream()
-                    .filter(scope -> classId.equals(scope.teachingClassId()))
-                    .toList();
-            if (filtered.isEmpty())
-            {
-                throw new OverviewAccessDeniedException("无权查看该教学班总览");
-            }
-            scopeView = new ScopeView(OverviewStatus.OK, filtered);
-        }
+        ScopeView authorizedView = fetchTeacherScopes(teacherUserId, budget);
+        Set<Long> authorizedBindingIds = bindingIds(authorizedView.scopes());
+        ScopeView scopeView = filterTeacherScopes(authorizedView, classId);
         Set<Long> includedBindingIds = bindingIds(scopeView.scopes());
 
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
@@ -238,8 +228,8 @@ public class OverviewQueryService
         awaitAll(List.of(sessionsFuture, assignmentsFuture, gradesFuture, noticesFuture), budget);
 
         List<OverviewItem> items = new ArrayList<>();
-        items.add(classCountItem("teacher.class.count", scopeView, "/teacher/classes"));
-        items.add(studentCountItem("teacher.student.count", scopeView, "/teacher/classes"));
+        items.add(classCountItem("teacher.class.count", scopeView, null));
+        items.add(studentCountItem("teacher.student.count", scopeView, null));
         items.add(sessionItem("teacher.session.running", SOURCE_CLASSROOM,
                 resultNow(sessionsFuture, SOURCE_CLASSROOM), includedBindingIds,
                 "/teacher/classes"));
@@ -268,10 +258,7 @@ public class OverviewQueryService
         requireWindow(window);
 
         RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
-        OverviewSourceResult<Map<Long, List<CourseScope>>> scopeResult = awaitSingle(
-                SOURCE_COURSE, () -> courseScopePort.findStudentScopes(List.of(studentUserId)),
-                budget);
-        ScopeView scopeView = userScopeView(scopeResult, studentUserId);
+        ScopeView scopeView = fetchStudentScopes(studentUserId, budget);
         Set<Long> authorizedBindingIds = bindingIds(scopeView.scopes());
 
         // 没有课程空间绑定时不调用批量端口，避免空集合被适配器误判为源失败。
@@ -297,7 +284,7 @@ public class OverviewQueryService
         awaitAll(List.of(sessionsFuture, assignmentsFuture, noticesFuture), budget);
 
         List<OverviewItem> items = new ArrayList<>();
-        items.add(classCountItem("student.class.count", scopeView, "/student/classes"));
+        items.add(classCountItem("student.class.count", scopeView, null));
         items.add(sessionItem("student.session.active", SOURCE_CLASSROOM,
                 resultNow(sessionsFuture, SOURCE_CLASSROOM), authorizedBindingIds,
                 "/student/todos"));
@@ -305,8 +292,49 @@ public class OverviewQueryService
                 resultNow(assignmentsFuture, SOURCE_ASSIGNMENT), studentUserId,
                 authorizedBindingIds, authorizedBindingIds, false, "/student/todos"));
         items.add(noticeItem("student.notice.unread",
-                resultNow(noticesFuture, SOURCE_NOTICE), studentUserId, "/student/notices"));
+                resultNow(noticesFuture, SOURCE_NOTICE), studentUserId, null));
         return response(window, items);
+    }
+
+    /**
+     * 教师授权范围明细。
+     *
+     * <p>身份只来自调用方的认证上下文；不接收客户端用户 ID。范围取数与
+     * {@link #teacherOverview(Long, Long, OverviewWindow)} 共用
+     * {@link CourseScopePort}，班级条数和学生合计沿用相同口径。可选 classId
+     * 与总览筛选语义一致，越权返回 403。</p>
+     *
+     * @param teacherUserId 当前教师用户 ID
+     * @param classId       可选教学班过滤；非本人教学班返回 403
+     * @return 范围明细
+     * @throws OverviewAccessDeniedException 教师身份缺失或班级越权
+     * @throws OverviewValidationException   classId 非正整数
+     */
+    public ScopeDetailResponse teacherScopeDetail(Long teacherUserId, Long classId)
+    {
+        requireUser(teacherUserId, "教师身份缺失");
+        validateClassId(classId);
+        RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
+        ScopeView view = filterTeacherScopes(fetchTeacherScopes(teacherUserId, budget), classId);
+        return scopeDetail(view);
+    }
+
+    /**
+     * 学生授权范围明细。
+     *
+     * <p>身份只来自调用方的认证上下文；范围取数与
+     * {@link #studentTodayTodos(Long, OverviewWindow)} 共用
+     * {@link CourseScopePort}。学生范围不提供学生数时，学生合计为 null。</p>
+     *
+     * @param studentUserId 当前学生用户 ID
+     * @return 范围明细
+     * @throws OverviewAccessDeniedException 学生身份缺失
+     */
+    public ScopeDetailResponse studentScopeDetail(Long studentUserId)
+    {
+        requireUser(studentUserId, "学生身份缺失");
+        RequestBudget budget = new RequestBudget(overallTimeout, nanoClock);
+        return scopeDetail(fetchStudentScopes(studentUserId, budget));
     }
 
     /**
@@ -384,6 +412,86 @@ public class OverviewQueryService
                 "admin.todo.pending", "COUNT", SOURCE_PENDING_PRODUCT, null)));
     }
 
+    private ScopeView fetchTeacherScopes(Long teacherUserId, RequestBudget budget)
+    {
+        OverviewSourceResult<Map<Long, List<CourseScope>>> scopeResult = awaitSingle(
+                SOURCE_COURSE, () -> courseScopePort.findTeacherScopes(List.of(teacherUserId)),
+                budget);
+        return userScopeView(scopeResult, teacherUserId);
+    }
+
+    private ScopeView fetchStudentScopes(Long studentUserId, RequestBudget budget)
+    {
+        OverviewSourceResult<Map<Long, List<CourseScope>>> scopeResult = awaitSingle(
+                SOURCE_COURSE, () -> courseScopePort.findStudentScopes(List.of(studentUserId)),
+                budget);
+        return userScopeView(scopeResult, studentUserId);
+    }
+
+    /**
+     * 按可选教学班过滤教师范围。过滤只作用于已由来源授权的范围；未命中时
+     * 按越权处理，和总览的 classId 语义保持一致。
+     */
+    private ScopeView filterTeacherScopes(ScopeView scopeView, Long classId)
+    {
+        if (classId == null || scopeView.status() != OverviewStatus.OK)
+        {
+            return scopeView;
+        }
+        List<CourseScope> filtered = scopeView.scopes().stream()
+                .filter(scope -> classId.equals(scope.teachingClassId()))
+                .toList();
+        if (filtered.isEmpty())
+        {
+            throw new OverviewAccessDeniedException("无权查看该教学班范围");
+        }
+        return new ScopeView(OverviewStatus.OK, filtered);
+    }
+
+    /**
+     * 把与总览卡片相同的范围结果转换为明细响应。计数不重新计算来源，
+     * 直接使用范围条数和已提供的学生数合计。
+     */
+    private ScopeDetailResponse scopeDetail(ScopeView scopeView)
+    {
+        Instant asOf = clock.instant();
+        if (scopeView.status() != OverviewStatus.OK)
+        {
+            return new ScopeDetailResponse(asOf, scopeView.status(), null, null, List.of());
+        }
+        List<ScopeRangeResponse> ranges = scopeView.scopes().stream()
+                .map(this::scopeRange)
+                .toList();
+        return new ScopeDetailResponse(asOf, OverviewStatus.OK, (long) ranges.size(),
+                totalStudentCount(scopeView.scopes()), ranges);
+    }
+
+    private ScopeRangeResponse scopeRange(CourseScope scope)
+    {
+        return new ScopeRangeResponse(id(scope.teachingClassId()), id(scope.bindingId()),
+                id(scope.courseSpaceId()), scope.className(), scope.courseName(),
+                scope.studentCount());
+    }
+
+    private Long totalStudentCount(List<CourseScope> scopes)
+    {
+        long total = 0L;
+        for (CourseScope scope : scopes)
+        {
+            if (scope.studentCount() == null)
+            {
+                return null;
+            }
+            total += scope.studentCount();
+        }
+        return total;
+    }
+
+    private String id(Long value)
+    {
+        return value == null ? null : value.toString();
+    }
+
     private ScopeView userScopeView(
             OverviewSourceResult<Map<Long, List<CourseScope>>> result, Long userId)
     {
@@ -454,15 +562,11 @@ public class OverviewQueryService
         {
             return statusItem(metricCode, SOURCE_COURSE, scopeView.status(), actionPath);
         }
-        long total = 0;
-        for (CourseScope scope : scopeView.scopes())
+        Long total = totalStudentCount(scopeView.scopes());
+        if (total == null)
         {
-            if (scope.studentCount() == null)
-            {
-                // 任一班级缺学生数就返回 NO_DATA，避免少算后当成真实总数。
-                return OverviewItem.noData(metricCode, "COUNT", SOURCE_COURSE, actionPath);
-            }
-            total += scope.studentCount();
+            // 任一班级缺学生数就返回 NO_DATA，避免少算后当成真实总数。
+            return OverviewItem.noData(metricCode, "COUNT", SOURCE_COURSE, actionPath);
         }
         return okItem(metricCode, total, SOURCE_COURSE,
                 (long) scopeView.scopes().size(), actionPath);

@@ -420,3 +420,18 @@
 - 第 2-5 组聚合契约未落地；接入后需重新确认 `source`、`sampleCount`、指标口径和 `window`。
 - 6-02 已合并；补充通知未读适配器仍需批量汇总契约、授权方式和调用方式确认，完成后再验证 `UNAVAILABLE` → `OK/NO_DATA` 的状态变化。
 - 契约变更需同步更新本文档、`docs/6-01-overview-contract.md` 和前端字段映射。
+
+## 8. 2026-11-28 来源导航补充
+
+当前 main 基线 `2458dae1c4f32000cdbb6ef9a98ce1cfe16e1b94`，四项已接通指标的来源入口与范围明细见
+[6-01 已接通总览指标来源导航](6-01-overview-source-navigation.md)。
+
+- `teacher.class.count`、`teacher.student.count`、`student.class.count` 使用总览内范围明细，复用
+  `CourseScopePort` 和原计数口径，不再使用并不存在的 `/teacher/classes`、`/student/classes`。
+- `student.notice.unread` 使用已注册业务页 `student-notices`，查询 `scope=all&tab=notices`；进入后
+  忽略旧教学班上下文。
+- 上述四项的 `actionPath` 已置为 null；前端不执行后端 actionPath。UNAVAILABLE、响应异常及管理员
+  待办保持原样。
+- 新增 `GET /education/teacher/overview/scopes`、`GET /education/student/today-todos/scopes`，权限与
+  对应总览端点一致，身份只取服务端认证上下文。
+- 管理员统计仍不接入 `deptId`；所需第一组公开组织/学校范围契约见来源导航文档第 3 节。

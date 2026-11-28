@@ -36,6 +36,7 @@ import com.ruoyi.education.overview.dto.OverviewItem;
 import com.ruoyi.education.overview.dto.OverviewResponse;
 import com.ruoyi.education.overview.dto.OverviewStatus;
 import com.ruoyi.education.overview.dto.OverviewWindow;
+import com.ruoyi.education.overview.dto.ScopeDetailResponse;
 import com.ruoyi.education.overview.exception.OverviewAccessDeniedException;
 import com.ruoyi.education.overview.exception.OverviewValidationException;
 import com.ruoyi.education.overview.port.AssignmentTodoPort;
@@ -111,6 +112,12 @@ class OverviewQueryServiceTest
         assertItem(response, "teacher.assignment.pending", OverviewStatus.OK, 2L);
         assertItem(response, "teacher.grade.pending", OverviewStatus.OK, 3L);
         assertItem(response, "teacher.notice.unread", OverviewStatus.OK, 4L);
+        assertNull(response.items().stream()
+                .filter(item -> "teacher.class.count".equals(item.metricCode()))
+                .findFirst().orElseThrow().actionPath());
+        assertNull(response.items().stream()
+                .filter(item -> "teacher.student.count".equals(item.metricCode()))
+                .findFirst().orElseThrow().actionPath());
     }
 
     @Test
@@ -137,6 +144,116 @@ class OverviewQueryServiceTest
         assertItem(response, "student.session.active", OverviewStatus.OK, 1L);
         assertItem(response, "student.assignment.due", OverviewStatus.OK, 1L);
         assertItem(response, "student.notice.unread", OverviewStatus.OK, 2L);
+        assertNull(response.items().stream()
+                .filter(item -> "student.class.count".equals(item.metricCode()))
+                .findFirst().orElseThrow().actionPath());
+        assertNull(response.items().stream()
+                .filter(item -> "student.notice.unread".equals(item.metricCode()))
+                .findFirst().orElseThrow().actionPath());
+    }
+
+    @Test
+    void teacherScopeDetailReusesSameRangesAndCounts()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L),
+                        scope(12L, 101L, 0L))));
+
+        ScopeDetailResponse detail = service(coursePort, mock(SessionStatusPort.class),
+                mock(AssignmentTodoPort.class), mock(GradeTodoPort.class),
+                mock(NoticeSummaryPort.class)).teacherScopeDetail(7L, null);
+
+        assertEquals(OverviewStatus.OK, detail.status());
+        assertEquals(2L, detail.classCount());
+        assertEquals(3L, detail.studentCount());
+        assertEquals(2, detail.ranges().size());
+        assertEquals("11", detail.ranges().get(0).teachingClassId());
+        assertEquals("100", detail.ranges().get(0).bindingId());
+        assertEquals(3L, detail.ranges().get(0).studentCount());
+        assertEquals(0L, detail.ranges().get(1).studentCount());
+    }
+
+    @Test
+    void teacherScopeDetailFiltersClassAndRejectsForeignClass()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        when(coursePort.findTeacherScopes(any()))
+                .thenReturn(Map.of(7L, List.of(scope(11L, 100L, 3L),
+                        scope(12L, 101L, 4L))));
+        OverviewQueryService service = service(coursePort, mock(SessionStatusPort.class),
+                mock(AssignmentTodoPort.class), mock(GradeTodoPort.class),
+                mock(NoticeSummaryPort.class));
+
+        ScopeDetailResponse filtered = service.teacherScopeDetail(7L, 12L);
+
+        assertEquals(1L, filtered.classCount());
+        assertEquals(4L, filtered.studentCount());
+        assertEquals(1, filtered.ranges().size());
+        assertEquals("12", filtered.ranges().get(0).teachingClassId());
+        assertThrows(OverviewAccessDeniedException.class,
+                () -> service.teacherScopeDetail(7L, 99L));
+        assertThrows(OverviewValidationException.class,
+                () -> service.teacherScopeDetail(7L, 0L));
+    }
+
+    @Test
+    void teacherScopeDetailKeepsNoDataAndUnavailable()
+    {
+        CourseScopePort emptyPort = mock(CourseScopePort.class);
+        when(emptyPort.findTeacherScopes(any())).thenReturn(Map.of(7L, List.of()));
+        ScopeDetailResponse noData = service(emptyPort, mock(SessionStatusPort.class),
+                mock(AssignmentTodoPort.class), mock(GradeTodoPort.class),
+                mock(NoticeSummaryPort.class)).teacherScopeDetail(7L, null);
+
+        assertEquals(OverviewStatus.NO_DATA, noData.status());
+        assertNull(noData.classCount());
+        assertNull(noData.studentCount());
+        assertTrue(noData.ranges().isEmpty());
+
+        CourseScopePort failingPort = mock(CourseScopePort.class);
+        when(failingPort.findTeacherScopes(any()))
+                .thenThrow(new IllegalStateException("course down"));
+        ScopeDetailResponse unavailable = service(failingPort, mock(SessionStatusPort.class),
+                mock(AssignmentTodoPort.class), mock(GradeTodoPort.class),
+                mock(NoticeSummaryPort.class)).teacherScopeDetail(7L, null);
+
+        assertEquals(OverviewStatus.UNAVAILABLE, unavailable.status());
+        assertNull(unavailable.classCount());
+        assertNull(unavailable.studentCount());
+        assertTrue(unavailable.ranges().isEmpty());
+    }
+
+    @Test
+    void studentScopeDetailHasRangesButNoStudentTotal()
+    {
+        CourseScopePort coursePort = mock(CourseScopePort.class);
+        when(coursePort.findStudentScopes(any()))
+                .thenReturn(Map.of(9L, List.of(scope(12L, 101L, null),
+                        scope(13L, 102L, null))));
+
+        ScopeDetailResponse detail = service(coursePort, mock(SessionStatusPort.class),
+                mock(AssignmentTodoPort.class), mock(GradeTodoPort.class),
+                mock(NoticeSummaryPort.class)).studentScopeDetail(9L);
+
+        assertEquals(OverviewStatus.OK, detail.status());
+        assertEquals(2L, detail.classCount());
+        assertNull(detail.studentCount());
+        assertEquals(2, detail.ranges().size());
+        assertNull(detail.ranges().get(0).studentCount());
+    }
+
+    @Test
+    void scopeDetailRequiresAuthenticatedUser()
+    {
+        OverviewQueryService service = service(mock(CourseScopePort.class),
+                mock(SessionStatusPort.class), mock(AssignmentTodoPort.class),
+                mock(GradeTodoPort.class), mock(NoticeSummaryPort.class));
+
+        assertThrows(OverviewAccessDeniedException.class,
+                () -> service.teacherScopeDetail(null, null));
+        assertThrows(OverviewAccessDeniedException.class,
+                () -> service.studentScopeDetail(null));
     }
 
     @Test
