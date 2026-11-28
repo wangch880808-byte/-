@@ -1,7 +1,9 @@
 <script setup>
+import { useRoute } from 'vue-router'
 import TreeManagePage from '@/components/education/TreeManagePage.vue'
 import { session } from '@/education/session.js'
 
+const route = useRoute()
 const orgTypes = [
   { value: 'SCHOOL', label: '学校' },
   { value: 'COLLEGE', label: '学院' },
@@ -43,5 +45,5 @@ const config = {
 </script>
 
 <template>
-  <TreeManagePage :config="config" />
+  <TreeManagePage :config="config" :open-import-on-mount="route.query.action === 'import'" />
 </template>

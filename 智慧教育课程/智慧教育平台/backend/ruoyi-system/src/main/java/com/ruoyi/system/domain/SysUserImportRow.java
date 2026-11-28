@@ -11,7 +11,7 @@ public class SysUserImportRow
     @Excel(name = "昵称", sort = 2, prompt = "必填")
     private String nickName;
     @Excel(name = "部门", sort = 3, cellType = ColumnType.TEXT,
-            prompt = "教师填写学院，学生填写班级；填写组织名称或编号，重名时填写编号")
+            prompt = "管理员填写已开启部门，教师填写学院，学生填写班级。填写组织名称或编号，重名时填写编号")
     private String dept;
     @Excel(name = "手机号", sort = 4, cellType = ColumnType.TEXT)
     private String phonenumber;
