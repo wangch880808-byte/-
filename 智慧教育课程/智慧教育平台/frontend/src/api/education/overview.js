@@ -146,3 +146,57 @@ export function getStudentTodayTodos(query = {}, options = {}) {
     signal: options.signal
   })
 }
+
+/**
+ * 查询管理员管理总览。
+ *
+ * 只发送可选 from/to。组织范围由服务端认证上下文中的 deptId 决定，前端
+ * 不发送 organizationId、deptId、userId、classId 或 bindingId；这些参数即使
+ * 被误传也不会进入查询字符串。
+ *
+ * @param {{from?: string, to?: string}} [query] 查询参数
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: {asOf: string, window: object, items: Array<object>}}>} 总览响应
+ */
+export function getAdminOverview(query = {}, options = {}) {
+  let params
+  try {
+    params = buildQuery(query, false)
+  } catch (error) {
+    return Promise.reject(error)
+  }
+  return edu({
+    url: '/education/admin/overview',
+    method: 'get',
+    params,
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
+
+/**
+ * 查询管理员待办事项。
+ *
+ * 当前后端只返回 admin.todo.pending 的 NO_DATA 占位项；前端仍真实请求，
+ * 不发送 organizationId/deptId 等客户端范围参数。合法 NO_DATA 和字段违约
+ * 的区分由共享总览组件完成。
+ *
+ * @param {{from?: string, to?: string}} [query] 查询参数
+ * @param {{signal?: AbortSignal}} [options] 取消信号
+ * @returns {Promise<{data: {asOf: string, window: object, items: Array<object>}}>} 待办响应
+ */
+export function getAdminTodos(query = {}, options = {}) {
+  let params
+  try {
+    params = buildQuery(query, false)
+  } catch (error) {
+    return Promise.reject(error)
+  }
+  return edu({
+    url: '/education/admin/todos',
+    method: 'get',
+    params,
+    headers: { silent403: true },
+    signal: options.signal
+  })
+}
