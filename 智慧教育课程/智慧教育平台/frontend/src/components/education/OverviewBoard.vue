@@ -89,6 +89,9 @@ const scopeRows = ref([])
 const scopeClassCount = ref(null)
 const scopeStudentCount = ref(null)
 const scopeShowsStudents = ref(false)
+const scopeDialog = ref(null)
+const scopeCloseButton = ref(null)
+const scopeTrigger = ref(null)
 
 let scopeSeq = 0
 let scopeController = null
@@ -593,12 +596,14 @@ function applyScopeDetail(body, row) {
 
 /**
  * 打开范围明细。只使用配置中的端点，不接受 actionPath 或外部地址；
- * 当前请求序号和卸载状态防止迟到响应覆盖新页面。
+ * 当前请求序号和卸载状态防止迟到响应覆盖新页面。打开后把焦点移入
+ * 弹窗关闭按钮，使直接按 Esc 即可关闭。
  *
  * @param {object} row 卡片行
+ * @param {Event} [event] 触发按钮事件，用于关闭后归还焦点
  * @returns {void}
  */
-function openScopeDetail(row) {
+function openScopeDetail(row, event) {
   if (!canShowScopeDetail(row)) {
     sourceNotice.value = '当前没有查看范围明细的权限或来源未配置。'
     return
@@ -608,6 +613,9 @@ function openScopeDetail(row) {
     sourceNotice.value = '范围明细来源未配置。'
     return
   }
+  scopeTrigger.value = event?.currentTarget instanceof HTMLElement
+    ? event.currentTarget
+    : (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   scopeSeq++
   scopeController?.abort()
   const current = new AbortController()
@@ -625,6 +633,11 @@ function openScopeDetail(row) {
   if (row.config.scopeDetail === 'teacher' && appliedClassId.value) {
     query.classId = appliedClassId.value
   }
+  nextTick(() => {
+    if (disposed || !scopeOpen.value) return
+    const target = scopeCloseButton.value || scopeDialog.value
+    target?.focus()
+  })
   detailLoader(query, { signal: current.signal }).then(body => {
     if (disposed || seq !== scopeSeq || current.signal.aborted) return
     applyScopeDetail(body, row)
@@ -644,6 +657,8 @@ function openScopeDetail(row) {
 }
 
 function closeScopeDetail() {
+  const trigger = scopeTrigger.value
+  scopeTrigger.value = null
   scopeSeq++
   scopeController?.abort()
   scopeController = null
@@ -653,6 +668,11 @@ function closeScopeDetail() {
   scopeRows.value = []
   scopeClassCount.value = null
   scopeStudentCount.value = null
+  nextTick(() => {
+    if (!disposed && trigger?.isConnected && typeof trigger.focus === 'function') {
+      trigger.focus()
+    }
+  })
 }
 
 function badgeClass(row) {
@@ -688,6 +708,7 @@ onBeforeUnmount(() => {
   scopeSeq++
   scopeController?.abort()
   scopeController = null
+  scopeTrigger.value = null
   invalidateRequest()
 })
 </script>
@@ -795,7 +816,7 @@ onBeforeUnmount(() => {
             <div v-if="row.status === STATUS_OK && !row.contract
               && (canShowScopeDetail(row) || sourceTarget(row.config))" class="ov-card-actions">
               <button v-if="canShowScopeDetail(row)" type="button" class="ov-detail-link"
-                @click="openScopeDetail(row)">查看范围明细</button>
+                @click="openScopeDetail(row, $event)">查看范围明细</button>
               <button v-if="sourceTarget(row.config)" type="button" class="ov-source-link"
                 @click="openSource(row.config)">{{ row.config.sourceLabel || '查看来源' }}</button>
             </div>
@@ -806,7 +827,7 @@ onBeforeUnmount(() => {
 
     <Teleport to="body">
       <div v-if="scopeOpen" class="ov-overlay" @click.self="closeScopeDetail">
-        <section class="ov-dialog" role="dialog" aria-modal="true"
+        <section ref="scopeDialog" class="ov-dialog" role="dialog" aria-modal="true"
           aria-labelledby="ov-scope-title" tabindex="-1"
           @keydown.esc.stop.prevent="closeScopeDetail">
           <header class="ov-dialog-head">
@@ -814,7 +835,8 @@ onBeforeUnmount(() => {
               <h3 id="ov-scope-title">范围明细</h3>
               <p class="ov-dialog-sub">{{ scopeTitle }}</p>
             </div>
-            <button type="button" class="ov-btn" @click="closeScopeDetail">关闭</button>
+            <button ref="scopeCloseButton" type="button" class="ov-btn"
+              @click="closeScopeDetail">关闭</button>
           </header>
 
           <div v-if="scopeState === 'loading'" class="ov-state" role="status">正在读取范围明细…</div>

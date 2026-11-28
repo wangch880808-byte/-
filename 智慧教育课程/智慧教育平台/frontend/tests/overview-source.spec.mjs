@@ -360,6 +360,41 @@ await run('学生未读通知入口进入全部范围，旧选班不窄化，详
   await context.close()
 })
 
+await run('范围明细焦点进入弹窗，Esc 关闭并归还焦点，关闭后迟到响应不重开', async () => {
+  const context = await newContext(browser, 'teacher')
+  const page = await context.newPage()
+  await installFixture(page, { role: 'teacher', scopeDelay: 900 })
+  await open(page, '/teacher/teaching-overview')
+  await board(page)
+  const trigger = card(page, 'teacher.class.count').getByRole('button', { name: '查看范围明细' })
+  await trigger.click()
+  await page.waitForSelector('.ov-dialog', { timeout: 10000 })
+  await page.waitForFunction(() => {
+    const active = document.activeElement
+    return active?.closest('.ov-dialog') && active.textContent.trim() === '关闭'
+  }, null, { timeout: 5000 })
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('.ov-dialog'), null, { timeout: 5000 })
+  await page.waitForFunction(() => {
+    const active = document.activeElement
+    return active?.textContent.trim() === '查看范围明细'
+      && active.closest('.ov-card')?.getAttribute('data-metric') === 'teacher.class.count'
+  }, null, { timeout: 5000 })
+  await sleep(1200)
+  assert.equal(await page.locator('.ov-dialog').count(), 0)
+
+  await trigger.click()
+  await page.waitForSelector('.ov-dialog', { timeout: 10000 })
+  await page.locator('.ov-dialog .ov-btn').click()
+  await page.waitForFunction(() => !document.querySelector('.ov-dialog'), null, { timeout: 5000 })
+  await page.waitForFunction(() => {
+    const active = document.activeElement
+    return active?.textContent.trim() === '查看范围明细'
+      && active.closest('.ov-card')?.getAttribute('data-metric') === 'teacher.class.count'
+  }, null, { timeout: 5000 })
+  await context.close()
+})
+
 await run('学生缺通知权限或缺服务端路由时来源入口不显示', async () => {
   for (const options of [
     { permissions: ['education:overview:student', 'education:scope:read'], includeNoticeRoute: true },
