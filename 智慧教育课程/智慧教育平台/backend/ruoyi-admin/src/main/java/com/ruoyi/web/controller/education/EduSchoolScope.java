@@ -49,6 +49,14 @@ class EduSchoolScope {
                 .filter(Objects::nonNull).collect(Collectors.toSet());
     }
 
+    Long schoolIdOf(Long deptId) {
+        if (deptId == null) {
+            return null;
+        }
+        SysDept department = departments.selectDeptById(deptId);
+        return department == null ? null : rootDepartmentId(department);
+    }
+
     private static Long rootDepartmentId(SysDept department) {
         if (Long.valueOf(0).equals(department.getParentId())) {
             return department.getDeptId();
