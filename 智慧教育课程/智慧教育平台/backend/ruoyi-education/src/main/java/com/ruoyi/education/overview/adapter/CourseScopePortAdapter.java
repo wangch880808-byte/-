@@ -4,10 +4,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -16,6 +18,7 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.education.course.api.EduClassBindingRef;
 import com.ruoyi.education.course.api.EduClassRef;
 import com.ruoyi.education.course.api.EduCourseAccessService;
+import com.ruoyi.education.course.api.EduMemberRef;
 import com.ruoyi.education.course.api.EduMembershipTimelineService;
 import com.ruoyi.education.course.api.EduStudentBindingAccess;
 import com.ruoyi.education.overview.domain.CourseScope;
@@ -153,8 +156,20 @@ public class CourseScopePortAdapter implements CourseScopePort
         {
             throw new IllegalStateException("学生绑定契约返回 null");
         }
+        // 来源必须只返回本次请求的学生本人绑定。其他 userId 的记录一律视为来源违约，
+        // 不能静默丢弃后把剩余列表当成该生的正常范围；null 元素同样不能过滤后忽略。
+        for (EduStudentBindingAccess binding : bindings)
+        {
+            if (binding == null)
+            {
+                throw new IllegalStateException("学生绑定契约包含 null 元素");
+            }
+            if (!currentUserId.equals(binding.userId()))
+            {
+                throw new IllegalStateException("学生绑定契约返回了其他学生的记录");
+            }
+        }
         Map<Long, List<EduStudentBindingAccess>> bindingsByClass = bindings.stream()
-                .filter(Objects::nonNull)
                 .filter(EduStudentBindingAccess::bindingActive)
                 .filter(EduStudentBindingAccess::active)
                 .filter(EduStudentBindingAccess::classOpen)
@@ -208,12 +223,49 @@ public class CourseScopePortAdapter implements CourseScopePort
         throw new UnsupportedOperationException("管理员组织范围来源尚未接通");
     }
 
+    /**
+     * 统计指定教学班当前有效成员数。
+     *
+     * <p>人数直接决定总览数字，来源返回的每条记录都必须属于本次查询的教学班：
+     * null 元素、跨班成员以及同一入班记录/同一学生的重复记录都会让 size 不再等于
+     * 真实人数，因此失败关闭，由聚合链映射为 UNAVAILABLE；空列表是合法真实零。</p>
+     *
+     * @param classId 教学班 ID
+     * @return 当前有效成员数
+     */
     private long activeMemberCount(Long classId)
     {
-        List<?> members = courseAccess.activeMembers(classId);
+        List<EduMemberRef> members = courseAccess.activeMembers(classId);
         if (members == null)
         {
             throw new IllegalStateException("教学班成员契约返回 null");
+        }
+        Set<Long> memberIds = new HashSet<>();
+        Set<Long> userIds = new HashSet<>();
+        for (EduMemberRef member : members)
+        {
+            if (member == null)
+            {
+                throw new IllegalStateException("教学班成员契约包含 null 元素");
+            }
+            if (!classId.equals(member.classId()))
+            {
+                throw new IllegalStateException("教学班成员契约返回了其他教学班的记录");
+            }
+            if (member.memberId() == null || member.userId() == null)
+            {
+                throw new IllegalStateException("教学班成员契约缺少成员或学生标识");
+            }
+            if (!memberIds.add(member.memberId()))
+            {
+                throw new IllegalStateException("教学班成员契约包含重复的入班记录");
+            }
+            if (!userIds.add(member.userId()))
+            {
+                // activeMembers 表示当前有效成员；同一学生出现多条活动记录属于
+                // 重叠入班脏数据，不能去重后继续按 size 计数。
+                throw new IllegalStateException("教学班成员契约包含同一学生的重复活动记录");
+            }
         }
         return members.size();
     }
